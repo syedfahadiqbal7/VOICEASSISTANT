@@ -45,7 +45,7 @@ class UndoManager:
 
     def _clean_path(self, filepath: str) -> str:
         filepath = (filepath or "").replace("\\", "/").strip().strip('"').strip("'")
-        home = os.path.expanduser("~").replace("\\", "/")
+        home = str(Path.home()).replace("\\", "/")
         filepath = filepath.replace("...", "")
         for placeholder in ("YourUsername", "YourName", "yourusername", "username", "YourUserName"):
             if placeholder in filepath:
