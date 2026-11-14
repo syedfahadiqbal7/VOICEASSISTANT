@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "cloud_base_url": "https://api.openai.com/v1",
+  "cloud_model": "gpt-4o-mini",
+  "local_timeout": 90,
+  "cloud_timeout": 60,
+  "cloud_allow_tools": false
+}

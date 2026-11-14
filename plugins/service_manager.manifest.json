@@ -1,0 +1,15 @@
+{
+  "name": "service_manager",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin service_manager",
+  "author": "VoiceAssistant",
+  "entry": "service_manager.py",
+  "tools": [
+    "service_manager"
+  ],
+  "permissions": [
+    "service:control",
+    "process:execute"
+  ],
+  "checksum_sha256": "c793681f19275d1b87239ae6863b4951592a5a0465d1b6fe51dc98a10d3fc687"
+}

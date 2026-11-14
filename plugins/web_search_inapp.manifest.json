@@ -1,0 +1,14 @@
+{
+  "name": "web_search_inapp",
+  "version": "1.1.0",
+  "description": "In-app web search results",
+  "author": "VoiceAssistant",
+  "entry": "web_search_inapp.py",
+  "tools": [
+    "web_search_inapp"
+  ],
+  "permissions": [
+    "network:read"
+  ],
+  "checksum_sha256": "61ca5136e1f10f99e3cf3a98489965e869b927fa39e107ec3454b2e0821753de"
+}

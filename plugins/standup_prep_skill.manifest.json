@@ -1,0 +1,12 @@
+{
+  "name": "standup_prep_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin standup_prep_skill",
+  "author": "VoiceAssistant",
+  "entry": "standup_prep_skill.py",
+  "tools": [
+    "run_standup_prep"
+  ],
+  "permissions": [],
+  "checksum_sha256": "f030a4b286b48f0858a11583305281f70ec017a1b7da9ee4a5a114d83f8ee784"
+}

@@ -1,0 +1,15 @@
+{
+  "name": "backup_creator",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin backup_creator",
+  "author": "VoiceAssistant",
+  "entry": "backup_creator.py",
+  "tools": [
+    "backup_creator"
+  ],
+  "permissions": [
+    "filesystem:read",
+    "filesystem:write"
+  ],
+  "checksum_sha256": "6eeff29d288c8e4dbf86384be3d3adf5c35cf3b2fbce013f7cbf7ee8fc603ffb"
+}

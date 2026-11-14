@@ -1,0 +1,15 @@
+{
+  "name": "youtube_player",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin youtube_player",
+  "author": "VoiceAssistant",
+  "entry": "youtube_player.py",
+  "tools": [
+    "youtube_player"
+  ],
+  "permissions": [
+    "process:execute",
+    "network:read"
+  ],
+  "checksum_sha256": "9482a3c77d68deb4df5fc093708a8966cefb27c7f4bbf9537df6f37930ab4b36"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "security_baseline_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin security_baseline_skill",
+  "author": "VoiceAssistant",
+  "entry": "security_baseline_skill.py",
+  "tools": [
+    "run_security_baseline"
+  ],
+  "permissions": [],
+  "checksum_sha256": "2f4a72fadbdb8a5eec5e1d5925ba1d235846c9701b946140b70d084b91ee7f72"
+}

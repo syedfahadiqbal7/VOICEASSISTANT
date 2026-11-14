@@ -1,0 +1,12 @@
+{
+  "name": "debug_logs_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin debug_logs_skill",
+  "author": "VoiceAssistant",
+  "entry": "debug_logs_skill.py",
+  "tools": [
+    "run_debug_logs"
+  ],
+  "permissions": [],
+  "checksum_sha256": "5eafe34c610e28830e99d6a56f3afc3ebba8a8d7e17566a1b675b4caef30d2e3"
+}

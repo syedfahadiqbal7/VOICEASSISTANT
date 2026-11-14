@@ -1,0 +1,12 @@
+{
+  "name": "learning_hour_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin learning_hour_skill",
+  "author": "VoiceAssistant",
+  "entry": "learning_hour_skill.py",
+  "tools": [
+    "run_learning_hour"
+  ],
+  "permissions": [],
+  "checksum_sha256": "a0c446118dd9eb017a16f45889e84e8f545e840fe1e05d3bbf6666099391c22e"
+}

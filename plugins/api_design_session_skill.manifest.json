@@ -1,0 +1,12 @@
+{
+  "name": "api_design_session_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin api_design_session_skill",
+  "author": "VoiceAssistant",
+  "entry": "api_design_session_skill.py",
+  "tools": [
+    "run_api_design_session"
+  ],
+  "permissions": [],
+  "checksum_sha256": "9d62a9acda656149add71546f52af5bc193ceb3cec119b9d1e6ddde1c7fc6617"
+}

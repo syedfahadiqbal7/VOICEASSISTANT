@@ -1,0 +1,15 @@
+{
+  "name": "read_document",
+  "version": "1.0.0",
+  "description": "Read/extract text from docx/txt/md/pdf",
+  "author": "VoiceAssistant",
+  "entry": "read_document.py",
+  "tools": [
+    "read_document",
+    "extract_text"
+  ],
+  "permissions": [
+    "filesystem:read"
+  ],
+  "checksum_sha256": "a911411ddd8fbb164d59a69257c83dae9d9219b5938a29f88cca508b3921900e"
+}

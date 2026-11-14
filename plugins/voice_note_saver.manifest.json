@@ -1,0 +1,14 @@
+{
+  "name": "voice_note_saver",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin voice_note_saver",
+  "author": "VoiceAssistant",
+  "entry": "voice_note_saver.py",
+  "tools": [
+    "voice_note_saver"
+  ],
+  "permissions": [
+    "filesystem:write"
+  ],
+  "checksum_sha256": "b6c8d5d9d716985ea8126543f4bf71ac62cd376d4b8d900b2edb41301acca3b2"
+}

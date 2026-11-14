@@ -1,0 +1,15 @@
+{
+  "name": "process_manager",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin process_manager",
+  "author": "VoiceAssistant",
+  "entry": "process_manager.py",
+  "tools": [
+    "process_manager"
+  ],
+  "permissions": [
+    "process:read",
+    "process:terminate"
+  ],
+  "checksum_sha256": "6d4fdb495f6c050a19dca35348e4a95c61fcf356f617b1feccdb3b94616fd26e"
+}

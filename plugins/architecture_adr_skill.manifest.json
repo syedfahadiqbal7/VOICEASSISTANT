@@ -1,0 +1,12 @@
+{
+  "name": "architecture_adr_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin architecture_adr_skill",
+  "author": "VoiceAssistant",
+  "entry": "architecture_adr_skill.py",
+  "tools": [
+    "run_architecture_adr"
+  ],
+  "permissions": [],
+  "checksum_sha256": "df2d7dda61bed13c2ca760b91ef19f017160099fbda92086f6a52fdf2bc6b88e"
+}

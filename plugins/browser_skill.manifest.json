@@ -1,0 +1,16 @@
+{
+  "name": "browser_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin browser_skill",
+  "author": "VoiceAssistant",
+  "entry": "browser_skill.py",
+  "tools": [
+    "browser_open",
+    "web_search_open"
+  ],
+  "permissions": [
+    "process:execute",
+    "network:read"
+  ],
+  "checksum_sha256": "477df74446ecde174593a1e5373b6fb504f485dae3687b6c6e591c9d71053b8c"
+}

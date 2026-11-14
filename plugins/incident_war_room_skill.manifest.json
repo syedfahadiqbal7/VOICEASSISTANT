@@ -1,0 +1,12 @@
+{
+  "name": "incident_war_room_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin incident_war_room_skill",
+  "author": "VoiceAssistant",
+  "entry": "incident_war_room_skill.py",
+  "tools": [
+    "run_incident_war_room"
+  ],
+  "permissions": [],
+  "checksum_sha256": "06dafa14326d041af6fef35ef1b84a617bccc3c7e6704e1214fa86d2f480dedf"
+}

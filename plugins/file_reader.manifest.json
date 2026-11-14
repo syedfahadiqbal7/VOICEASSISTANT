@@ -1,0 +1,14 @@
+{
+  "name": "file_reader",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin file_reader",
+  "author": "VoiceAssistant",
+  "entry": "file_reader.py",
+  "tools": [
+    "file_reader"
+  ],
+  "permissions": [
+    "filesystem:read"
+  ],
+  "checksum_sha256": "563077f5e55142fd5c6d4ee235b0865857361c8989faeb2dccf8fc4d7a5a9c4b"
+}

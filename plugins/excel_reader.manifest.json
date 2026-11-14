@@ -1,0 +1,14 @@
+{
+  "name": "excel_reader",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin excel_reader",
+  "author": "VoiceAssistant",
+  "entry": "excel_reader.py",
+  "tools": [
+    "excel_reader"
+  ],
+  "permissions": [
+    "filesystem:read"
+  ],
+  "checksum_sha256": "07516211f66f301e6aff577ad92eaafefe8b1d3ee8afb5447bdb0ebec13aa6a3"
+}

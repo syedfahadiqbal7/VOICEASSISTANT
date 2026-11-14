@@ -1,0 +1,16 @@
+{
+  "name": "email_manager",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin email_manager",
+  "author": "VoiceAssistant",
+  "entry": "email_manager.py",
+  "tools": [
+    "email_manager"
+  ],
+  "permissions": [
+    "network:read",
+    "network:write",
+    "email:send"
+  ],
+  "checksum_sha256": "0300b358a06836a1d66950357be8184566a7092ec563788beaec7690e1120d5f"
+}

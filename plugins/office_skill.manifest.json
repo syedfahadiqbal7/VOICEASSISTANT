@@ -1,0 +1,16 @@
+{
+  "name": "office_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin office_skill",
+  "author": "VoiceAssistant",
+  "entry": "office_skill.py",
+  "tools": [
+    "office_new",
+    "office_open"
+  ],
+  "permissions": [
+    "process:execute",
+    "filesystem:write"
+  ],
+  "checksum_sha256": "74345cf2c55d83bcfe7261538783e3a5bbe5973af31b8e2d35ffa99208224f7d"
+}

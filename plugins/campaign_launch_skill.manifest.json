@@ -1,0 +1,12 @@
+{
+  "name": "campaign_launch_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin campaign_launch_skill",
+  "author": "VoiceAssistant",
+  "entry": "campaign_launch_skill.py",
+  "tools": [
+    "run_campaign_launch"
+  ],
+  "permissions": [],
+  "checksum_sha256": "a1d77e41cf569663ddfbadd31e36b82364b5dfbfcb58a6235628e4a497065081"
+}

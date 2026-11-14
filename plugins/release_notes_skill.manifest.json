@@ -1,0 +1,12 @@
+{
+  "name": "release_notes_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin release_notes_skill",
+  "author": "VoiceAssistant",
+  "entry": "release_notes_skill.py",
+  "tools": [
+    "run_release_notes"
+  ],
+  "permissions": [],
+  "checksum_sha256": "67fd8f575a4ffb36b2b07ac546596dcd78bbb1f3ece7d9612fb510eb56056199"
+}

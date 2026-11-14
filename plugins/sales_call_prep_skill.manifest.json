@@ -1,0 +1,12 @@
+{
+  "name": "sales_call_prep_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin sales_call_prep_skill",
+  "author": "VoiceAssistant",
+  "entry": "sales_call_prep_skill.py",
+  "tools": [
+    "run_sales_call_prep"
+  ],
+  "permissions": [],
+  "checksum_sha256": "9b2e1b1c0d2f748be980ec6bc981373894fbe6814a78cf42c2ffa2dbdaa5e4ab"
+}

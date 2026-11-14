@@ -1,0 +1,14 @@
+{
+  "name": "list_windows_tasks",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin list_windows_tasks",
+  "author": "VoiceAssistant",
+  "entry": "list_windows_tasks.py",
+  "tools": [
+    "list_windows_tasks"
+  ],
+  "permissions": [
+    "process:read"
+  ],
+  "checksum_sha256": "d261c6f38a2dcc2ab19e0c3200cfcc9b9917f4587b6fe4a1347786ff9b3013da"
+}

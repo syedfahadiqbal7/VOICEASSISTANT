@@ -1,0 +1,15 @@
+{
+  "name": "clipboard_manager",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin clipboard_manager",
+  "author": "VoiceAssistant",
+  "entry": "clipboard_manager.py",
+  "tools": [
+    "clipboard_manager"
+  ],
+  "permissions": [
+    "clipboard:read",
+    "clipboard:write"
+  ],
+  "checksum_sha256": "3aec3d117c2fa84aad41c3ba119f445e3175d885239c2845abd380d93aa77c5c"
+}

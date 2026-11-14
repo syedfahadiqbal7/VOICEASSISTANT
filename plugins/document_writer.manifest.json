@@ -1,0 +1,15 @@
+{
+  "name": "document_writer",
+  "version": "1.0.0",
+  "description": "Create Word .docx and PDF files from text",
+  "author": "VoiceAssistant",
+  "entry": "document_writer.py",
+  "tools": [
+    "write_docx",
+    "write_pdf"
+  ],
+  "permissions": [
+    "filesystem:write"
+  ],
+  "checksum_sha256": "7967a3d7ddcbf0fc5cdca5367f1dc1735db4197896104e18f2823fe1e4ad2633"
+}

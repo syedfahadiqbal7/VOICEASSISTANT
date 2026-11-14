@@ -1,0 +1,14 @@
+{
+  "name": "forjob_tracker",
+  "version": "1.0.0",
+  "description": "Create ForJob_Master_Job_Tracker.xlsx",
+  "author": "VoiceAssistant",
+  "entry": "forjob_tracker.py",
+  "tools": [
+    "forjob_create_tracker"
+  ],
+  "permissions": [
+    "filesystem:write"
+  ],
+  "checksum_sha256": "83298894302d249105da5a40315111874218e9d86a5a78fd6491e074e9345341"
+}

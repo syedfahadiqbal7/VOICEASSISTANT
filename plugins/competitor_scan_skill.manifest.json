@@ -1,0 +1,12 @@
+{
+  "name": "competitor_scan_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin competitor_scan_skill",
+  "author": "VoiceAssistant",
+  "entry": "competitor_scan_skill.py",
+  "tools": [
+    "run_competitor_scan"
+  ],
+  "permissions": [],
+  "checksum_sha256": "c671a50cab8523e5d32ab73fcb4bfe45ef7c05a7b5e498d08c0da9e08cd0bdb9"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "env_manager",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin env_manager",
+  "author": "VoiceAssistant",
+  "entry": "env_manager.py",
+  "tools": [
+    "env_manager"
+  ],
+  "permissions": [
+    "system:environment:write"
+  ],
+  "checksum_sha256": "0436b6c31c17ab7ab43c2930139ebc981ccbff320f593f7cea943fe63d77aaa0"
+}

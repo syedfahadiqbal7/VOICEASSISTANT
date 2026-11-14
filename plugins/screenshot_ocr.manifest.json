@@ -1,0 +1,15 @@
+{
+  "name": "screenshot_ocr",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin screenshot_ocr",
+  "author": "VoiceAssistant",
+  "entry": "screenshot_ocr.py",
+  "tools": [
+    "screenshot_ocr"
+  ],
+  "permissions": [
+    "screen:read",
+    "filesystem:read"
+  ],
+  "checksum_sha256": "a515d71e63b1f9c6375ce19b2307481980af372fbb9ce2753345befbefef30fb"
+}

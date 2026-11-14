@@ -1,0 +1,14 @@
+{
+  "name": "linkedin_helper",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin linkedin_helper",
+  "author": "VoiceAssistant",
+  "entry": "linkedin_helper.py",
+  "tools": [
+    "linkedin_helper"
+  ],
+  "permissions": [
+    "network:read"
+  ],
+  "checksum_sha256": "75ead718d29c43a027be6eeb16903f41c2628be38bd1b176b3a38e1455075478"
+}

@@ -1,0 +1,15 @@
+{
+  "name": "network_tools",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin network_tools",
+  "author": "VoiceAssistant",
+  "entry": "network_tools.py",
+  "tools": [
+    "network_tools"
+  ],
+  "permissions": [
+    "network:read",
+    "process:read"
+  ],
+  "checksum_sha256": "e4ec63f856bbcf501884a1b528c44ffe34682c78da9a033cc95f8f5791cc2421"
+}

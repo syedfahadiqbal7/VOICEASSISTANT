@@ -1,0 +1,15 @@
+{
+  "name": "folder_organizer",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin folder_organizer",
+  "author": "VoiceAssistant",
+  "entry": "folder_organizer.py",
+  "tools": [
+    "folder_organizer"
+  ],
+  "permissions": [
+    "filesystem:read",
+    "filesystem:write"
+  ],
+  "checksum_sha256": "b2496c5e8925541dd24e3b70d4af0bc77a06e0615633a79ad227d1bd8df40184"
+}

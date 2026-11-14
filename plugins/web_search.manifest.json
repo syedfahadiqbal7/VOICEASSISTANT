@@ -1,0 +1,14 @@
+{
+  "name": "web_search",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin web_search",
+  "author": "VoiceAssistant",
+  "entry": "web_search.py",
+  "tools": [
+    "web_search"
+  ],
+  "permissions": [
+    "network:read"
+  ],
+  "checksum_sha256": "085412b25adefa886276fae6efd5a406a15c2a469d61a164dee0e630a4f7244c"
+}

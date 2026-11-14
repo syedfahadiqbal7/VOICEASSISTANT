@@ -1,0 +1,14 @@
+{
+  "name": "github_repos",
+  "version": "1.0.0",
+  "description": "List public GitHub repos for a user",
+  "author": "VoiceAssistant",
+  "entry": "github_repos.py",
+  "tools": [
+    "github_list_repos"
+  ],
+  "permissions": [
+    "network:read"
+  ],
+  "checksum_sha256": "637260597ac0e8feed662c830c19dc498296b81708d66b3883ca4e2b4dc5c739"
+}

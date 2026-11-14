@@ -1,0 +1,14 @@
+{
+  "name": "system_info",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin system_info",
+  "author": "VoiceAssistant",
+  "entry": "system_info.py",
+  "tools": [
+    "system_info"
+  ],
+  "permissions": [
+    "process:read"
+  ],
+  "checksum_sha256": "cdaa874d0d6cd8899b810705ed3feac30aaa644ec056638ba442af45bcead2b8"
+}

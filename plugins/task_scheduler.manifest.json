@@ -1,0 +1,12 @@
+{
+  "name": "task_scheduler",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin task_scheduler",
+  "author": "VoiceAssistant",
+  "entry": "task_scheduler.py",
+  "tools": [
+    "task_scheduler"
+  ],
+  "permissions": [],
+  "checksum_sha256": "e52b965db35148e4b03ebbab9155fa38744e792854944e96de494d21ef44b1fe"
+}

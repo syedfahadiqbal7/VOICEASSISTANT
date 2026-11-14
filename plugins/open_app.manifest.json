@@ -1,0 +1,14 @@
+{
+  "name": "open_app",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin open_app",
+  "author": "VoiceAssistant",
+  "entry": "open_app.py",
+  "tools": [
+    "open_app"
+  ],
+  "permissions": [
+    "process:execute"
+  ],
+  "checksum_sha256": "edf382fef63fdfef54621a0d9ac720b45a4f92b2feaa972259238db9b9011488"
+}

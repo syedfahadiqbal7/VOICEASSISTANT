@@ -1,0 +1,15 @@
+{
+  "name": "docker_manager",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin docker_manager",
+  "author": "VoiceAssistant",
+  "entry": "docker_manager.py",
+  "tools": [
+    "docker_manager"
+  ],
+  "permissions": [
+    "process:execute",
+    "docker:control"
+  ],
+  "checksum_sha256": "b989a8ac09dece8aa83bfebee2919aad2bc14208f967eb3be288c88bc84a2fda"
+}

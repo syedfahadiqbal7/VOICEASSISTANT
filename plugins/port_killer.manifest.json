@@ -1,0 +1,14 @@
+{
+  "name": "port_killer",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin port_killer",
+  "author": "VoiceAssistant",
+  "entry": "port_killer.py",
+  "tools": [
+    "port_killer"
+  ],
+  "permissions": [
+    "process:terminate"
+  ],
+  "checksum_sha256": "84658a42931bcf95d37a2ded0a34be14ef9136801091ca0a1f2405374fc172e7"
+}

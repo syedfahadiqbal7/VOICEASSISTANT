@@ -1,0 +1,12 @@
+{
+  "name": "demo_environment_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin demo_environment_skill",
+  "author": "VoiceAssistant",
+  "entry": "demo_environment_skill.py",
+  "tools": [
+    "run_demo_environment"
+  ],
+  "permissions": [],
+  "checksum_sha256": "b5fa1634de79e3bbe1710cb7e928c9350cfa13524e362ad1d51762fc93010745"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "sprint_planning_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin sprint_planning_skill",
+  "author": "VoiceAssistant",
+  "entry": "sprint_planning_skill.py",
+  "tools": [
+    "run_sprint_planning"
+  ],
+  "permissions": [],
+  "checksum_sha256": "d0b27bbbc5430452c7cf6035443bdac0f2199e8174db8dcabe845240e3885d11"
+}

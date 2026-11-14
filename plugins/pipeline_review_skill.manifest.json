@@ -1,0 +1,12 @@
+{
+  "name": "pipeline_review_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin pipeline_review_skill",
+  "author": "VoiceAssistant",
+  "entry": "pipeline_review_skill.py",
+  "tools": [
+    "run_pipeline_review"
+  ],
+  "permissions": [],
+  "checksum_sha256": "51c993fe325124736269ff5d92af3cc4b1a2472e5e6ad88588f0c69f567e442d"
+}

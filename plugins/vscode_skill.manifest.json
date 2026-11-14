@@ -1,0 +1,14 @@
+{
+  "name": "vscode_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin vscode_skill",
+  "author": "VoiceAssistant",
+  "entry": "vscode_skill.py",
+  "tools": [
+    "vscode_open"
+  ],
+  "permissions": [
+    "process:execute"
+  ],
+  "checksum_sha256": "4dc01f37653fdc3a975465536d554218d507690706f6777c7d1913b7d3559353"
+}

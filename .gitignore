@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and local secrets
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime user data (never commit conversations, memory, audit trails or undo data)
+history/*
+!history/.gitkeep
+!history/README.md
+!history/llm_failover.example.json
+history/undo_backups/
+exports/*
+!exports/.gitkeep
+
+# Desktop / OS / editor
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+*.iml
+
+# Flutter / Dart generated files
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+**/local.properties
+**/Generated.xcconfig
+**/flutter_export_environment.sh
+**/ ephemeral/
+
+# Android / iOS build products
+android/.gradle/
+android/app/.cxx/
+android/app/build/
+ios/Flutter/Flutter.framework/
+ios/Flutter/App.framework/
+ios/ServiceDefinitions.json
+
+# Temporary and backup files
+*.tmp
+*.bak
+*.new
+*~
+**/*.iml
+**/.idea/
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/build/

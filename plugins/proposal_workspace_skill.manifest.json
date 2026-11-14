@@ -1,0 +1,12 @@
+{
+  "name": "proposal_workspace_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin proposal_workspace_skill",
+  "author": "VoiceAssistant",
+  "entry": "proposal_workspace_skill.py",
+  "tools": [
+    "run_proposal_workspace"
+  ],
+  "permissions": [],
+  "checksum_sha256": "5aaa5014eda6bef8280ccb22befa0f359daa91efc6615c9a0453727b95baa8bf"
+}

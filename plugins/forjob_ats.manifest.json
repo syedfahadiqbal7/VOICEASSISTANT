@@ -1,0 +1,14 @@
+{
+  "name": "forjob_ats",
+  "version": "1.0.0",
+  "description": "Offline ForJob ATS/keyword CV check",
+  "author": "VoiceAssistant",
+  "entry": "forjob_ats.py",
+  "tools": [
+    "forjob_ats_check"
+  ],
+  "permissions": [
+    "filesystem:read"
+  ],
+  "checksum_sha256": "2dc4e54ee4e314b55943b8044afc84816bc61ec56a0cdd9f0a945a4564546c6e"
+}

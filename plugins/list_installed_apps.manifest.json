@@ -1,0 +1,14 @@
+{
+  "name": "list_installed_apps",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin list_installed_apps",
+  "author": "VoiceAssistant",
+  "entry": "list_installed_apps.py",
+  "tools": [
+    "list_installed_apps"
+  ],
+  "permissions": [
+    "process:read"
+  ],
+  "checksum_sha256": "71b53b68252e76ff905f77f96062ea17230c113634afd788f0cc098c9b0651c6"
+}

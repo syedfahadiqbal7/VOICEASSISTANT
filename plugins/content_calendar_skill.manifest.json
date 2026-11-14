@@ -1,0 +1,12 @@
+{
+  "name": "content_calendar_skill",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin content_calendar_skill",
+  "author": "VoiceAssistant",
+  "entry": "content_calendar_skill.py",
+  "tools": [
+    "run_content_calendar"
+  ],
+  "permissions": [],
+  "checksum_sha256": "e27f07a55f3a5c02590b386ad32bc93f35a44dc8397bba36670ecf741c9c9604"
+}

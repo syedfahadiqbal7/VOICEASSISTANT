@@ -1,0 +1,14 @@
+{
+  "name": "pdf_reader",
+  "version": "1.0.0",
+  "description": "Builtin/local plugin pdf_reader",
+  "author": "VoiceAssistant",
+  "entry": "pdf_reader.py",
+  "tools": [
+    "pdf_reader"
+  ],
+  "permissions": [
+    "filesystem:read"
+  ],
+  "checksum_sha256": "b3a8ebcdefac8125f6bb19652d13dec501f95fc29f2f1a2c6679303d2181fbaa"
+}
