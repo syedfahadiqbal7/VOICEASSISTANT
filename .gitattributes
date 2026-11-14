@@ -1,4 +1,4 @@
-# Plugin manifests store SHA-256 hashes of the original Windows CRLF source bytes.
-# Preserve those exact bytes in Windows checkouts so integrity verification is stable.
-plugins/*.py text eol=crlf
+# Plugin manifests store SHA-256 hashes of the original LF source bytes.
+# Keep plugin source bytes identical across Windows and Linux checkouts.
+plugins/*.py text eol=lf
 plugins/*.json text eol=lf
