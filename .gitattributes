@@ -1,0 +1,3 @@
+# Plugin checksums are calculated over exact file bytes. Keep Python source LF on all platforms.
+plugins/*.py text eol=lf
+plugins/*.json text eol=lf
