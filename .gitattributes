@@ -1,4 +1,18 @@
-# Plugin manifests store SHA-256 hashes of the original LF source bytes.
-# Keep plugin source bytes identical across Windows and Linux checkouts.
-plugins/*.py text eol=lf
+# Preserve the exact original plugin source bytes used to generate manifest SHA-256 values.
+# Most shipped plugin files were authored with CRLF; these listed files were authored with LF.
+plugins/*.py text eol=crlf
+plugins/browser_skill.py text eol=lf
+plugins/document_writer.py text eol=lf
+plugins/forjob_ats.py text eol=lf
+plugins/forjob_tracker.py text eol=lf
+plugins/github_repos.py text eol=lf
+plugins/list_installed_apps.py text eol=lf
+plugins/list_windows_tasks.py text eol=lf
+plugins/office_skill.py text eol=lf
+plugins/open_app.py text eol=lf
+plugins/read_document.py text eol=lf
+plugins/task_scheduler.py text eol=lf
+plugins/vscode_skill.py text eol=lf
+plugins/web_search_inapp.py text eol=lf
+plugins/youtube_player.py text eol=lf
 plugins/*.json text eol=lf
