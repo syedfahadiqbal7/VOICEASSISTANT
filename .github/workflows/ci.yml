@@ -38,7 +38,7 @@ jobs:
         run: git archive --format=zip --output=VoiceAssistant-source.zip HEAD
       - name: Upload source archive
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: voice-assistant-source
           path: VoiceAssistant-source.zip
@@ -76,7 +76,7 @@ jobs:
         run: flutter build apk --release
       - name: Upload Android APK
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: voice-assistant-android-apk
           path: voice_assistant_mobile/build/app/outputs/flutter-apk/app-release.apk
