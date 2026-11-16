@@ -58,6 +58,9 @@ class SessionSync:
                     "repeat": j.get("repeat"),
                     "enabled": j.get("enabled", True),
                     "last_run": j.get("last_run"),
+                    "status": j.get("status", "pending" if j.get("enabled", True) else "completed"),
+                    "attempts": j.get("attempts", 0),
+                    "last_error": j.get("last_error"),
                 }
             )
         self.state["jobs"] = safe

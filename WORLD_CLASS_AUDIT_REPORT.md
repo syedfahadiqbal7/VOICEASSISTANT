@@ -92,6 +92,8 @@ Feature presence in source does not imply every integration was successfully exe
 8. Desktop shutdown now stops TTS, the scheduler and global hotkeys before destroying the window.
 9. STT and TTS initialization fail independently; text mode remains available if voice services fail.
 10. Missing `openai` import no longer prevents importing non-LLM agent components; an actual LLM request reports the missing dependency.
+11. Scheduler jobs now persist `pending/running/completed/failed/cancelled` states, recover interrupted `running` jobs after restart, retry failed handlers up to three attempts with bounded delays, and prevent concurrent duplicate firing. Completion checkpoints are atomic; if a checkpoint fails, the job is re-queued for at-least-once recovery. Corrupt scheduler JSON is quarantined instead of silently discarded.
+12. Scheduler handlers now report success/failure to the scheduler; the mobile schedules view receives job status, attempt count and last error.
 
 ### Mobile UX and lifecycle
 
@@ -125,6 +127,8 @@ A real `ToolRegistry()` load in an isolated copy registered **61 tools** (includ
 |---|---:|---|
 | Python AST / compile check | Pass | 108 Python files; zero syntax errors |
 | Focused security/reliability tests | 25/25 pass | Run on an isolated copy |
+| Scheduler durability/recovery tests | 10/10 pass | Crash recovery, retries, cancellation, concurrency and checkpoint failure |
+| Combined Python regression tests | 35/35 pass | Security/reliability + scheduler suites |
 | Existing Phase 0 smoke suite | 16/16 pass | Run on an isolated copy so undo/history data is not changed |
 | Plugin manifest/checksum scan | 55/55 pass | Checks shipped Python file checksums and manifest shape |
 | Runtime plugin registry load | 61 tools registered | One legacy plugin disabled; duplicate `open_app` rejected |
@@ -146,7 +150,7 @@ A real `ToolRegistry()` load in an isolated copy registered **61 tools** (includ
 
 ### P1/P2 — reliability and privacy
 
-- **Scheduler crash window.** One-time jobs are marked disabled before their handler executes. A process crash in that interval can lose the scheduled action. A durable Pending/Running/Completed/Failed state machine with idempotency is still needed.
+- **Scheduler delivery semantics.** A durable Pending/Running/Completed/Failed/Cancelled state machine and crash recovery are implemented. Delivery is at-least-once: if the process crashes after a handler performs an external side effect but before the completion checkpoint is persisted, the handler may run again after restart. Handlers that create files, send messages or otherwise mutate external state still need operation-level idempotency keys/duplicate detection before unattended production use.
 - **Plaintext local data.** Conversation history, audit log, memory, scheduler state and undo metadata are JSON files without application-level encryption at rest. Protect the Windows profile with BitLocker/ACLs and define retention/redaction policies.
 - **Broad exception handling remains.** Static scan found 337 exception handlers, including 310 `except Exception` handlers and 75 handlers whose only statement is `pass`. These are not all defects, but they need a dedicated exception-observability pass with structured logs and typed recovery behavior.
 - **No comprehensive integration suite.** Mobile/desktop end-to-end workflows, scheduler restart recovery, file-write rollback under disk failure, concurrent cancellation, and external plugin integrations still need automated Windows tests.
@@ -157,8 +161,8 @@ A real `ToolRegistry()` load in an isolated copy registered **61 tools** (includ
 
 - Add per-device pairing/revocation UI and token rotation workflow.
 - Add visible provider status and actionable missing-dependency diagnostics to the desktop UI.
-- Add structured task progress, cancellation state and retry visibility across desktop and mobile.
-- Add scheduler retry/failed-job UI and explicit time-zone handling.
+- Add structured task progress and cancellation-state visibility across desktop and mobile.
+- Add explicit time-zone handling for schedules and a user-controlled retry-now action for failed jobs.
 - Add mobile connection persistence via secure storage, optional TLS/WSS configuration and a connection diagnostics screen.
 - Add accessibility, responsive layout, keyboard navigation and visual regression checks.
 - Replace remaining placeholder/starter project metadata and validate app branding/package identifiers before release.
@@ -180,8 +184,8 @@ A real `ToolRegistry()` load in an isolated copy registered **61 tools** (includ
 
 ## 9. Final status
 
-**Implemented:** focused security/reliability hardening and documentation in the separate development copy.  
-**Verified:** Python syntax, focused Python regressions, Phase 0 smoke suite and runtime plugin registry load.  
+**Implemented:** focused security/reliability hardening, durable scheduler recovery/retries and documentation in the separate development copy.  
+**Verified:** Python syntax, 35 Python regression tests, 16 Phase 0 smoke checks, plugin manifest/checksum validation and runtime plugin registry load.  
 **Not certified:** Windows desktop runtime, audio, Ollama, Flutter analysis/build, Android runtime, TLS/mobile production deployment and external integrations.
 
 This is a meaningful engineering hardening release candidate, not a claim that every original feature is production-ready or that all remaining findings have been resolved.

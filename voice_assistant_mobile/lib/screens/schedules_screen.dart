@@ -25,8 +25,11 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
   String _fmtWhen(Map<String, dynamic> job) {
     final runAt = job["run_at"]?.toString() ?? "";
     final repeat = job["repeat"];
+    final rawStatus = job["status"]?.toString();
     final enabled = job["enabled"] != false;
-    final status = enabled ? "ON" : "DONE";
+    final status = rawStatus == null || rawStatus.isEmpty
+        ? (enabled ? "PENDING" : "DONE")
+        : rawStatus.toUpperCase();
     String when = runAt;
     if (runAt.length > 19) when = runAt.substring(0, 19);
     if (repeat is Map && repeat["every_minutes"] != null) {
@@ -110,12 +113,27 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                               ),
                               subtitle: Padding(
                                 padding: const EdgeInsets.only(top: 6),
-                                child: Text(
-                                  "[$id]  ${_fmtWhen(job)}",
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.55),
-                                    fontSize: 12,
-                                  ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      "[$id]  ${_fmtWhen(job)}",
+                                      style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
+                                    ),
+                                    if ((job["last_error"] ?? "").toString().isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          "Last error: ${job["last_error"]}",
+                                          style: const TextStyle(color: Colors.redAccent, fontSize: 11),
+                                        ),
+                                      ),
+                                    if ((job["attempts"] ?? 0) != 0)
+                                      Text(
+                                        "Attempts: ${job["attempts"]}",
+                                        style: TextStyle(color: Colors.white.withOpacity(0.45), fontSize: 11),
+                                      ),
+                                  ],
                                 ),
                               ),
                               trailing: TextButton(

@@ -912,29 +912,33 @@ class ConversationManager:
         jid = job.get("id")
         self._log(f"[Scheduler] Running job {jid}: {prompt}")
         if not prompt:
-            return
+            return False
         try:
             if self._execute_scheduled_prompt_fast(prompt):
-                return
-            # Reminder / custom instruction — no tools, no LLM file invent
+                return True
             self._log(f"[Scheduler] Reminder (no tools): {prompt}")
+            spoken = False
             try:
                 self.on_speak(prompt)
+                spoken = True
             except Exception:
                 try:
                     self.on_speak("Scheduled reminder.")
+                    spoken = True
                 except Exception:
                     pass
             try:
                 self.on_status(f"Reminder: {prompt[:80]}", "#1ABC9C")
             except Exception:
                 pass
+            return spoken
         except Exception as e:
             self._log(f"[Scheduler] Job failed: {e}")
             try:
                 self.on_speak("Scheduled task failed.")
             except Exception:
                 pass
+            return False
 
     def _is_trusted_scheduled_open(self, target: str) -> bool:
         """Policy-driven trusted scheduled opens (file writes never auto-approved)."""

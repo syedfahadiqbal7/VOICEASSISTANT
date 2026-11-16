@@ -29,7 +29,7 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q agent audio mobile_api plugins security tools ui tests Startingup_Files main.py config.py
       - name: Security and reliability regression tests
-        run: python -m pytest -q tests/test_security_reliability_regressions.py
+        run: python -m pytest -q tests/test_security_reliability_regressions.py tests/test_scheduler_reliability.py
       - name: Phase 0 smoke tests
         run: python tests/phase0_smoke_tests.py
       - name: Package source archive

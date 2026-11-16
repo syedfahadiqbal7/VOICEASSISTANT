@@ -84,7 +84,7 @@ By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. 
 ## Tests
 
 ```powershell
-python -m pytest -q tests/test_security_reliability_regressions.py
+python -m pytest -q tests/test_security_reliability_regressions.py tests/test_scheduler_reliability.py
 python tests/phase0_smoke_tests.py
 ```
 
@@ -92,7 +92,7 @@ GitHub Actions runs the Python regression suite and Flutter analysis/tests/build
 
 ## Runtime data and privacy
 
-Conversation history, memory, audit logs, policy, schedules, undo stacks and exports are local runtime data. They are intentionally excluded from Git. The application creates its runtime directories/files as needed. Do not commit real user history, credentials, generated reports containing private data, or machine-specific settings.
+Conversation history, memory, audit logs, policy, schedules, undo stacks and exports are local runtime data. They are intentionally excluded from Git. The application creates its runtime directories/files as needed. Scheduled jobs use persisted execution states and retry failed handlers up to three times. Delivery is at-least-once: a crash after an external side effect but before its completion checkpoint can replay the handler, so side-effecting scheduled operations must be idempotent. Do not commit real user history, credentials, generated reports containing private data, or machine-specific settings.
 
 ## Documentation
 
