@@ -28,7 +28,8 @@ def test_running_job_is_requeued_after_process_restart(tmp_path, monkeypatch):
     assert job["status"] == "pending"
     assert job["enabled"] is True
     assert job["recovered_after_crash"] is True
-    assert json.loads(path.read_text(encoding="utf-8"))[0]["status"] == "pending"
+    from agent.storage import load_json
+    assert load_json(path, encrypt=True)[0]["status"] == "pending"
 
 
 def test_one_time_job_is_completed_only_after_handler_success(tmp_path, monkeypatch):

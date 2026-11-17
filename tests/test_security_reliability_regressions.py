@@ -179,7 +179,7 @@ def test_undo_snapshot_failure_is_not_silently_ignored(tmp_path, monkeypatch):
     existing = tmp_path / "existing.txt"
     existing.write_text("original", encoding="utf-8")
     manager = UndoManager(max_entries=2)
-    monkeypatch.setattr(undo_module.shutil, "copy2", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    monkeypatch.setattr(undo_module, "atomic_write_encrypted_bytes", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
     with pytest.raises(OSError, match="Could not create undo snapshot"):
         manager.snapshot_before_write(str(existing))
 
@@ -314,7 +314,7 @@ def test_undo_snapshot_resolves_desktop_relative_existing_file(tmp_path, monkeyp
     manager = UndoManager()
     backup = manager.snapshot_before_write("Desktop/existing.txt")
     assert backup is not None
-    assert Path(backup).read_text(encoding="utf-8") == "before"
+    assert undo_module.load_encrypted_bytes(backup) == b"before"
     target.write_text("after", encoding="utf-8")
     manager.record_write("Desktop/existing.txt", backup, "after")
     result = manager.undo_last()
