@@ -25,7 +25,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _initSpeech();
     _restoreSavedConnection();
   }
 
@@ -78,12 +77,6 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted || confirmed != true) return;
     }
     ws.connect(host, token: _tokenController.text.trim());
-  }
-
-  Future<void> _initSpeech() async {
-    final ok = await _speech.init();
-    if (!mounted) return;
-    setState(() => _speechReady = ok);
   }
 
   void _scrollToBottom() {

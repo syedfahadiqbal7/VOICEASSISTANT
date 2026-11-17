@@ -94,7 +94,6 @@ class SpeechService {
         listenFor: const Duration(seconds: 30),
         pauseFor: const Duration(seconds: 3),
         partialResults: true,
-        localeId: "en_US",
         cancelOnError: true,
         listenMode: stt.ListenMode.confirmation,
       );

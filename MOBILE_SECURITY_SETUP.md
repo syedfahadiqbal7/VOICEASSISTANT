@@ -53,3 +53,8 @@ Android permits cleartext traffic because local development/VPN deployments may 
 - iOS declares both `NSMicrophoneUsageDescription` and `NSSpeechRecognitionUsageDescription`; these are required by the speech-recognition flow.
 - Android requests microphone permission at runtime. Android app backup is disabled because the mobile access token is stored in Keystore-backed secure storage and must not be restored independently of its encryption key.
 - Approval buttons remain visible until the desktop acknowledges the exact request ID; a missing acknowledgement times out locally and permits retry. A stale/rejected acknowledgement does not dismiss a different pending challenge.
+
+
+### Microphone privacy and language
+
+The app requests microphone permission only after the user taps the microphone button; it does not prompt during app startup. Speech recognition uses the device/system default locale instead of forcing `en_US`, so supported device languages can be recognized by the installed speech service.
