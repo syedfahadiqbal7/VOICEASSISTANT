@@ -198,6 +198,15 @@ class MobileBridge:
             event.set()
         print(f"[MobileBridge] Approval resolved: {request_id} → {bool(approved)}")
 
+        # A desktop-side decision must also dismiss the matching mobile prompt.
+        # Mobile-originated decisions receive their acknowledgement from the API handler.
+        if client_id is None:
+            self._run_async(manager.broadcast({
+                "type": "approval_ack",
+                "request_id": request_id,
+                "accepted": True,
+            }))
+
         if self._clear_gate_callback:
             try:
                 self._clear_gate_callback()

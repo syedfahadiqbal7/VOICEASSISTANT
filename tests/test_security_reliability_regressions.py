@@ -465,3 +465,28 @@ def test_mobile_platform_permissions_and_secure_storage_backup_policy():
         ios_plist = plistlib.load(stream)
     assert ios_plist.get("NSMicrophoneUsageDescription")
     assert ios_plist.get("NSSpeechRecognitionUsageDescription")
+
+
+
+def test_desktop_approval_resolution_acknowledges_mobile_prompt(monkeypatch):
+    import asyncio
+    from mobile_api import bridge as bridge_module
+
+    sent = []
+    async def fake_broadcast(payload):
+        sent.append(payload)
+
+    monkeypatch.setattr(bridge_module.manager, "broadcast", fake_broadcast)
+    instance = MobileBridge()
+    event = threading.Event()
+    instance._pending_approvals["desktop-request"] = event
+    instance._approval_results["desktop-request"] = False
+    instance._approval_clients["desktop-request"] = "phone-1"
+
+    assert instance.resolve_approval("desktop-request", False) is True
+    assert event.is_set() is True
+    assert sent == [{
+        "type": "approval_ack",
+        "request_id": "desktop-request",
+        "accepted": True,
+    }]
