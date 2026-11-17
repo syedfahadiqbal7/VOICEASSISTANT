@@ -75,6 +75,17 @@ class SlidingWindowRateLimiter:
         return True
 
 
+def _max_mobile_connections() -> int:
+    raw = os.environ.get("VOICEASSISTANT_MOBILE_MAX_CONNECTIONS", "5").strip()
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise RuntimeError("VOICEASSISTANT_MOBILE_MAX_CONNECTIONS must be an integer from 1 to 32") from error
+    if not 1 <= value <= 32:
+        raise RuntimeError("VOICEASSISTANT_MOBILE_MAX_CONNECTIONS must be between 1 and 32")
+    return value
+
+
 def _expected_mobile_token() -> str:
     return os.environ.get("VOICEASSISTANT_MOBILE_TOKEN", "").strip()
 
@@ -139,7 +150,17 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=1011, reason="Remote mobile access requires VOICEASSISTANT_MOBILE_TOKEN")
         return
 
-    conn_id = await manager.connect(websocket)
+    try:
+        max_connections = _max_mobile_connections()
+    except RuntimeError:
+        logger.exception("Invalid mobile connection limit configuration", extra={"event": "mobile.connection_limit_invalid"})
+        await websocket.close(code=1011, reason="Invalid server connection limit configuration")
+        return
+
+    conn_id = await manager.connect(websocket, max_connections=max_connections)
+    if conn_id is None:
+        await websocket.close(code=1013, reason="Mobile connection capacity reached")
+        return
     limiter = SlidingWindowRateLimiter()
 
     await manager.send_personal(websocket, {
@@ -258,6 +279,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 def start_server(host: str = "127.0.0.1", port: int = 8765):
     token = _expected_mobile_token()
+    _max_mobile_connections()  # Fail fast on invalid connection-cap configuration.
     if host not in ("127.0.0.1", "localhost", "::1") and len(token) < 32:
         raise RuntimeError(
             "Remote mobile access refused: set VOICEASSISTANT_MOBILE_TOKEN to a random secret "

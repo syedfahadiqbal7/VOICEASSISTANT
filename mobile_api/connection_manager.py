@@ -17,15 +17,31 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
         self.connection_ids: Dict[WebSocket, str] = {}
         self._lock = threading.RLock()
+        self._pending_connections = 0
         self.on_disconnect: Optional[Callable[[str], None]] = None
 
-    async def connect(self, websocket: WebSocket) -> str:
-        await websocket.accept()
+    async def connect(self, websocket: WebSocket, max_connections: Optional[int] = None) -> Optional[str]:
+        # Reserve a slot before awaiting accept() so concurrent handshakes cannot
+        # race past the configured connection ceiling.
+        with self._lock:
+            if max_connections is not None and (
+                len(self.active_connections) + self._pending_connections >= max_connections
+            ):
+                return None
+            self._pending_connections += 1
+        try:
+            await websocket.accept()
+        except BaseException:
+            with self._lock:
+                self._pending_connections = max(0, self._pending_connections - 1)
+            raise
         conn_id = str(uuid.uuid4())[:8]
         with self._lock:
+            self._pending_connections = max(0, self._pending_connections - 1)
             self.active_connections.append(websocket)
             self.connection_ids[websocket] = conn_id
-        print(f"[MobileAPI] New connection: {conn_id} | Total: {len(self.active_connections)}")
+            total = len(self.active_connections)
+        print(f"[MobileAPI] New connection: {conn_id} | Total: {total}")
         return conn_id
 
     def disconnect(self, websocket: WebSocket):

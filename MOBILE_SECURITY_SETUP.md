@@ -63,3 +63,8 @@ The app requests microphone permission only after the user taps the microphone b
 ### Build and release limitations
 
 GitHub Actions validates both the Android release variant and an unsigned iOS release build. The Android Gradle release variant currently uses the debug signing key; it is suitable for CI validation, not Play Store distribution. Production Android distribution needs a protected release keystore and CI signing configuration. The iOS build uses `--no-codesign`; a signed IPA requires an Apple Developer signing identity and provisioning profile.
+
+
+### Concurrent mobile connection limit
+
+The WebSocket server accepts at most five concurrent clients by default. Set `VOICEASSISTANT_MOBILE_MAX_CONNECTIONS` to an integer from 1 through 32 to adjust the ceiling. Capacity is reserved before awaiting the WebSocket handshake, preventing simultaneous connection attempts from exceeding the configured limit. Excess connections are rejected with a retry-later close code. This is a process-local cap, not a per-user/device identity system.

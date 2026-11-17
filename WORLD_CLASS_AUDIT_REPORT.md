@@ -187,7 +187,7 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 - **Broad exception handling remains.** Static scan previously found 337 exception handlers, including 310 `except Exception` handlers and 75 handlers whose only statement is `pass`. These are not all defects. Structured, rotating, secret-redacting JSONL diagnostics are now configured for the desktop entry point and mobile API; broad handler cleanup and typed recovery remain incomplete.
 - **No comprehensive end-to-end suite.** Real Windows desktop GUI/audio/Ollama workflows, Android device-level behavior, concurrent cancellation and external account/plugin integrations still need target-environment validation. Unit/regression coverage already exercises scheduler restart recovery and undo snapshot failure paths.
 - **Malformed legacy data recovery.** Encrypted authentication failures fail closed. Malformed legacy plaintext JSON is not quarantined uniformly across every store; some stores raise a typed or validation error and require restore from a portable backup or manual repair.
-- **Mobile connection quotas.** Per-connection sliding-window quotas now limit total WebSocket messages and user prompts. A global concurrent-connection cap and per-device identity/revocation are still not implemented.
+- **Mobile connection quotas.** Per-connection sliding-window quotas limit total WebSocket messages and user prompts, and an atomic process-local concurrent-connection cap defaults to five (configurable 1–32). Per-device identity/revocation and cross-process limits are not implemented.
 
 ### P2 — product and UX
 

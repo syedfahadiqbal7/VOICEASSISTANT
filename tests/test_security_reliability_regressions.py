@@ -636,3 +636,41 @@ def test_restart_spawns_replacement_before_scheduling_orderly_shutdown(monkeypat
 
     root.scheduled[1]()
     assert root.closed is True
+
+
+
+def test_mobile_connection_limit_is_bounded_and_configurable(monkeypatch):
+    from mobile_api.server import _max_mobile_connections
+
+    monkeypatch.delenv("VOICEASSISTANT_MOBILE_MAX_CONNECTIONS", raising=False)
+    assert _max_mobile_connections() == 5
+    monkeypatch.setenv("VOICEASSISTANT_MOBILE_MAX_CONNECTIONS", "12")
+    assert _max_mobile_connections() == 12
+    for invalid in ("0", "33", "many"):
+        monkeypatch.setenv("VOICEASSISTANT_MOBILE_MAX_CONNECTIONS", invalid)
+        with pytest.raises(RuntimeError):
+            _max_mobile_connections()
+
+
+def test_connection_manager_rejects_excess_connections_without_accepting_socket():
+    import asyncio
+    from mobile_api.connection_manager import ConnectionManager
+
+    class FakeWebSocket:
+        def __init__(self):
+            self.accepted = False
+
+        async def accept(self):
+            self.accepted = True
+
+    manager = ConnectionManager()
+    first = FakeWebSocket()
+    second = FakeWebSocket()
+    first_id = asyncio.run(manager.connect(first, max_connections=1))
+    second_id = asyncio.run(manager.connect(second, max_connections=1))
+
+    assert first_id
+    assert second_id is None
+    assert first.accepted is True
+    assert second.accepted is False
+    assert manager.connection_count() == 1

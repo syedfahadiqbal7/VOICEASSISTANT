@@ -79,7 +79,7 @@ flutter test
 flutter build apk
 ```
 
-By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. For trusted private-LAN pairing, configure `VOICEASSISTANT_MOBILE_HOST=0.0.0.0` and a random `VOICEASSISTANT_MOBILE_TOKEN` with at least 32 characters before launching the desktop app. Follow [MOBILE_SECURITY_SETUP.md](MOBILE_SECURITY_SETUP.md). The Flutter client supports direct `wss://` TLS or a TLS-terminating reverse proxy; non-loopback `ws://` requires explicit user confirmation and is suitable only for a trusted private LAN/VPN. Never expose port 8765 directly to the public internet.
+By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. For trusted private-LAN pairing, configure `VOICEASSISTANT_MOBILE_HOST=0.0.0.0` and a random `VOICEASSISTANT_MOBILE_TOKEN` with at least 32 characters before launching the desktop app. Follow [MOBILE_SECURITY_SETUP.md](MOBILE_SECURITY_SETUP.md). The Flutter client supports direct `wss://` TLS or a TLS-terminating reverse proxy. The server allows five concurrent mobile clients by default; set `VOICEASSISTANT_MOBILE_MAX_CONNECTIONS` to 1–32 to change the process-local cap; non-loopback `ws://` requires explicit user confirmation and is suitable only for a trusted private LAN/VPN. Never expose port 8765 directly to the public internet.
 
 ## Tests
 
