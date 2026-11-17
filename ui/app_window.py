@@ -2,6 +2,7 @@
 import threading
 import time
 import queue
+import logging
 import keyboard  # pip install keyboard
 try:
     from ui.notify import notify_background
@@ -31,6 +32,8 @@ from ui.undo_viewer import open_undo_viewer
 from ui.policy_viewer import open_policy_viewer
 from ui.skill_author import open_skill_author
 from agent.app_restart import restart_app
+
+logger = logging.getLogger("voiceassistant.ui")
 
 
 class AgenticVoiceAssistant(ctk.CTk):
@@ -301,7 +304,7 @@ class AgenticVoiceAssistant(ctk.CTk):
             start_server(host=self.mobile_host, port=8765)
         except Exception as e:
             message = f"Mobile API failed to start: {e}"
-            print(f"[MobileAPI] {message}")
+            logger.exception("Mobile API failed to start", extra={"event": "mobile.server_start_failed"})
             self.update_status("Mobile API unavailable", "#E67E22")
             self.update_transcript(f"[Warning] {message}")
 
@@ -320,15 +323,15 @@ class AgenticVoiceAssistant(ctk.CTk):
         try:
             self.conversation.request_cancel("shutdown")
         except Exception as e:
-            print(f"[Shutdown] Conversation: {e}")
+            logger.exception("Conversation shutdown failed", extra={"event": "shutdown.conversation_failed"})
         try:
             self.tts.shutdown()
         except Exception as e:
-            print(f"[Shutdown] TTS: {e}")
+            logger.exception("Speech output shutdown failed", extra={"event": "shutdown.tts_failed"})
         try:
             self.conversation.scheduler.stop()
         except Exception as e:
-            print(f"[Shutdown] Scheduler: {e}")
+            logger.exception("Scheduler shutdown failed", extra={"event": "shutdown.scheduler_failed"})
         try:
             keyboard.unhook_all_hotkeys()
         except Exception:

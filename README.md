@@ -90,6 +90,10 @@ python tests/phase0_smoke_tests.py
 
 GitHub Actions runs the Windows Python regression suite, Flutter analysis/tests, Android release APK build and unsigned iOS build on pushes, pull requests and version tags. Version tags (`v*`, e.g. `v1.0.0`) create a GitHub Release with source and Android APK artifacts after all validation jobs pass. The Android release build currently uses the debug signing configuration; configure a production signing keystore before distributing it. The iOS build is compile-validated without signing; an Apple-signed IPA requires an appropriate signing identity and provisioning profile.
 
+## Diagnostics and observability
+
+The desktop launcher writes structured, secret-redacted JSONL diagnostics to `history/logs/voiceassistant.jsonl`. Files rotate at approximately 2 MiB with up to five backups. Logs are local runtime data, excluded from Git, and may contain operational metadata and file paths; protect the history directory with Windows account ACLs. See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md). Diagnostic logs are not the authoritative audit trail.
+
 ## Runtime data and privacy
 
 Conversation history, memory, audit logs, policy, scheduled jobs, undo stacks and undo snapshots are local runtime data and are intentionally excluded from Git. These structured stores and undo snapshots are encrypted at rest with AES-256-GCM (authenticated encryption). On Windows, a random 256-bit data key is protected by the current Windows user profile using DPAPI and stored at `history/.voiceassistant_data_key.dpapi`. On non-Windows systems, set `VOICEASSISTANT_DATA_KEY` to a 32-byte hexadecimal or base64 key before enabling encrypted stores.

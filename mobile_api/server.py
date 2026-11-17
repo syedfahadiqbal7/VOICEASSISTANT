@@ -6,6 +6,7 @@ Port 8765 pe chalega.
 
 import asyncio
 import hmac
+import logging
 import os
 import time
 from collections import deque
@@ -16,6 +17,7 @@ import uvicorn
 from mobile_api.connection_manager import manager
 from mobile_api.bridge import bridge
 
+logger = logging.getLogger("voiceassistant.mobile_api")
 manager.on_disconnect = bridge.client_disconnected
 
 app = FastAPI(title="VoiceAssistant Mobile API", version="1.1")
@@ -155,7 +157,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "state": state
             })
     except Exception as e:
-        print(f"[MobileAPI] initial session_state: {e}")
+        logger.exception("Initial mobile session-state delivery failed", extra={"event": "mobile.session_state_failed"})
 
     try:
         while True:
@@ -182,7 +184,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     await manager.send_personal(websocket, {"type": "error", "message": str(e)})
                     continue
                 if text:
-                    print(f"[MobileAPI] Received mobile message ({len(text)} chars)")
+                    logger.info("Received mobile message (%s characters)", len(text), extra={"event": "mobile.message_received"})
                     bridge.process_mobile_message(text)
 
             elif msg_type == "approval_response":
@@ -230,7 +232,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 try:
                     result = bridge.undo_last()
                 except Exception as error:
-                    print(f"[MobileAPI] Undo request failed: {error}")
+                    logger.exception("Mobile undo request failed", extra={"event": "mobile.undo_failed"})
                     result = {"ok": False, "message": "Undo could not be completed"}
                 await manager.send_personal(websocket, {"type": "undo_result", "result": result})
                 await manager.send_personal(websocket, {
@@ -250,7 +252,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception as e:
-        print(f"[MobileAPI] WebSocket error: {e}")
+        logger.exception("Mobile WebSocket terminated unexpectedly", extra={"event": "mobile.websocket_failed"})
         manager.disconnect(websocket)
 
 
@@ -281,10 +283,10 @@ def start_server(host: str = "127.0.0.1", port: int = 8765):
 
     scheme = "wss" if tls_options else "ws"
     http_scheme = "https" if tls_options else "http"
-    print(f"[MobileAPI] Starting server on {http_scheme}://{host}:{port}")
-    print(f"[MobileAPI] WebSocket endpoint: {scheme}://{host}:{port}/ws")
+    logger.info("Starting mobile API on %s://%s:%s", http_scheme, host, port, extra={"event": "mobile.server_starting"})
+    logger.info("Mobile WebSocket endpoint: %s://%s:%s/ws", scheme, host, port, extra={"event": "mobile.websocket_endpoint"})
     if host not in ("127.0.0.1", "localhost", "::1"):
-        print("[MobileAPI] Remote access enabled with token authentication")
+        logger.info("Remote access enabled with token authentication", extra={"event": "mobile.remote_access_enabled"})
     loop.run_until_complete(server.serve())
 
 
