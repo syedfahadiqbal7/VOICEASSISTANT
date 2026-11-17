@@ -434,25 +434,35 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: () => ws.sendApproval(false),
+                          onPressed: ws.approvalSubmitting
+                              ? null
+                              : () => ws.sendApproval(false),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.grey[800],
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
-                          child: const Text("Deny", style: TextStyle(color: Colors.white)),
+                          child: Text(
+                            ws.approvalSubmitting ? "Waiting..." : "Deny",
+                            style: const TextStyle(color: Colors.white),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: () => ws.sendApproval(true),
+                          onPressed: ws.approvalSubmitting
+                              ? null
+                              : () => ws.sendApproval(true),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green[700],
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                           ),
-                          child: const Text("Approve", style: TextStyle(color: Colors.white)),
+                          child: Text(
+                            ws.approvalSubmitting ? "Waiting..." : "Approve",
+                            style: const TextStyle(color: Colors.white),
+                          ),
                         ),
                       ),
                     ],

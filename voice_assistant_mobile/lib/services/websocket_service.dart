@@ -35,6 +35,8 @@ class WebSocketService extends ChangeNotifier {
   String securityText = "";
   String securityRisk = "low";
   String? securityRequestId;
+  bool approvalSubmitting = false;
+  Timer? _approvalTimeout;
 
   // Chat messages
   final List<Map<String, dynamic>> messages = [];
@@ -271,6 +273,9 @@ class WebSocketService extends ChangeNotifier {
     showSecurityGate = false;
     securityText = "";
     securityRequestId = null;
+    approvalSubmitting = false;
+    _approvalTimeout?.cancel();
+    _approvalTimeout = null;
     statusMessage = message;
     statusColor = "#E74C3C";
     lastError = message;
@@ -317,6 +322,9 @@ class WebSocketService extends ChangeNotifier {
     showSecurityGate = false;
     securityText = "";
     securityRequestId = null;
+    approvalSubmitting = false;
+    _approvalTimeout?.cancel();
+    _approvalTimeout = null;
     statusMessage = "Disconnected";
     statusColor = "#E74C3C";
     notifyListeners();
@@ -331,16 +339,34 @@ class WebSocketService extends ChangeNotifier {
   }
 
   void sendApproval(bool approved) {
-    if (!isConnected || _channel == null || securityRequestId == null) return;
-    _channel!.sink.add(jsonEncode({
-      "type": "approval_response",
-      "request_id": securityRequestId,
-      "approved": approved,
-    }));
-    showSecurityGate = false;
-    securityText = "";
-    securityRequestId = null;
-    notifyListeners();
+    if (!isConnected ||
+        _channel == null ||
+        securityRequestId == null ||
+        approvalSubmitting) {
+      return;
+    }
+    try {
+      _channel!.sink.add(jsonEncode({
+        "type": "approval_response",
+        "request_id": securityRequestId,
+        "approved": approved,
+      }));
+      approvalSubmitting = true;
+      lastError = null;
+      _approvalTimeout?.cancel();
+      _approvalTimeout = Timer(const Duration(seconds: 10), () {
+        if (securityRequestId != null && approvalSubmitting) {
+          approvalSubmitting = false;
+          lastError = "Desktop did not acknowledge the approval. Retry or reconnect.";
+          notifyListeners();
+        }
+      });
+      notifyListeners();
+    } catch (error) {
+      approvalSubmitting = false;
+      lastError = "Could not send approval. Check the connection and retry.";
+      notifyListeners();
+    }
   }
 
   void requestSessionState() {
@@ -433,10 +459,27 @@ class WebSocketService extends ChangeNotifier {
           break;
 
         case "security_gate":
+          _approvalTimeout?.cancel();
+          approvalSubmitting = false;
           showSecurityGate = true;
           securityText = data["display_text"] ?? "";
           securityRisk = data["risk_level"] ?? "low";
-          securityRequestId = data["request_id"];
+          securityRequestId = data["request_id"]?.toString();
+          break;
+
+        case "approval_ack":
+          if (data["request_id"]?.toString() == securityRequestId) {
+            _approvalTimeout?.cancel();
+            _approvalTimeout = null;
+            approvalSubmitting = false;
+            if (data["accepted"] == true) {
+              showSecurityGate = false;
+              securityText = "";
+              securityRequestId = null;
+            } else {
+              lastError = "Approval request expired or was rejected by the desktop session.";
+            }
+          }
           break;
 
         case "session_state":
@@ -494,6 +537,7 @@ class WebSocketService extends ChangeNotifier {
     _manualDisconnect = true;
     _reconnectTimer?.cancel();
     _connectTimeout?.cancel();
+    _approvalTimeout?.cancel();
     _sub?.cancel();
     _channel?.sink.close();
     _reconnectTimer = null;

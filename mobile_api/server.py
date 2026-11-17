@@ -97,6 +97,16 @@ def _validate_approval_response(data: dict) -> tuple[str, bool]:
     return request_id, approved
 
 
+async def _resolve_mobile_approval(websocket, request_id: str, approved: bool, conn_id: str) -> bool:
+    accepted = bridge.resolve_approval(request_id, approved, client_id=conn_id)
+    await manager.send_personal(websocket, {
+        "type": "approval_ack",
+        "request_id": request_id,
+        "accepted": accepted,
+    })
+    return accepted
+
+
 def _validate_job_id(data: dict) -> str:
     job_id = data.get("job_id", data.get("id"))
     if not isinstance(job_id, str) or not job_id.strip() or len(job_id) > 128:
@@ -181,7 +191,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 except ValueError as e:
                     await manager.send_personal(websocket, {"type": "error", "message": str(e)})
                     continue
-                bridge.resolve_approval(request_id, approved, client_id=conn_id)
+                await _resolve_mobile_approval(websocket, request_id, approved, conn_id)
 
             elif msg_type == "get_session_state":
                 state = bridge.get_session_state()

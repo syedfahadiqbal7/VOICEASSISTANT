@@ -410,3 +410,31 @@ def test_connection_manager_disconnect_callback_and_snapshot_access():
     manager.disconnect(socket)
     assert manager.connection_count() == 0
     assert disconnected == [connection_id]
+
+
+
+def test_mobile_approval_handler_acknowledges_accepted_and_stale_requests(monkeypatch):
+    import asyncio
+    from mobile_api import server
+
+    sent = []
+    async def fake_send_personal(websocket, payload):
+        sent.append(payload)
+
+    monkeypatch.setattr(server.manager, "send_personal", fake_send_personal)
+    monkeypatch.setattr(
+        server.bridge,
+        "resolve_approval",
+        lambda request_id, approved, client_id: request_id == "active" and client_id == "phone-1",
+    )
+
+    class FakeWebSocket:
+        pass
+
+    socket = FakeWebSocket()
+    assert asyncio.run(server._resolve_mobile_approval(socket, "active", True, "phone-1")) is True
+    assert asyncio.run(server._resolve_mobile_approval(socket, "stale", True, "phone-1")) is False
+    assert sent == [
+        {"type": "approval_ack", "request_id": "active", "accepted": True},
+        {"type": "approval_ack", "request_id": "stale", "accepted": False},
+    ]
