@@ -11,7 +11,7 @@ The repository is a functional prototype / advanced local-agent foundation, not 
 
 A multi-phase security, reliability and privacy hardening pass has been committed to GitHub main. In addition to mobile API/approval binding, policy fail-closed behavior, canonical write paths, plugin ZIP/manifest/permission enforcement, scheduler recovery and concurrency protection, private local stores now use AES-256-GCM at rest with DPAPI-backed Windows key protection. Portable passphrase-encrypted backup/restore and opt-in retention preview/purge CLIs are available.
 
-Latest validation confirms 70 Python regression tests and 16 Phase 0 smoke checks pass; Python compileall, Flutter analysis/tests and Android release APK build also pass in GitHub Actions. Real Windows desktop GUI/audio/Ollama operation and Android device-level behavior still require testing on target hardware.
+Latest verified mainline CI run [44031832443](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44031832443) passes 78 Python regression tests, 16 Phase 0 smoke checks, Python compileall, Flutter analysis/tests, Android release APK build and unsigned iOS build. Mobile security now includes secure credential storage, bounded reconnect, approval acknowledgements, optional WSS/TLS, rate limits and consent-first microphone permission. Real Windows desktop GUI/audio/Ollama operation and physical Android/iOS device behavior still require testing on target hardware.
 
 ## 2. Source inventory
 
@@ -118,7 +118,16 @@ Feature presence in source does not imply every integration was successfully exe
 7. Cleans up WebSocket resources when the service is disposed.
 8. Uses `IOWebSocketChannel` so the token header is supported by the pinned `web_socket_channel` 2.4.0 package; supports `ws://` and `wss://` endpoints.
 9. Speech permission, initialization, listen and stop failures are handled without uncaught platform exceptions.
-10. Replaced the Flutter starter counter test with service-level tests for initial state, disconnected sends and transcript clearing.
+10. Replaced the Flutter starter counter test with service-level tests for initial state, disconnected sends, transcript clearing and visible-error dismissal.
+11. Stores the desktop host and shared token with `flutter_secure_storage`; saved credentials are removed when the user forgets the connection, which also closes the live socket and stops reconnect attempts.
+12. Uses bounded exponential reconnect delays and stops retrying after authentication rejection; stale connection handshakes cannot restore credentials after disconnect/forget.
+13. Binds approval requests to the exact authenticated connection, acknowledges mobile decisions, synchronizes desktop decisions back to the phone, and dismisses stale/rejected challenges without leaving the UI stuck.
+14. Applies per-WebSocket limits of 120 messages/minute and 20 user messages/minute, caps frames at 1 MiB, and validates bounded schedule IDs and approval payload types.
+15. Supports direct TLS termination using configured certificate/key files or a TLS reverse proxy. The Flutter app warns and requires confirmation before non-loopback cleartext `ws://`; remote iOS connections require `wss://`.
+16. Adds an explicit mobile undo confirmation and schedule-cancellation confirmation, plus visible connection/approval error feedback.
+17. Requests microphone permission only after the user taps the microphone button and uses the device/system default speech locale instead of forcing `en_US`.
+18. Adds Android microphone/network permissions, disables Android app backup for Keystore-backed credentials, and declares iOS microphone, speech-recognition and local-network usage descriptions.
+19. Adds CI validation for an unsigned iOS release build in addition to Flutter analysis/tests and the Android release APK build.
 
 ### Documentation and developer experience
 
@@ -145,24 +154,26 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 | Plugin marketplace/security tests | 16/16 pass | ZIP traversal, checksum mismatch, symlink, overwrite, permissions, trust metadata, generator and registry checks |
 | Local data protection and backup tests | 15/15 pass | AES-GCM, tamper/wrong-key detection, plaintext migration, encrypted stores/undo, portable restore across different keys, wrong-passphrase and ZIP-slip rejection |
 | Privacy retention tests | 4/4 pass | Default-off policy, encrypted settings, preview, explicit purge, pending/unknown-record preservation and tamper detection |
-| Combined Python regression tests | 70/70 pass | Security/reliability + scheduler + plugin + data-protection/backup + privacy suites |
+| Combined Python regression tests | 78/78 pass | Security/reliability + scheduler + plugin + data-protection/backup + privacy + mobile platform/approval suites |
 | Existing Phase 0 smoke suite | 16/16 pass | Windows GitHub Actions |
 | Plugin manifest/checksum scan | 55/55 pass | Checks shipped Python file checksums and manifest shape |
 | Plugin manifest/export parity | 54/54 pass | AST check for all active plugin modules; legacy scheduler excluded |
 | Python compileall | Pass | Windows GitHub Actions |
 | Flutter `flutter analyze` / `flutter test` | Pass | Ubuntu GitHub Actions |
-| Android release APK build | Pass | GitHub Actions Android release build succeeded; no release artifact published on branch push |
-| Windows desktop startup / audio / Ollama | Not run | Requires the user's Windows desktop, audio hardware and local model runtime |
-| Windows desktop startup | Not run | Requires Windows, desktop dependencies and GUI session |
-| Microphone/STT/TTS | Not run | Requires supported audio devices and model download |
+| Android release APK build | Pass | GitHub Actions release-variant build succeeded; branch pushes do not publish a release artifact. Current Gradle release variant is debug-signed, not Play Store-ready |
+| iOS release build (unsigned) | Pass | macOS GitHub Actions; compilation only, no signed IPA |
+| Mobile platform privacy configuration | Pass | Python regression validates Android manifest and iOS Info.plist permission/backup declarations |
+| Windows desktop GUI/runtime | Not run | Requires Windows, desktop dependencies and interactive GUI session |
+| Physical Android/iOS device, microphone/STT and background/resume | Not run | Requires supported devices, OS permission prompts, audio hardware and real LAN connectivity |
 | Ollama / cloud provider | Not run | Requires running Ollama/model or configured cloud credentials |
 
 ## 7. Remaining production risks (not represented as fixed)
 
 ### P1 — complete before exposing to a wider network
 
-- **No TLS in the direct mobile transport.** The current Flutter client uses `ws://`. A shared token on an untrusted network can be sniffed/replayed. Use a VPN or TLS-terminating `wss://` proxy before any untrusted-network deployment.
-- **Shared-token identity model.** Authentication is one shared secret, not per-device credentials, certificate identity, revocation or user roles. Rotate it if a phone is lost.
+- **TLS certificate lifecycle and device identity.** Direct `wss://` can be configured with a certificate/key or TLS reverse proxy, and the Flutter client relies on the operating-system trust store. Certificate provisioning/rotation, certificate pinning, per-device client certificates and token rotation UI are not implemented. Plain `ws://` remains available after explicit confirmation and must be restricted to a trusted private LAN/VPN.
+- **Shared-token identity model.** Authentication is one shared secret, not per-device credentials, certificate identity, revocation or user roles. Rotate it if a phone is lost. A device-specific enrollment/revocation flow is still required for wider deployment.
+- **Mobile release signing.** Android's release build currently uses the debug signing configuration and iOS CI uses `--no-codesign`. Configure protected Android signing material and Apple signing/provisioning before public distribution.
 - **Plugin sandboxing is absent.** Plugins execute in the desktop Python process with the user's OS permissions. Checksums are integrity checks, not cryptographic publisher signatures; the author field is unverified metadata.
 - **Permission declarations are not a sandbox.** Read-only policy blocks declared mutating permissions and missing permissions fail closed to `system:admin`, but a malicious plugin can understate its capabilities. Require code review and explicit trust before adding third-party plugins.
 - **Command analysis remains heuristic.** The command analyzer is not a PowerShell sandbox. High-impact commands need OS-level least privilege and strong approval UX.

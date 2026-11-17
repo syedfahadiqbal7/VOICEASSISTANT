@@ -50,7 +50,7 @@ Android permits cleartext traffic because local development/VPN deployments may 
 
 ### Platform permission and backup policy
 
-- iOS declares both `NSMicrophoneUsageDescription` and `NSSpeechRecognitionUsageDescription`; these are required by the speech-recognition flow.
+- iOS declares `NSMicrophoneUsageDescription`, `NSSpeechRecognitionUsageDescription` and `NSLocalNetworkUsageDescription` for microphone, speech recognition and trusted desktop-LAN access.
 - Android requests microphone permission at runtime. Android app backup is disabled because the mobile access token is stored in Keystore-backed secure storage and must not be restored independently of its encryption key.
 - Approval buttons remain visible until the desktop acknowledges the exact request ID; a missing acknowledgement times out locally and permits retry. A stale/rejected acknowledgement does not dismiss a different pending challenge.
 
@@ -58,3 +58,8 @@ Android permits cleartext traffic because local development/VPN deployments may 
 ### Microphone privacy and language
 
 The app requests microphone permission only after the user taps the microphone button; it does not prompt during app startup. Speech recognition uses the device/system default locale instead of forcing `en_US`, so supported device languages can be recognized by the installed speech service.
+
+
+### Build and release limitations
+
+GitHub Actions validates both the Android release variant and an unsigned iOS release build. The Android Gradle release variant currently uses the debug signing key; it is suitable for CI validation, not Play Store distribution. Production Android distribution needs a protected release keystore and CI signing configuration. The iOS build uses `--no-codesign`; a signed IPA requires an Apple Developer signing identity and provisioning profile.

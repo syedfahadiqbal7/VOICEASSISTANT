@@ -79,7 +79,7 @@ flutter test
 flutter build apk
 ```
 
-By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. For trusted private-LAN pairing, configure `VOICEASSISTANT_MOBILE_HOST=0.0.0.0` and a random `VOICEASSISTANT_MOBILE_TOKEN` with at least 32 characters before launching the desktop app. Follow [MOBILE_SECURITY_SETUP.md](MOBILE_SECURITY_SETUP.md). Direct LAN mode uses `ws://`; use a VPN or TLS-terminating `wss://` reverse proxy on untrusted networks. Never expose port 8765 directly to the public internet.
+By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. For trusted private-LAN pairing, configure `VOICEASSISTANT_MOBILE_HOST=0.0.0.0` and a random `VOICEASSISTANT_MOBILE_TOKEN` with at least 32 characters before launching the desktop app. Follow [MOBILE_SECURITY_SETUP.md](MOBILE_SECURITY_SETUP.md). The Flutter client supports direct `wss://` TLS or a TLS-terminating reverse proxy; non-loopback `ws://` requires explicit user confirmation and is suitable only for a trusted private LAN/VPN. Never expose port 8765 directly to the public internet.
 
 ## Tests
 
@@ -88,7 +88,7 @@ python -m pytest -q tests/test_security_reliability_regressions.py tests/test_sc
 python tests/phase0_smoke_tests.py
 ```
 
-GitHub Actions runs the Python regression suite and Flutter analysis/tests/build on pushes, pull requests and version tags. Version tags (`v*`, e.g. `v1.0.0`) create a GitHub Release with source and Android APK artifacts.
+GitHub Actions runs the Windows Python regression suite, Flutter analysis/tests, Android release APK build and unsigned iOS build on pushes, pull requests and version tags. Version tags (`v*`, e.g. `v1.0.0`) create a GitHub Release with source and Android APK artifacts after all validation jobs pass. The Android release build currently uses the debug signing configuration; configure a production signing keystore before distributing it. The iOS build is compile-validated without signing; an Apple-signed IPA requires an appropriate signing identity and provisioning profile.
 
 ## Runtime data and privacy
 
