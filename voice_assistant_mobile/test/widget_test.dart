@@ -37,9 +37,6 @@ void main() {
     expect(() => service.requestUndo(), returnsNormally);
     service.dispose();
   });
-}
-
-
 
   test('clearError clears the visible error state and notifies listeners', () {
     final service = WebSocketService();
@@ -53,3 +50,6 @@ void main() {
     expect(notifications, 1);
     service.dispose();
   });
+
+}
+
