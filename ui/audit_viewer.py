@@ -13,7 +13,9 @@ class AuditLogViewer(ctk.CTkToplevel):
         self.transient(parent)
         self.grab_set()
 
-        self.logs = logs
+        self.logs = list(logs or [])
+        self.page_size = 100
+        self.page = 0
         self._build_ui()
         self._populate()
 
@@ -48,18 +50,53 @@ class AuditLogViewer(ctk.CTkToplevel):
         self.log_frame.grid(row=1, column=0, padx=15, pady=10, sticky="nsew")
         self.log_frame.grid_columnconfigure(0, weight=1)
 
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.grid(row=2, column=0, padx=15, pady=(0, 12), sticky="ew")
+        footer.grid_columnconfigure(1, weight=1)
+        self.previous_btn = ctk.CTkButton(
+            footer, text="Previous", width=90, command=lambda: self._change_page(-1)
+        )
+        self.previous_btn.grid(row=0, column=0, sticky="w")
+        self.page_label = ctk.CTkLabel(footer, text="")
+        self.page_label.grid(row=0, column=1, padx=8)
+        self.next_btn = ctk.CTkButton(
+            footer, text="Next", width=90, command=lambda: self._change_page(1)
+        )
+        self.next_btn.grid(row=0, column=2, sticky="e")
+
     def _populate(self):
+        for child in self.log_frame.winfo_children():
+            child.destroy()
+
         if not self.logs:
             ctk.CTkLabel(
                 self.log_frame,
                 text="No audit entries yet.",
                 text_color="gray",
             ).grid(row=0, column=0, pady=20)
+            self.page_label.configure(text="No entries")
+            self.previous_btn.configure(state="disabled")
+            self.next_btn.configure(state="disabled")
             return
 
-        # Show newest first
-        for idx, entry in enumerate(reversed(self.logs)):
+        # Newest first, with bounded widget creation per page.
+        ordered = list(reversed(self.logs))
+        total_pages = max(1, (len(ordered) + self.page_size - 1) // self.page_size)
+        self.page = max(0, min(self.page, total_pages - 1))
+        start = self.page * self.page_size
+        visible = ordered[start:start + self.page_size]
+        for idx, entry in enumerate(visible):
             self._create_entry(idx, entry)
+
+        self.page_label.configure(
+            text=f"Page {self.page + 1} of {total_pages}  •  Showing {start + 1}-{start + len(visible)} of {len(ordered)}"
+        )
+        self.previous_btn.configure(state="normal" if self.page > 0 else "disabled")
+        self.next_btn.configure(state="normal" if self.page + 1 < total_pages else "disabled")
+
+    def _change_page(self, delta: int):
+        self.page += delta
+        self._populate()
 
     def _create_entry(self, idx: int, entry: Dict):
         frame = ctk.CTkFrame(self.log_frame, corner_radius=6)
