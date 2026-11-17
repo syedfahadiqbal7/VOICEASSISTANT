@@ -7,6 +7,9 @@
   "tools": [
     "run_sprint_planning"
   ],
-  "permissions": [],
+  "permissions": [
+    "network:read",
+    "filesystem:write"
+  ],
   "checksum_sha256": "d0b27bbbc5430452c7cf6035443bdac0f2199e8174db8dcabe845240e3885d11"
 }

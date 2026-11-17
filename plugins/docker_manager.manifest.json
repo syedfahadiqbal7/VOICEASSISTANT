@@ -8,8 +8,8 @@
     "docker_manager"
   ],
   "permissions": [
-    "process:execute",
-    "docker:control"
+    "docker:control",
+    "process:execute"
   ],
   "checksum_sha256": "b989a8ac09dece8aa83bfebee2919aad2bc14208f967eb3be288c88bc84a2fda"
 }

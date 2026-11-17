@@ -7,6 +7,9 @@
   "tools": [
     "run_learning_hour"
   ],
-  "permissions": [],
+  "permissions": [
+    "network:read",
+    "process:execute"
+  ],
   "checksum_sha256": "a0c446118dd9eb017a16f45889e84e8f545e840fe1e05d3bbf6666099391c22e"
 }

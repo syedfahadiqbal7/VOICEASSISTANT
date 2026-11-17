@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+import stat
+import tempfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
@@ -36,6 +39,19 @@ except Exception:
 
 MANIFEST_NAME = "manifest.json"
 TRUSTED_AUTHORS = {"VoiceAssistant", "local", "builtin"}
+SUPPORTED_PERMISSIONS = {
+    "filesystem:read", "filesystem:write", "filesystem:delete",
+    "network:read", "network:write",
+    "process:read", "process:execute", "process:terminate",
+    "screen:read", "screen:control",
+    "clipboard:read", "clipboard:write",
+    "system:environment:write", "system:admin",
+    "service:control", "docker:control", "registry:read", "registry:write",
+    "email:read", "email:send", "messaging:read", "messaging:send",
+}
+MAX_PLUGIN_ARCHIVE_FILES = 20
+MAX_PLUGIN_ARCHIVE_TOTAL_BYTES = 10 * 1024 * 1024
+MAX_PLUGIN_SOURCE_BYTES = 5 * 1024 * 1024
 
 
 def sha256_file(path: Path) -> str:
@@ -56,22 +72,36 @@ def load_manifest(path: Path) -> Dict[str, Any]:
 def validate_manifest(manifest: Dict[str, Any]) -> Tuple[bool, List[str]]:
     errors: List[str] = []
     for key in ("name", "version", "entry", "checksum_sha256"):
-        if not str(manifest.get(key) or "").strip():
-            errors.append(f"missing field: {key}")
+        if not isinstance(manifest.get(key), str) or not manifest[key].strip():
+            errors.append(f"missing or invalid field: {key}")
     entry = str(manifest.get("entry") or "")
-    if entry and ("/" in entry or "\\" in entry or entry.startswith(".")):
+    if entry and ("/" in entry or "\\" in entry or entry in {".", ".."} or ":" in entry):
         errors.append("entry must be a plain filename in the package root")
     name = str(manifest.get("name") or "")
     if name and not all(c.isalnum() or c in "_-" for c in name):
         errors.append("name must be alphanumeric/_/-")
+    checksum = str(manifest.get("checksum_sha256") or "").strip()
+    if checksum and (len(checksum) != 64 or any(c not in "0123456789abcdefABCDEF" for c in checksum)):
+        errors.append("checksum_sha256 must be exactly 64 hexadecimal characters")
     tools = manifest.get("tools")
-    if not isinstance(tools, list) or not tools or not all(isinstance(x, str) and x.strip() for x in tools):
-        errors.append("tools must be a non-empty list of exact BaseTool.name values")
+    if (
+        not isinstance(tools, list) or not tools
+        or not all(isinstance(x, str) and x.strip() and len(x) <= 128
+                   and all(c.isalnum() or c in "_-" for c in x) for x in tools)
+        or len(set(tools)) != len(tools)
+    ):
+        errors.append("tools must be a non-empty unique list of valid BaseTool.name values")
     permissions = manifest.get("permissions", [])
     if not isinstance(permissions, list) or not all(isinstance(x, str) and x.strip() for x in permissions):
         errors.append("permissions must be a list of non-empty strings")
+    else:
+        normalized = [x.strip().lower() for x in permissions]
+        if len(set(normalized)) != len(normalized):
+            errors.append("permissions must not contain duplicates")
+        unknown = sorted(set(normalized) - SUPPORTED_PERMISSIONS)
+        if unknown:
+            errors.append("unsupported permissions: " + ", ".join(unknown))
     return (len(errors) == 0, errors)
-
 
 def verify_plugin_dir(plugin_dir: Path) -> Dict[str, Any]:
     """Verify manifest + checksum for a directory containing manifest + entry."""
@@ -238,7 +268,7 @@ def install_from_zip(
             total_size = 0
             for info in infos:
                 raw_name = info.filename
-                if "\\" in raw_name or "\\x00" in raw_name:
+                if chr(0) in raw_name or chr(92) in raw_name:
                     return {"ok": False, "errors": [f"unsafe archive path: {raw_name!r}"]}
                 member_path = PurePosixPath(raw_name)
                 if (
@@ -342,7 +372,7 @@ def install_from_zip(
     flat_manifest = dict(manifest)
     flat_manifest["entry"] = dest_py.name
     flat_manifest["checksum_sha256"] = hashlib.sha256(source_bytes).hexdigest()
-    manifest_bytes = (json.dumps(flat_manifest, indent=2, ensure_ascii=False) + "\\n").encode("utf-8")
+        manifest_bytes = (json.dumps(flat_manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
     try:
         with tempfile.TemporaryDirectory(prefix=".plugin-install-", dir=str(dest_root)) as td:

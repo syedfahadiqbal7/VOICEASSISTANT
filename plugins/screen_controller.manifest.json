@@ -8,7 +8,6 @@
     "screen_controller"
   ],
   "permissions": [
-    "screen:read",
     "screen:control"
   ],
   "checksum_sha256": "ac36da4f1977c7213ffee990adc76003f5329fcf401d0fe2eda14ece52e01b91"

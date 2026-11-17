@@ -8,8 +8,7 @@
     "teams_manager"
   ],
   "permissions": [
-    "network:read",
-    "network:write",
+    "messaging:read",
     "messaging:send"
   ],
   "checksum_sha256": "bd00ead23f16c2e2196d55aa502bf8cb642f54c85397e6aff73d624cfbcad58c"

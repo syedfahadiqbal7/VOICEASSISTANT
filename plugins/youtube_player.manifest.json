@@ -8,8 +8,8 @@
     "youtube_player"
   ],
   "permissions": [
-    "process:execute",
-    "network:read"
+    "network:read",
+    "process:execute"
   ],
   "checksum_sha256": "9482a3c77d68deb4df5fc093708a8966cefb27c7f4bbf9537df6f37930ab4b36"
 }

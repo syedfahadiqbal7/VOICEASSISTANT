@@ -7,6 +7,8 @@
   "tools": [
     "run_debug_logs"
   ],
-  "permissions": [],
+  "permissions": [
+    "filesystem:write"
+  ],
   "checksum_sha256": "5eafe34c610e28830e99d6a56f3afc3ebba8a8d7e17566a1b675b4caef30d2e3"
 }

@@ -7,6 +7,9 @@
   "tools": [
     "run_pr_review_mode"
   ],
-  "permissions": [],
+  "permissions": [
+    "network:read",
+    "process:execute"
+  ],
   "checksum_sha256": "fa77ecf919b77ad01103edb195948e531e44bc14eaa81f1afc754b867a4dfce8"
 }

@@ -8,7 +8,8 @@
     "list_installed_apps"
   ],
   "permissions": [
-    "process:read"
+    "registry:read",
+    "filesystem:read"
   ],
   "checksum_sha256": "71b53b68252e76ff905f77f96062ea17230c113634afd788f0cc098c9b0651c6"
 }

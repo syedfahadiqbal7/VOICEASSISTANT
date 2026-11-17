@@ -7,6 +7,8 @@
   "tools": [
     "run_architecture_adr"
   ],
-  "permissions": [],
+  "permissions": [
+    "filesystem:write"
+  ],
   "checksum_sha256": "df2d7dda61bed13c2ca760b91ef19f017160099fbda92086f6a52fdf2bc6b88e"
 }

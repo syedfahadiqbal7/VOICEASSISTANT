@@ -7,6 +7,10 @@
   "tools": [
     "run_demo_environment"
   ],
-  "permissions": [],
+  "permissions": [
+    "network:read",
+    "filesystem:write",
+    "process:execute"
+  ],
   "checksum_sha256": "b5fa1634de79e3bbe1710cb7e928c9350cfa13524e362ad1d51762fc93010745"
 }

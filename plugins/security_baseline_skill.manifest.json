@@ -7,6 +7,8 @@
   "tools": [
     "run_security_baseline"
   ],
-  "permissions": [],
+  "permissions": [
+    "network:read"
+  ],
   "checksum_sha256": "2f4a72fadbdb8a5eec5e1d5925ba1d235846c9701b946140b70d084b91ee7f72"
 }

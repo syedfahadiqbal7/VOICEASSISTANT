@@ -7,6 +7,9 @@
   "tools": [
     "run_competitor_scan"
   ],
-  "permissions": [],
+  "permissions": [
+    "network:read",
+    "filesystem:write"
+  ],
   "checksum_sha256": "c671a50cab8523e5d32ab73fcb4bfe45ef7c05a7b5e498d08c0da9e08cd0bdb9"
 }

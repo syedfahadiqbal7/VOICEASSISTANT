@@ -1,6 +1,7 @@
 """Security regression tests for plugin packaging and registration."""
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import stat
@@ -157,3 +158,33 @@ class OneTool(BaseTool):
     registry = registry_module.ToolRegistry()
     assert registry.get("only_one") is None
     assert registry.get("missing_tool") is None
+
+
+def test_all_plugin_manifests_exactly_match_exported_tool_names():
+    plugins_dir = Path(__file__).resolve().parents[1] / "plugins"
+    for entry in sorted(plugins_dir.glob("*.py")):
+        if entry.name.startswith("__") or entry.name == "task_scheduler.py":
+            continue
+        tree = ast.parse(entry.read_text(encoding="utf-8"))
+        exported = set()
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            is_base_tool = any(
+                (isinstance(base, ast.Name) and base.id == "BaseTool")
+                or (isinstance(base, ast.Attribute) and base.attr == "BaseTool")
+                for base in node.bases
+            )
+            if not is_base_tool:
+                continue
+            for member in node.body:
+                if isinstance(member, ast.FunctionDef) and member.name == "name":
+                    for child in ast.walk(member):
+                        if isinstance(child, ast.Return) and isinstance(child.value, ast.Constant):
+                            if isinstance(child.value.value, str):
+                                exported.add(child.value.value)
+        manifest_path = entry.with_suffix(".manifest.json")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert exported == set(manifest.get("tools") or []), (
+            f"{entry.name}: exports={sorted(exported)} manifest={manifest.get('tools')}"
+        )

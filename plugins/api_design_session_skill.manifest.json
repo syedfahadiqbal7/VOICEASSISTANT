@@ -7,6 +7,9 @@
   "tools": [
     "run_api_design_session"
   ],
-  "permissions": [],
+  "permissions": [
+    "network:read",
+    "filesystem:write"
+  ],
   "checksum_sha256": "9d62a9acda656149add71546f52af5bc193ceb3cec119b9d1e6ddde1c7fc6617"
 }

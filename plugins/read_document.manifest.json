@@ -5,8 +5,7 @@
   "author": "VoiceAssistant",
   "entry": "read_document.py",
   "tools": [
-    "read_document",
-    "extract_text"
+    "read_document"
   ],
   "permissions": [
     "filesystem:read"

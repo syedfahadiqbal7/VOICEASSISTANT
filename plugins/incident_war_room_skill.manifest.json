@@ -7,6 +7,9 @@
   "tools": [
     "run_incident_war_room"
   ],
-  "permissions": [],
+  "permissions": [
+    "network:read",
+    "filesystem:write"
+  ],
   "checksum_sha256": "06dafa14326d041af6fef35ef1b84a617bccc3c7e6704e1214fa86d2f480dedf"
 }

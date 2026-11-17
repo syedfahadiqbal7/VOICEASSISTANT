@@ -7,6 +7,9 @@
   "tools": [
     "run_customer_check_in"
   ],
-  "permissions": [],
+  "permissions": [
+    "network:read",
+    "filesystem:write"
+  ],
   "checksum_sha256": "5f33f9e0d9cb85e12e3f8ddf7b4c3d61dea22476042850e5eddb18b1f6eab9e9"
 }

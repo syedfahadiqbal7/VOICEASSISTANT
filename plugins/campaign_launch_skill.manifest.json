@@ -7,6 +7,9 @@
   "tools": [
     "run_campaign_launch"
   ],
-  "permissions": [],
+  "permissions": [
+    "network:read",
+    "filesystem:write"
+  ],
   "checksum_sha256": "a1d77e41cf569663ddfbadd31e36b82364b5dfbfcb58a6235628e4a497065081"
 }

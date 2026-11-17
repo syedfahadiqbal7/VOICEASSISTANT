@@ -7,6 +7,8 @@
   "tools": [
     "run_standup_prep"
   ],
-  "permissions": [],
+  "permissions": [
+    "network:read"
+  ],
   "checksum_sha256": "f030a4b286b48f0858a11583305281f70ec017a1b7da9ee4a5a114d83f8ee784"
 }

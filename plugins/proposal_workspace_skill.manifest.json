@@ -7,6 +7,9 @@
   "tools": [
     "run_proposal_workspace"
   ],
-  "permissions": [],
+  "permissions": [
+    "filesystem:write",
+    "process:execute"
+  ],
   "checksum_sha256": "5aaa5014eda6bef8280ccb22befa0f359daa91efc6615c9a0453727b95baa8bf"
 }

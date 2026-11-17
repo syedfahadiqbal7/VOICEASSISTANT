@@ -9,7 +9,8 @@
   ],
   "permissions": [
     "filesystem:read",
-    "filesystem:write"
+    "filesystem:write",
+    "filesystem:delete"
   ],
   "checksum_sha256": "b2496c5e8925541dd24e3b70d4af0bc77a06e0615633a79ad227d1bd8df40184"
 }

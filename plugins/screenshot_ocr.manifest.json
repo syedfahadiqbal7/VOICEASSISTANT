@@ -8,8 +8,7 @@
     "screenshot_ocr"
   ],
   "permissions": [
-    "screen:read",
-    "filesystem:read"
+    "screen:read"
   ],
   "checksum_sha256": "a515d71e63b1f9c6375ce19b2307481980af372fbb9ce2753345befbefef30fb"
 }

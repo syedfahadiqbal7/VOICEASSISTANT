@@ -8,6 +8,7 @@
     "port_killer"
   ],
   "permissions": [
+    "process:read",
     "process:terminate"
   ],
   "checksum_sha256": "84658a42931bcf95d37a2ded0a34be14ef9136801091ca0a1f2405374fc172e7"

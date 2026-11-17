@@ -10,8 +10,8 @@
   "permissions": [
     "filesystem:read",
     "filesystem:write",
-    "process:execute",
-    "network:write"
+    "network:write",
+    "process:execute"
   ],
   "checksum_sha256": "f8220f817a0ce3182c4bd42382b6ec06f8d9ce648446fa5d9f0bd2167390672b"
 }

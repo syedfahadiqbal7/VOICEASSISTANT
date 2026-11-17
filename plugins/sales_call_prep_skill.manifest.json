@@ -7,6 +7,9 @@
   "tools": [
     "run_sales_call_prep"
   ],
-  "permissions": [],
+  "permissions": [
+    "network:read",
+    "filesystem:write"
+  ],
   "checksum_sha256": "9b2e1b1c0d2f748be980ec6bc981373894fbe6814a78cf42c2ffa2dbdaa5e4ab"
 }
