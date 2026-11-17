@@ -207,7 +207,7 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 ## 9. Final status
 
 **Implemented:** focused security/reliability hardening, durable scheduler recovery/retries, plugin ZIP/manifest/permission hardening, AES-256-GCM local persistence encryption, DPAPI/environment key handling, plaintext migration, fail-closed integrity checks, portable passphrase-encrypted backup/restore and opt-in retention preview/purge CLI.  
-**Verified:** Windows Python compileall, 70 Python regression tests, 15/15 local data-protection/backup tests, 4/4 privacy-retention tests, 16 Phase 0 smoke checks, 55 plugin manifest/checksum checks, 54 plugin export-parity checks and Flutter analysis/tests. Android APK build is pending in CI 44027913630.  
-**Not certified:** Windows desktop runtime, audio, Ollama, Flutter analysis/build, Android runtime, TLS/mobile production deployment and external integrations.
+**Verified:** Windows Python compileall, 70 Python regression tests, 15/15 local data-protection/backup tests, 4/4 privacy-retention tests, 16 Phase 0 smoke checks, 55 plugin manifest/checksum checks, 54 plugin export-parity checks and Flutter analysis/tests. Android release APK build passed in CI 44027913630: https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44027913630.  
+**Not certified:** Windows desktop GUI/runtime, microphone/STT/TTS, Ollama/cloud-provider integration, real Android device behavior, direct-LAN TLS/WSS deployment and external account integrations.
 
 This is a meaningful engineering hardening release candidate, not a claim that every original feature is production-ready or that all remaining findings have been resolved.
