@@ -73,7 +73,7 @@ class PolicyViewer(ctk.CTkToplevel):
         self.roots_entry.pack(anchor="w", pady=(0, 4))
         ctk.CTkLabel(
             body,
-            text="Example: Desktop, Documents, Downloads — empty = no path restriction",
+            text="Example: Desktop, Documents, Downloads — empty = block all file writes",
             text_color="gray",
             font=ctk.CTkFont(size=11),
         ).pack(anchor="w")
@@ -176,8 +176,8 @@ class PolicyViewer(ctk.CTkToplevel):
                     return
             if not write_roots:
                 if not messagebox.askyesno(
-                    "Unrestricted write roots",
-                    "An empty write-root list removes path restrictions. Continue?",
+                    "No allowed write roots",
+                    "An empty write-root list blocks file writes by default. Continue?",
                     parent=self,
                 ):
                     return
