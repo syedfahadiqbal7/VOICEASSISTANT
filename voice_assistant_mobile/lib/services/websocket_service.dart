@@ -472,11 +472,10 @@ class WebSocketService extends ChangeNotifier {
             _approvalTimeout?.cancel();
             _approvalTimeout = null;
             approvalSubmitting = false;
-            if (data["accepted"] == true) {
-              showSecurityGate = false;
-              securityText = "";
-              securityRequestId = null;
-            } else {
+            showSecurityGate = false;
+            securityText = "";
+            securityRequestId = null;
+            if (data["accepted"] != true) {
               lastError = "Approval request expired or was rejected by the desktop session.";
             }
           }
