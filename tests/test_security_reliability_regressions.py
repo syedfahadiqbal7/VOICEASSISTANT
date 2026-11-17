@@ -603,3 +603,36 @@ def test_scheduler_form_normalizes_text_extension_and_limits_custom_app():
     assert "hello" in prompt
     with pytest.raises(ValueError, match="approved list"):
         FakeSchedulerForm("Open an app", app="powershell.exe")._build_prompt()
+
+
+
+def test_restart_spawns_replacement_before_scheduling_orderly_shutdown(monkeypatch):
+    from agent import app_restart
+
+    spawned = []
+    monkeypatch.setattr(
+        app_restart.subprocess,
+        "Popen",
+        lambda args, **kwargs: spawned.append((args, kwargs)),
+    )
+
+    class FakeRoot:
+        def __init__(self):
+            self.scheduled = None
+            self.closed = False
+
+        def after(self, delay, callback):
+            self.scheduled = (delay, callback)
+
+        def _on_close(self):
+            self.closed = True
+
+    root = FakeRoot()
+    assert app_restart.restart_app(root) is True
+    assert len(spawned) == 1
+    assert root.scheduled is not None
+    assert root.scheduled[0] == 0
+    assert root.closed is False
+
+    root.scheduled[1]()
+    assert root.closed is True

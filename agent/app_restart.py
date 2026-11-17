@@ -1,20 +1,17 @@
 # agent/app_restart.py
-"""Restart the VoiceAssistant process (Windows-friendly)."""
+"""Restart the VoiceAssistant process with an orderly desktop shutdown."""
 
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
 
 
-def restart_app(root_widget=None) -> None:
-    """
-    Spawn a new python main.py (or current script) then exit.
-    Call from UI after plugin/skill install when user confirms.
-    """
-    # Prefer project main.py
+def restart_app(root_widget=None) -> bool:
+    """Spawn the replacement process, then close the current UI through its shutdown hook."""
     candidates = []
     try:
         from config import BASE_DIR
@@ -26,42 +23,48 @@ def restart_app(root_widget=None) -> None:
         candidates.append(Path(sys.argv[0]).resolve())
 
     target: Optional[Path] = None
-    for c in candidates:
+    for candidate in candidates:
         try:
-            if c and c.is_file() and c.suffix.lower() == ".py":
-                target = c
+            if candidate and candidate.is_file() and candidate.suffix.lower() == ".py":
+                target = candidate.resolve()
                 break
         except Exception:
             continue
 
-    python = sys.executable or "python"
-    try:
-        if target:
-            # Detach on Windows
-            if os.name == "nt":
-                import subprocess
-                subprocess.Popen(
-                    [python, str(target)],
-                    cwd=str(target.parent),
-                    close_fds=True,
-                    creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
-                    | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
-                )
-            else:
-                import subprocess
-                subprocess.Popen([python, str(target)], cwd=str(target.parent), start_new_session=True)
-    except Exception as e:
-        print(f"[Restart] spawn failed: {e}")
+    if target is None:
+        raise RuntimeError("Could not locate main.py; restart was not attempted.")
 
-    # Close UI then exit
-    try:
-        if root_widget is not None:
-            root_widget.after(200, root_widget.destroy)
-    except Exception:
-        pass
-    try:
-        sys.exit(0)
-    except SystemExit:
-        raise
-    except Exception:
-        os._exit(0)
+    python = sys.executable or "python"
+    if os.name == "nt":
+        flags = (
+            getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        )
+        subprocess.Popen(
+            [python, str(target)],
+            cwd=str(target.parent),
+            close_fds=True,
+            creationflags=flags,
+        )
+    else:
+        subprocess.Popen(
+            [python, str(target)],
+            cwd=str(target.parent),
+            close_fds=True,
+            start_new_session=True,
+        )
+
+    if root_widget is not None:
+        shutdown = getattr(root_widget, "_on_close", None)
+        close = shutdown if callable(shutdown) else getattr(root_widget, "destroy", None)
+        if not callable(close):
+            raise RuntimeError("Replacement process started, but the current window has no shutdown callback.")
+        try:
+            root_widget.after(0, close)
+        except Exception:
+            # restart_app is called from the UI thread; invoke orderly shutdown directly
+            # if Tk can no longer schedule an after callback.
+            close()
+        return True
+
+    raise SystemExit(0)

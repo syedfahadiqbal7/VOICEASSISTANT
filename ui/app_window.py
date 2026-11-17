@@ -858,7 +858,11 @@ class AgenticVoiceAssistant(ctk.CTk):
         ):
             return
         self.update_transcript("[System] Restarting application...")
-        restart_app(self)
+        try:
+            restart_app(self)
+        except Exception as error:
+            self.update_transcript(f"[Restart] Could not restart: {error}")
+            self.update_status("Restart failed", "#E74C3C")
 
     def _show_skill_author(self):
 
