@@ -9,6 +9,7 @@ import hmac
 import logging
 import os
 import time
+import threading
 from collections import deque
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -18,6 +19,10 @@ from mobile_api.connection_manager import manager
 from mobile_api.bridge import bridge
 
 logger = logging.getLogger("voiceassistant.mobile_api")
+_server_lock = threading.Lock()
+_server_stop_requested = threading.Event()
+_active_server = None
+_active_server_loop = None
 manager.on_disconnect = bridge.client_disconnected
 
 app = FastAPI(title="VoiceAssistant Mobile API", version="1.1")
@@ -277,6 +282,21 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 
+def stop_server() -> bool:
+    """Request graceful shutdown, including when startup is still racing."""
+    _server_stop_requested.set()
+    with _server_lock:
+        server = _active_server
+        loop = _active_server_loop
+    if server is None or loop is None or loop.is_closed():
+        return False
+    try:
+        loop.call_soon_threadsafe(setattr, server, "should_exit", True)
+        return True
+    except RuntimeError:
+        return False
+
+
 def start_server(host: str = "127.0.0.1", port: int = 8765):
     if _server_stop_requested.is_set():
         logger.info("Mobile API startup skipped because shutdown was already requested", extra={"event": "mobile.startup_cancelled"})
@@ -307,13 +327,30 @@ def start_server(host: str = "127.0.0.1", port: int = 8765):
     )
     server = uvicorn.Server(config)
 
+    global _active_server, _active_server_loop
+    with _server_lock:
+        _active_server = server
+        _active_server_loop = loop
+        if _server_stop_requested.is_set():
+            server.should_exit = True
+
     scheme = "wss" if tls_options else "ws"
     http_scheme = "https" if tls_options else "http"
     logger.info("Starting mobile API on %s://%s:%s", http_scheme, host, port, extra={"event": "mobile.server_starting"})
     logger.info("Mobile WebSocket endpoint: %s://%s:%s/ws", scheme, host, port, extra={"event": "mobile.websocket_endpoint"})
     if host not in ("127.0.0.1", "localhost", "::1"):
         logger.info("Remote access enabled with token authentication", extra={"event": "mobile.remote_access_enabled"})
-    loop.run_until_complete(server.serve())
+    try:
+        loop.run_until_complete(server.serve())
+    finally:
+        with _server_lock:
+            if _active_server is server:
+                _active_server = None
+                _active_server_loop = None
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        finally:
+            loop.close()
 
 
 if __name__ == "__main__":
