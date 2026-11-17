@@ -92,7 +92,13 @@ GitHub Actions runs the Python regression suite and Flutter analysis/tests/build
 
 ## Runtime data and privacy
 
-Conversation history, memory, audit logs, policy, schedules, undo stacks and exports are local runtime data. They are intentionally excluded from Git. The application creates its runtime directories/files as needed. Scheduled jobs use persisted execution states and retry failed handlers up to three times. Delivery is at-least-once: a crash after an external side effect but before its completion checkpoint can replay the handler, so side-effecting scheduled operations must be idempotent. Do not commit real user history, credentials, generated reports containing private data, or machine-specific settings.
+Conversation history, memory, audit logs, policy, scheduled jobs, undo stacks and undo snapshots are local runtime data and are intentionally excluded from Git. These structured stores and undo snapshots are encrypted at rest with AES-256-GCM (authenticated encryption). On Windows, a random 256-bit data key is protected by the current Windows user profile using DPAPI and stored at `history/.voiceassistant_data_key.dpapi`. On non-Windows systems, set `VOICEASSISTANT_DATA_KEY` to a 32-byte hexadecimal or base64 key before enabling encrypted stores.
+
+Existing plaintext JSON stores are migrated atomically to encrypted files when first read by the updated application. Encrypted records are bound to their store filename; tampering, a wrong key, or a mismatched context causes a hard error. The application must not reset an encrypted store to an empty default after an authentication failure. Explicit conversation exports remain readable Markdown/text files and are not encrypted automatically; store them in a protected location.
+
+**Key recovery is essential:** on Windows, keep the DPAPI key file with the same Windows user profile and back it up as part of a protected device backup. DPAPI-protected key files are not independently portable to another Windows account/device. For migration to another machine or platform, configure the same securely stored `VOICEASSISTANT_DATA_KEY` on both environments before opening the data. Losing the active key makes encrypted local data unrecoverable. Key rotation and a guided portable-key migration workflow are not yet implemented. Never commit the DPAPI key file, environment key, runtime data or exports.
+
+Scheduled jobs use persisted execution states and retry failed handlers up to three times. Delivery is at-least-once: a crash after an external side effect but before its completion checkpoint can replay the handler, so side-effecting scheduled operations must be idempotent.
 
 ## Documentation
 

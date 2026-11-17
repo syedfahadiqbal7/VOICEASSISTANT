@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import BASE_DIR
+from agent.storage import atomic_write_json, load_json
+from agent.data_protection import DataProtectionError
 
 MEMORY_FILE = BASE_DIR / "history" / "agent_memory.json"
 
@@ -33,21 +35,15 @@ class MemoryStore:
     def load(self) -> None:
         if not self.path.exists():
             return
-        try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            if isinstance(raw, dict):
-                self._data.update(raw)
-        except Exception as e:
-            print(f"[MemoryStore] load failed: {e}")
+        raw = load_json(self.path, default=None, encrypt=True)
+        if raw is not None:
+            if not isinstance(raw, dict):
+                raise ValueError("memory store must be a JSON object")
+            self._data.update(raw)
 
     def save(self) -> None:
         self._data["updated_at"] = datetime.now().isoformat()
-        try:
-            from agent.storage import atomic_write_json
-            atomic_write_json(self.path, self._data, indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"[MemoryStore] save failed: {e}")
+        atomic_write_json(self.path, self._data, indent=2, ensure_ascii=False, encrypt=True)
 
     # ----- preferences -----
     def set_pref(self, key: str, value: Any) -> None:

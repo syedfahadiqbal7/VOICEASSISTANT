@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import List, Dict, Any
 import threading
 import shutil
-from agent.storage import atomic_write_json
+from agent.storage import atomic_write_json, load_json
+from agent.data_protection import DataProtectionError
 from config import HISTORY_FILE, AUDIT_LOG_FILE, EXPORTS_DIR
 
 
@@ -19,13 +20,15 @@ class HistoryManager:
         if not self.history_file.exists():
             return []
         try:
-            with open(self.history_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            data = load_json(self.history_file, encrypt=True)
             if not isinstance(data, dict) or not isinstance(data.get("messages", []), list):
                 raise ValueError("conversation history must be an object with a messages list")
             return data.get("messages", [])
+        except DataProtectionError:
+            # Never turn an authentication/key failure into an empty history.
+            raise
         except Exception as e:
-            # Preserve damaged history before a later successful save replaces it.
+            # Preserve malformed legacy history before a later successful save replaces it.
             try:
                 stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                 backup = self.history_file.with_name(f"{self.history_file.name}.corrupt.{stamp}.bak")
@@ -42,7 +45,7 @@ class HistoryManager:
             "messages": trimmed,
         }
         with self._lock:
-            atomic_write_json(self.history_file, payload, indent=2, ensure_ascii=False)
+            atomic_write_json(self.history_file, payload, indent=2, ensure_ascii=False, encrypt=True)
 
     def clear_conversation(self):
         if self.history_file.exists():
@@ -60,23 +63,25 @@ class HistoryManager:
             logs = []
             if self.audit_file.exists():
                 try:
-                    with open(self.audit_file, "r", encoding="utf-8") as f:
-                        loaded = json.load(f)
-                    if isinstance(loaded, list):
-                        logs = loaded
+                    loaded = load_json(self.audit_file, encrypt=True)
+                    if not isinstance(loaded, list):
+                        raise ValueError("audit log must be a JSON array")
+                    logs = loaded
+                except DataProtectionError:
+                    raise
                 except Exception as e:
-                    print(f"[History] audit log read failed; starting a fresh log: {e}")
+                    # Do not overwrite a malformed/corrupt audit trail.
+                    raise ValueError(f"Refusing to append to an unreadable audit log: {e}") from e
             logs.append(entry)
-            atomic_write_json(self.audit_file, logs[-200:], indent=2, ensure_ascii=False)
+            atomic_write_json(self.audit_file, logs[-200:], indent=2, ensure_ascii=False, encrypt=True)
 
     def get_audit_log(self) -> List[Dict]:
         if not self.audit_file.exists():
             return []
-        try:
-            with open(self.audit_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
+        data = load_json(self.audit_file, default=[], encrypt=True)
+        if not isinstance(data, list):
+            raise ValueError("audit log must be a JSON array")
+        return data
 
     def export_conversation(self, messages: List[Dict[str, Any]], format: str = "md") -> str:
         """Export conversation to Markdown or Text file. Returns the file path."""

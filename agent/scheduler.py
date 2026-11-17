@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
 from config import BASE_DIR
+from agent.storage import atomic_write_json, load_json
+from agent.data_protection import DataProtectionError
 
 SCHEDULE_FILE = BASE_DIR / "history" / "scheduled_jobs.json"
 MAX_ATTEMPTS = 3
@@ -39,8 +41,7 @@ class JobScheduler:
         if not SCHEDULE_FILE.exists():
             return
         try:
-            with open(SCHEDULE_FILE, "r", encoding="utf-8") as handle:
-                data = json.load(handle)
+            data = load_json(SCHEDULE_FILE, encrypt=True)
             if not isinstance(data, list):
                 raise ValueError("scheduled jobs document must be a JSON array")
             normalized: List[Dict[str, Any]] = []
@@ -60,6 +61,9 @@ class JobScheduler:
                 if job["status"] not in {"pending", "running", "completed", "failed", "cancelled"}:
                     job["status"] = "pending" if job.get("enabled", True) else "completed"
                 normalized.append(job)
+        except DataProtectionError:
+            # Authentication failures must not be treated as an empty schedule.
+            raise
         except Exception as error:
             try:
                 stamp = _now().strftime("%Y%m%d_%H%M%S_%f")
@@ -80,9 +84,8 @@ class JobScheduler:
                 print(f"[Scheduler] Recovery checkpoint failed: {error}")
 
     def save(self) -> None:
-        from agent.storage import atomic_write_json
         with self._lock:
-            atomic_write_json(SCHEDULE_FILE, list(self.jobs), indent=2, ensure_ascii=False)
+            atomic_write_json(SCHEDULE_FILE, list(self.jobs), indent=2, ensure_ascii=False, encrypt=True)
 
     def add_once(self, prompt: str, run_at: datetime, label: str = "") -> Dict[str, Any]:
         prompt = (prompt or "").strip()

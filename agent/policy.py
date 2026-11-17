@@ -13,6 +13,9 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from agent.storage import atomic_write_json, load_json
+from agent.data_protection import DataProtectionError
+
 try:
     from config import BASE_DIR
 except Exception:
@@ -83,23 +86,17 @@ class PolicyEngine:
         if not self.path.exists():
             self.save()
             return
-        try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            if isinstance(raw, dict):
-                # merge so new keys appear after upgrades
-                merged = json.loads(json.dumps(DEFAULT_POLICY))
-                merged.update(raw)
-                self.data = merged
-        except Exception as e:
-            print(f"[Policy] load failed: {e}")
+        raw = load_json(self.path, default=None, encrypt=True)
+        if raw is not None:
+            if not isinstance(raw, dict):
+                raise ValueError("policy store must be a JSON object")
+            # merge so new keys appear after upgrades
+            merged = json.loads(json.dumps(DEFAULT_POLICY))
+            merged.update(raw)
+            self.data = merged
 
     def save(self) -> None:
-        try:
-            from agent.storage import atomic_write_json
-            atomic_write_json(self.path, self.data, indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"[Policy] save failed: {e}")
+        atomic_write_json(self.path, self.data, indent=2, ensure_ascii=False, encrypt=True)
 
     @property
     def role(self) -> str:

@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import BASE_DIR
+from agent.storage import atomic_write_json, load_json, atomic_write_encrypted_bytes, load_encrypted_bytes
+from agent.data_protection import DataProtectionError
 
 UNDO_DIR = BASE_DIR / "history" / "undo_backups"
 UNDO_LOG = BASE_DIR / "history" / "undo_stack.json"
@@ -28,20 +30,13 @@ class UndoManager:
     def _load(self) -> None:
         if not UNDO_LOG.exists():
             return
-        try:
-            with open(UNDO_LOG, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, list):
-                self.stack = data[-self.max_entries :]
-        except Exception:
-            self.stack = []
+        data = load_json(UNDO_LOG, default=[], encrypt=True)
+        if not isinstance(data, list):
+            raise ValueError("undo stack must be a JSON array")
+        self.stack = data[-self.max_entries :]
 
     def _save(self) -> None:
-        try:
-            from agent.storage import atomic_write_json
-            atomic_write_json(UNDO_LOG, self.stack[-self.max_entries :], indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"[UndoManager] save failed: {e}")
+        atomic_write_json(UNDO_LOG, self.stack[-self.max_entries :], indent=2, ensure_ascii=False, encrypt=True)
 
     def _clean_path(self, filepath: str) -> str:
         filepath = (filepath or "").replace("\\", "/").strip().strip('"').strip("'")
@@ -69,7 +64,7 @@ class UndoManager:
         backup = UNDO_DIR / f"{ts}__{safe}"
         if os.path.isfile(filepath):
             try:
-                shutil.copy2(filepath, backup)
+                atomic_write_encrypted_bytes(backup, Path(filepath).read_bytes())
                 return str(backup)
             except Exception as e:
                 raise OSError(f"Could not create undo snapshot for {filepath}: {e}") from e
@@ -138,7 +133,9 @@ class UndoManager:
             if backup and os.path.isfile(backup):
                 parent = os.path.dirname(filepath) or "."
                 os.makedirs(parent, exist_ok=True)
-                shutil.copy2(backup, filepath)
+                restored = load_encrypted_bytes(backup)
+                from agent.storage import atomic_write_bytes
+                atomic_write_bytes(filepath, restored)
                 return {
                     "ok": True,
                     "message": f"Undo: restored {filepath} from backup",
