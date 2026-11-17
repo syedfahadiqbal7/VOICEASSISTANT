@@ -188,3 +188,22 @@ def test_all_plugin_manifests_exactly_match_exported_tool_names():
         assert exported == set(manifest.get("tools") or []), (
             f"{entry.name}: exports={sorted(exported)} manifest={manifest.get('tools')}"
         )
+
+
+def test_manifest_author_claim_does_not_establish_publisher_trust(tmp_path):
+    from agent.plugin_marketplace import verify_flat_plugin
+
+    entry = tmp_path / "trusted_claim.py"
+    source = b"# plugin source"
+    entry.write_bytes(source)
+    manifest = {
+        "name": "trusted_claim", "version": "1.0.0", "entry": entry.name,
+        "tools": ["trusted_claim"], "permissions": [],
+        "author": "VoiceAssistant",
+        "checksum_sha256": hashlib.sha256(source).hexdigest(),
+    }
+    entry.with_suffix(".manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    result = verify_flat_plugin(entry)
+    assert result["ok"] is True
+    assert result["trusted_author"] is False
+    assert result["author_claimed_trusted"] is True

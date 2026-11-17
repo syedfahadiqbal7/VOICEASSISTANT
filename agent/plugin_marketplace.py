@@ -14,7 +14,7 @@ manifest.json:
   "author": "vendor",
   "entry": "my_tool.py",
   "tools": ["my_tool"],
-  "permissions": ["network", "filesystem:write"],
+  "permissions": ["network:read", "filesystem:write"],
   "checksum_sha256": "<hex of entry file bytes>"
 }
 """
@@ -143,7 +143,8 @@ def verify_plugin_dir(plugin_dir: Path) -> Dict[str, Any]:
         "manifest": manifest,
         "path": str(plugin_dir),
         "sha256": digest,
-        "trusted_author": str(manifest.get("author") or "") in TRUSTED_AUTHORS,
+        "trusted_author": False,
+        "author_claimed_trusted": str(manifest.get("author") or "") in TRUSTED_AUTHORS,
     }
 
 
@@ -219,7 +220,8 @@ def verify_flat_plugin(entry_file: Path, manifest_path: Optional[Path] = None) -
         "path": str(entry_file),
         "manifest": manifest,
         "sha256": digest,
-        "trusted_author": str(manifest.get("author") or "") in TRUSTED_AUTHORS,
+        "trusted_author": False,
+        "author_claimed_trusted": str(manifest.get("author") or "") in TRUSTED_AUTHORS,
     }
 
 
@@ -246,6 +248,9 @@ def install_from_zip(
     Archive members are read into a bounded staging directory; extractall is
     deliberately avoided. Existing plugins are never overwritten unless the
     caller explicitly opts in with replace=True.
+
+    require_checksum is retained for API compatibility. A supplied manifest
+    checksum is always enforced; this flag never bypasses a mismatch.
     """
     zip_path = Path(zip_path)
     dest_root = Path(plugins_dir) if plugins_dir else Path(PLUGINS_DIR)
@@ -372,7 +377,7 @@ def install_from_zip(
     flat_manifest = dict(manifest)
     flat_manifest["entry"] = dest_py.name
     flat_manifest["checksum_sha256"] = hashlib.sha256(source_bytes).hexdigest()
-        manifest_bytes = (json.dumps(flat_manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    manifest_bytes = (json.dumps(flat_manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
     try:
         with tempfile.TemporaryDirectory(prefix=".plugin-install-", dir=str(dest_root)) as td:
