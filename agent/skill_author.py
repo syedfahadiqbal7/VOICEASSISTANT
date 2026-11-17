@@ -13,6 +13,9 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from agent.storage import atomic_write_json, load_json
+from agent.data_protection import DataProtectionError
+
 try:
     from config import BASE_DIR
 except Exception:
@@ -369,8 +372,7 @@ def install_skill(skill: Dict[str, Any], base_dir: Optional[Path] = None) -> Dic
     }
 
     manifest_path = custom / f"{sid}.json"
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, ensure_ascii=False)
+    atomic_write_json(manifest_path, manifest, indent=2, ensure_ascii=False, encrypt=True)
 
     plugin_path = plugins / f"{sid}_skill.py"
     plugin_path.write_text(generate_plugin_source(skill), encoding="utf-8")
@@ -379,14 +381,13 @@ def install_skill(skill: Dict[str, Any], base_dir: Optional[Path] = None) -> Dic
     index_path = custom / "index.json"
     index: Dict[str, Any] = {"skills": []}
     if index_path.exists():
-        try:
-            index = json.loads(index_path.read_text(encoding="utf-8"))
-        except Exception:
-            index = {"skills": []}
+        index = load_json(index_path, default={"skills": []}, encrypt=True)
+        if not isinstance(index, dict):
+            raise ValueError("custom skill index must be a JSON object")
     skills = [s for s in index.get("skills", []) if s.get("skill_id") != sid]
     skills.append({"skill_id": sid, "title": skill.get("title"), "manifest": manifest_path.name})
     index["skills"] = skills
-    index_path.write_text(json.dumps(index, indent=2), encoding="utf-8")
+    atomic_write_json(index_path, index, indent=2, encrypt=True)
 
     samples = manifest.get("samples") or []
     how_to = (
@@ -418,9 +419,11 @@ def load_all_custom_manifests(base_dir: Optional[Path] = None) -> List[Dict[str,
         if path.name == "index.json":
             continue
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = load_json(path, encrypt=True)
             if isinstance(data, dict) and data.get("skill_id"):
                 out.append(data)
+        except DataProtectionError:
+            raise
         except Exception:
             continue
     return out
