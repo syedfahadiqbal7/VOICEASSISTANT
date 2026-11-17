@@ -124,6 +124,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          prerelease: true
+          make_latest: false
+          body: |
+            **DEVELOPMENT PRE-RELEASE — NOT PRODUCTION SIGNED**
+
+            The Android APK in this release is built with the repository's debug signing configuration. The iOS workflow validates an unsigned build only; no signed IPA is provided. Do not distribute this build as a production mobile release.
           files: |
             release-assets/VoiceAssistant-source.zip
             release-assets/app-release.apk

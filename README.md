@@ -88,7 +88,7 @@ python -m pytest -q tests/test_security_reliability_regressions.py tests/test_sc
 python tests/phase0_smoke_tests.py
 ```
 
-GitHub Actions runs the Windows Python regression suite, Flutter analysis/tests, Android release APK build and unsigned iOS build on pushes, pull requests and version tags. Version tags (`v*`, e.g. `v1.0.0`) create a GitHub Release with source and Android APK artifacts after all validation jobs pass. The Android release build currently uses the debug signing configuration; configure a production signing keystore before distributing it. The iOS build is compile-validated without signing; an Apple-signed IPA requires an appropriate signing identity and provisioning profile.
+GitHub Actions runs the Windows Python regression suite, Flutter analysis/tests, Android release APK build and unsigned iOS build on pushes, pull requests and version tags. Version tags (`v*`, e.g. `v1.0.0`) create a GitHub **pre-release** with source and Android APK artifacts after all validation jobs pass. The workflow deliberately marks releases as pre-release and never latest because the Android APK currently uses debug signing and the iOS build is unsigned. Do not distribute these artifacts as production builds. A production release requires a protected Android signing keystore, an Apple signing identity/provisioning profile, and a signed iOS IPA workflow.
 
 ## Diagnostics and observability
 

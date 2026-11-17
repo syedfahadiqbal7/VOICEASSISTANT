@@ -24,7 +24,7 @@ Latest fully green cross-platform CI run [44037080154](https://github.com/syedfa
 | 4 | Mobile companion | Source and CI validation complete | Physical device, real LAN and signed distribution testing remain |
 | 5 | Desktop UI/UX and lifecycle | Source-level hardening complete | Interactive Windows GUI, audio and Ollama runtime validation remain |
 | 6 | QA and observability | Foundation implemented; broader QA in progress | Performance/load, full E2E and remaining exception-handler cleanup remain |
-| 7 | Deployment and release | Pending | Windows installer, production Android/iOS signing and release packaging remain |
+| 7 | Deployment and release | Safety guard implemented; production release pending | GitHub tags now publish non-latest development pre-releases only; Windows installer and production Android/iOS signing remain |
 | 8 | Enterprise capabilities | Pending | Plugin sandbox, per-device identity/revocation, roles and key-rotation lifecycle remain |
 
 A phase marked complete here means its scoped source changes and automated checks are implemented; it does not imply physical-device or production-environment certification.
