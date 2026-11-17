@@ -7,11 +7,16 @@ Port 8765 pe chalega.
 import asyncio
 import hmac
 import os
+import time
+from collections import deque
+from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from mobile_api.connection_manager import manager
 from mobile_api.bridge import bridge
+
+manager.on_disconnect = bridge.client_disconnected
 
 app = FastAPI(title="VoiceAssistant Mobile API", version="1.1")
 
@@ -29,13 +34,43 @@ async def root():
     return {
         "status": "online",
         "service": "VoiceAssistant Mobile API",
-        "connections": len(manager.active_connections)
+        "connections": manager.connection_count()
     }
 
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "clients": len(manager.active_connections)}
+    return {"ok": True, "clients": manager.connection_count()}
+
+
+
+class SlidingWindowRateLimiter:
+    """Per-WebSocket message quotas; timestamps use monotonic time."""
+
+    def __init__(self, window_seconds: int = 60, max_messages: int = 120, max_user_messages: int = 20):
+        self.window_seconds = window_seconds
+        self.max_messages = max_messages
+        self.max_user_messages = max_user_messages
+        self._messages = deque()
+        self._user_messages = deque()
+
+    @staticmethod
+    def _prune(queue, now: float, window: int) -> None:
+        while queue and now - queue[0] >= window:
+            queue.popleft()
+
+    def allow(self, message_type: str, now: float | None = None) -> bool:
+        now = time.monotonic() if now is None else now
+        self._prune(self._messages, now, self.window_seconds)
+        self._prune(self._user_messages, now, self.window_seconds)
+        if len(self._messages) >= self.max_messages:
+            return False
+        if message_type == "user_message" and len(self._user_messages) >= self.max_user_messages:
+            return False
+        self._messages.append(now)
+        if message_type == "user_message":
+            self._user_messages.append(now)
+        return True
 
 
 def _expected_mobile_token() -> str:
@@ -62,6 +97,25 @@ def _validate_approval_response(data: dict) -> tuple[str, bool]:
     return request_id, approved
 
 
+def _validate_job_id(data: dict) -> str:
+    job_id = data.get("job_id", data.get("id"))
+    if not isinstance(job_id, str) or not job_id.strip() or len(job_id) > 128:
+        raise ValueError("Invalid schedule job_id")
+    return job_id.strip()
+
+
+def _tls_options_from_env() -> dict:
+    certfile = os.environ.get("VOICEASSISTANT_TLS_CERTFILE", "").strip()
+    keyfile = os.environ.get("VOICEASSISTANT_TLS_KEYFILE", "").strip()
+    if bool(certfile) != bool(keyfile):
+        raise RuntimeError("Configure both VOICEASSISTANT_TLS_CERTFILE and VOICEASSISTANT_TLS_KEYFILE")
+    if not certfile:
+        return {}
+    if not Path(certfile).is_file() or not Path(keyfile).is_file():
+        raise RuntimeError("Configured TLS certificate or private key file does not exist")
+    return {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     expected = _expected_mobile_token()
@@ -74,6 +128,7 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     conn_id = await manager.connect(websocket)
+    limiter = SlidingWindowRateLimiter()
 
     await manager.send_personal(websocket, {
         "type": "connected",
@@ -99,6 +154,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 await manager.send_personal(websocket, {"type": "error", "message": "Message must be a JSON object"})
                 continue
             msg_type = data.get("type")
+            if not limiter.allow(str(msg_type or "")):
+                await manager.send_personal(websocket, {
+                    "type": "error",
+                    "message": "Rate limit exceeded; slow down and retry."
+                })
+                if len(limiter._messages) >= limiter.max_messages:
+                    await websocket.close(code=1013, reason="Message rate limit exceeded")
+                    manager.disconnect(websocket)
+                    break
+                continue
 
             if msg_type == "user_message":
                 try:
@@ -133,7 +198,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
 
             elif msg_type == "cancel_schedule":
-                job_id = data.get("job_id") or data.get("id")
+                try:
+                    job_id = _validate_job_id(data)
+                except ValueError as error:
+                    await manager.send_personal(websocket, {"type": "error", "message": str(error)})
+                    continue
                 ok = bridge.cancel_schedule(job_id)
                 await manager.send_personal(websocket, {
                     "type": "schedule_cancelled",
@@ -145,6 +214,18 @@ async def websocket_endpoint(websocket: WebSocket):
                 await manager.send_personal(websocket, {
                     "type": "schedules",
                     "jobs": jobs
+                })
+
+            elif msg_type == "undo_last":
+                try:
+                    result = bridge.undo_last()
+                except Exception as error:
+                    print(f"[MobileAPI] Undo request failed: {error}")
+                    result = {"ok": False, "message": "Undo could not be completed"}
+                await manager.send_personal(websocket, {"type": "undo_result", "result": result})
+                await manager.send_personal(websocket, {
+                    "type": "session_state",
+                    "state": bridge.get_session_state(),
                 })
 
             elif msg_type == "ping":
@@ -174,6 +255,7 @@ def start_server(host: str = "127.0.0.1", port: int = 8765):
     asyncio.set_event_loop(loop)
     bridge.set_event_loop(loop)
 
+    tls_options = _tls_options_from_env()
     config = uvicorn.Config(
         app,
         host=host,
@@ -183,11 +265,14 @@ def start_server(host: str = "127.0.0.1", port: int = 8765):
         ws_max_size=1_048_576,
         ws_ping_interval=20,
         ws_ping_timeout=20,
+        **tls_options,
     )
     server = uvicorn.Server(config)
 
-    print(f"[MobileAPI] Starting server on http://{host}:{port}")
-    print(f"[MobileAPI] WebSocket endpoint: ws://{host}:{port}/ws")
+    scheme = "wss" if tls_options else "ws"
+    http_scheme = "https" if tls_options else "http"
+    print(f"[MobileAPI] Starting server on {http_scheme}://{host}:{port}")
+    print(f"[MobileAPI] WebSocket endpoint: {scheme}://{host}:{port}/ws")
     if host not in ("127.0.0.1", "localhost", "::1"):
         print("[MobileAPI] Remote access enabled with token authentication")
     loop.run_until_complete(server.serve())

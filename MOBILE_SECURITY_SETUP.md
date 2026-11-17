@@ -15,3 +15,34 @@ The desktop mobile API now binds to `127.0.0.1` by default. This keeps the endpo
 All clients must authenticate before the server accepts their WebSocket session. A mobile approval challenge is sent to one authenticated client and approval responses are bound to that connection ID. The desktop approval UI remains available.
 
 The token is a shared secret, not per-user identity or device certificate authentication. Rotate it if a device is lost or the token is disclosed.
+
+
+## Phase 4 mobile connection hardening
+
+### Token and saved connection
+
+- The mobile token must be at least 32 characters when the desktop API binds to a non-loopback address.
+- The Flutter client stores the desktop address and token with `flutter_secure_storage` (Android Keystore-backed encrypted storage / iOS Keychain). It does not write the token to SharedPreferences or a plaintext config file.
+- After a successful authenticated handshake, the client remembers the connection and reconnects on the next app launch. Reconnect attempts use bounded exponential backoff (1, 2, 4, 8, 16, then 30 seconds).
+- Authentication rejection (WebSocket close code 1008) stops automatic retries so the user can correct the token. The **Forget saved connection** action removes stored host/token values.
+
+### Transport security
+
+For remote/LAN connections, prefer `wss://` with a trusted TLS certificate. The desktop server can terminate TLS directly by setting both environment variables:
+
+```powershell
+$env:VOICEASSISTANT_TLS_CERTFILE = "C:/VoiceAssistant/certs/server.crt"
+$env:VOICEASSISTANT_TLS_KEYFILE = "C:/VoiceAssistant/certs/server.key"
+```
+
+Both files must exist. The API prints `wss://` when TLS is configured. If using a reverse proxy instead, terminate TLS at the proxy and expose only the proxy endpoint to the phone.
+
+Android permits cleartext traffic because local development/VPN deployments may use `ws://`; the app therefore asks for explicit confirmation before a non-loopback unencrypted connection and displays a persistent warning. Treat `ws://` as suitable only for a trusted private LAN or VPN: the token and conversation are not encrypted in transit. iOS requires `wss://` for non-loopback remote connections.
+
+### Abuse and approval behavior
+
+- Each WebSocket connection is limited to 120 messages/minute and 20 user messages/minute. Exceeding the global limit closes the connection with code 1013.
+- Schedule cancellation IDs are validated as bounded strings.
+- Mobile undo is available only when the desktop session reports an undo entry and requires a confirmation dialog on the phone.
+- Approval responses are bound to the authenticated connection that received the challenge. A disconnected mobile client cannot approve a request from another connection; the desktop approval dialog remains a fallback when available.
+- Real-device tests are still required for Android Keystore, iOS Keychain, WSS certificate trust, background/resume and reconnect behavior.

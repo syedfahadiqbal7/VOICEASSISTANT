@@ -26,6 +26,58 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _initSpeech();
+    _restoreSavedConnection();
+  }
+
+  Future<void> _restoreSavedConnection() async {
+    final ws = Provider.of<WebSocketService>(context, listen: false);
+    final saved = await ws.loadSavedConnection();
+    if (!mounted || saved == null) return;
+    _hostController.text = saved["host"] ?? "";
+    _tokenController.text = saved["token"] ?? "";
+    if (saved["auto_connect"] == "true" && _hostController.text.isNotEmpty) {
+      await _connectToDesktop(ws);
+    }
+  }
+
+  bool _requiresCleartextConfirmation(String host) {
+    try {
+      final candidate = host.contains("://") ? host : "ws://$host:8765/ws";
+      final uri = Uri.parse(candidate);
+      return uri.scheme == "ws" &&
+          uri.host.isNotEmpty &&
+          !const {"localhost", "127.0.0.1", "::1"}.contains(uri.host);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _connectToDesktop(WebSocketService ws) async {
+    final host = _hostController.text.trim();
+    if (_requiresCleartextConfirmation(host)) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text("Unencrypted LAN connection"),
+          content: const Text(
+            "This ws:// connection does not encrypt the access token or conversation. "
+            "Only continue on a trusted private network or VPN. Prefer wss:// with a trusted certificate.",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text("Cancel"),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text("Continue"),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || confirmed != true) return;
+    }
+    ws.connect(host, token: _tokenController.text.trim());
   }
 
   Future<void> _initSpeech() async {
@@ -81,6 +133,17 @@ class _HomeScreenState extends State<HomeScreen> {
               child: const Icon(Icons.schedule),
             ),
           ),
+          if (ws.hasSavedConnection)
+            IconButton(
+              tooltip: "Forget saved connection",
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () async {
+                await ws.forgetSavedConnection();
+                if (!mounted) return;
+                _hostController.clear();
+                _tokenController.clear();
+              },
+            ),
           // Connection status indicator
           Container(
             margin: const EdgeInsets.only(right: 12),
@@ -177,10 +240,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               if (ws.isConnected) {
                                 ws.disconnect();
                               } else {
-                                ws.connect(
-                                  _hostController.text.trim(),
-                                  token: _tokenController.text.trim(),
-                                );
+                                _connectToDesktop(ws);
                               }
                             },
                       style: ElevatedButton.styleFrom(
@@ -217,6 +277,18 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
+          if (ws.securityWarning != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: const Color(0xFF78350F),
+              child: Text(
+                ws.securityWarning!,
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            ),
+
           // Session state chips (desktop → mobile)
           if (ws.isConnected)
             Container(
@@ -243,6 +315,32 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: ws.undoAvailable
                         ? const Color(0xFFF39C12)
                         : const Color(0xFF64748B),
+                    onTap: ws.undoAvailable
+                        ? () async {
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (dialogContext) => AlertDialog(
+                                title: const Text("Undo last change?"),
+                                content: const Text(
+                                  "This will restore the most recent file change recorded by VoiceAssistant.",
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(dialogContext, false),
+                                    child: const Text("Cancel"),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () => Navigator.pop(dialogContext, true),
+                                    child: const Text("Undo"),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirmed == true && mounted) {
+                              ws.requestUndo();
+                            }
+                          }
+                        : null,
                   ),
                   if (ws.lastStatus != null && ws.lastStatus!.isNotEmpty)
                     _chip(

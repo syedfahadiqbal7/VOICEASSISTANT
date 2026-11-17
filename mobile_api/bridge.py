@@ -142,10 +142,9 @@ class MobileBridge:
             self._approval_results[request_id] = False
             self._active_approval_id = request_id
         # Only one authenticated mobile client receives this approval challenge.
-        target = manager.active_connections[0] if manager.active_connections else None
-        target_id = manager.connection_ids.get(target, "") if target else ""
+        target, target_id = manager.first_connection()
         with self._approval_lock:
-            self._approval_clients[request_id] = target_id
+            self._approval_clients[request_id] = target_id or ""
         if target is not None:
             self._run_async(manager.send_personal(target, {
                 "type": "security_gate",
@@ -153,6 +152,8 @@ class MobileBridge:
                 "display_text": display_text,
                 "risk_level": risk_level
             }))
+        elif self._original_on_security_gate is None:
+            self.resolve_approval(request_id, False)
 
         if self._original_on_security_gate:
             def desktop_approve():
@@ -162,8 +163,12 @@ class MobileBridge:
 
         event.wait(timeout=300)
 
-        result = self._approval_results.pop(request_id, False)
-        self._pending_approvals.pop(request_id, None)
+        with self._approval_lock:
+            result = self._approval_results.pop(request_id, False)
+            self._pending_approvals.pop(request_id, None)
+            self._approval_clients.pop(request_id, None)
+            if self._active_approval_id == request_id:
+                self._active_approval_id = None
 
         if result:
             threading.Thread(target=callback, daemon=True).start()
@@ -179,6 +184,8 @@ class MobileBridge:
 
     def resolve_approval(self, request_id: str, approved: bool, client_id: Optional[str] = None):
         """Resolve only from the challenged mobile client or the local desktop UI."""
+        if not isinstance(approved, bool):
+            return False
         with self._approval_lock:
             event = self._pending_approvals.get(request_id)
             if event is None:
@@ -197,6 +204,23 @@ class MobileBridge:
             except Exception as e:
                 print(f"[MobileBridge] Could not clear desktop gate: {e}")
         return True
+
+
+    def client_disconnected(self, client_id: str) -> None:
+        """Do not leave approval waits orphaned when a challenged client disconnects.
+
+        The desktop approval dialog remains a valid fallback. If no desktop gate
+        exists, the disconnected mobile challenge is denied immediately.
+        """
+        if self._original_on_security_gate is not None:
+            return
+        with self._approval_lock:
+            for request_id, expected in list(self._approval_clients.items()):
+                if expected == client_id:
+                    self._approval_results[request_id] = False
+                    event = self._pending_approvals.get(request_id)
+                    if event is not None:
+                        event.set()
 
     def deny_desktop_approval(self) -> bool:
         """Allow the desktop Deny/Stop controls to resolve a mobile-routed gate."""

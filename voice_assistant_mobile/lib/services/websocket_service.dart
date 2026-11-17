@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
 
@@ -8,12 +11,24 @@ class WebSocketService extends ChangeNotifier {
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
   Timer? _connectTimeout;
+  Timer? _reconnectTimer;
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
+
+  int _connectionGeneration = 0;
+  int _reconnectAttempts = 0;
+  bool _manualDisconnect = true;
+  String? _lastHost;
+  String _lastToken = "";
+  int _lastPort = 8765;
 
   bool isConnected = false;
   bool isConnecting = false;
+  bool hasSavedConnection = false;
   String statusMessage = "Disconnected";
   String statusColor = "#E74C3C";
   String? lastError;
+  String? securityWarning;
+  String? lastUndoMessage;
 
   // Security Gate
   bool showSecurityGate = false;
@@ -35,11 +50,97 @@ class WebSocketService extends ChangeNotifier {
 
   Function(String)? onSpeak;
 
-  void connect(String host, {int port = 8765, String token = ""}) {
-    disconnect();
+  Future<Map<String, String>?> loadSavedConnection() async {
+    try {
+      final host = await _secureStorage.read(key: "desktop_host");
+      if (host == null || host.trim().isEmpty) {
+        hasSavedConnection = false;
+        notifyListeners();
+        return null;
+      }
+      final token = await _secureStorage.read(key: "mobile_token") ?? "";
+      final autoConnect = await _secureStorage.read(key: "auto_connect") ?? "true";
+      hasSavedConnection = true;
+      notifyListeners();
+      return {
+        "host": host,
+        "token": token,
+        "auto_connect": autoConnect,
+      };
+    } catch (error) {
+      lastError = "Could not read secure connection settings";
+      debugPrint("Secure connection settings read failed: $error");
+      notifyListeners();
+      return null;
+    }
+  }
 
-    host = host.trim();
+  Future<void> _persistConnection() async {
+    final host = _lastHost;
+    if (host == null || host.isEmpty) return;
+    try {
+      await _secureStorage.write(key: "desktop_host", value: host);
+      await _secureStorage.write(key: "mobile_token", value: _lastToken);
+      await _secureStorage.write(key: "auto_connect", value: "true");
+      hasSavedConnection = true;
+    } catch (error) {
+      lastError = "Connection works, but secure credential storage failed";
+      debugPrint("Secure connection settings write failed: $error");
+    }
+    notifyListeners();
+  }
+
+  Future<void> _setAutoConnect(bool enabled) async {
+    try {
+      await _secureStorage.write(key: "auto_connect", value: enabled ? "true" : "false");
+    } catch (error) {
+      debugPrint("Auto-connect preference update failed: $error");
+    }
+  }
+
+  Future<void> forgetSavedConnection() async {
+    try {
+      await _secureStorage.delete(key: "desktop_host");
+      await _secureStorage.delete(key: "mobile_token");
+      await _secureStorage.delete(key: "auto_connect");
+      hasSavedConnection = false;
+      notifyListeners();
+    } catch (error) {
+      lastError = "Could not remove saved secure connection settings";
+      debugPrint("Secure connection settings delete failed: $error");
+      notifyListeners();
+    }
+  }
+
+  void connect(String host, {int port = 8765, String token = ""}) {
+    _manualDisconnect = false;
+    _lastHost = host.trim();
+    _lastToken = token.trim();
+    _lastPort = port;
+    _reconnectAttempts = 0;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _connectInternal();
+  }
+
+  void _connectInternal() {
+    final generation = ++_connectionGeneration;
+    _connectTimeout?.cancel();
+    _connectTimeout = null;
+    try {
+      _sub?.cancel();
+    } catch (_) {}
+    _sub = null;
+    final previousChannel = _channel;
+    _channel = null;
+    try {
+      previousChannel?.sink.close();
+    } catch (_) {}
+
+    final host = _lastHost?.trim() ?? "";
     if (host.isEmpty) {
+      isConnecting = false;
+      isConnected = false;
       statusMessage = "Enter desktop IP";
       statusColor = "#E74C3C";
       lastError = "Host empty";
@@ -50,21 +151,40 @@ class WebSocketService extends ChangeNotifier {
     late final Uri endpoint;
     try {
       endpoint = Uri.parse(
-        host.contains('://') ? host : "ws://$host:$port/ws",
+        host.contains('://') ? host : "ws://$host:$_lastPort/ws",
       );
       if (!const {"ws", "wss"}.contains(endpoint.scheme) || endpoint.host.isEmpty) {
         throw const FormatException("Use a hostname/IP or a ws:// / wss:// URL");
       }
-    } catch (e) {
-      statusMessage = "Invalid desktop address: $e";
+    } catch (error) {
+      isConnecting = false;
+      isConnected = false;
+      statusMessage = "Invalid desktop address: $error";
       statusColor = "#E74C3C";
       lastError = statusMessage;
       notifyListeners();
       return;
     }
+
     final url = (endpoint.path.isEmpty || endpoint.path == "/")
         ? endpoint.replace(path: "/ws").toString()
         : endpoint.toString();
+    final isLoopback = const {"localhost", "127.0.0.1", "::1"}.contains(endpoint.host);
+    securityWarning = endpoint.scheme == "ws" && !isLoopback
+        ? "Unencrypted WS connection. Use wss:// or a trusted VPN on LAN."
+        : null;
+    if (defaultTargetPlatform == TargetPlatform.iOS &&
+        endpoint.scheme == "ws" &&
+        !isLoopback) {
+      isConnecting = false;
+      isConnected = false;
+      statusMessage = "iOS requires wss:// for remote desktop connections";
+      statusColor = "#E74C3C";
+      lastError = statusMessage;
+      notifyListeners();
+      return;
+    }
+
     isConnecting = true;
     isConnected = false;
     statusMessage = "Connecting...";
@@ -73,83 +193,125 @@ class WebSocketService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _channel = IOWebSocketChannel.connect(
+      final channel = IOWebSocketChannel.connect(
         Uri.parse(url),
-        headers: token.trim().isEmpty
+        headers: _lastToken.isEmpty
             ? null
-            : {"x-voiceassistant-token": token.trim()},
+            : {"x-voiceassistant-token": _lastToken},
         connectTimeout: const Duration(seconds: 5),
         pingInterval: const Duration(seconds: 20),
       );
+      _channel = channel;
 
-      _sub = _channel!.stream.listen(
+      _sub = channel.stream.listen(
         (data) {
-          _handleMessage(data);
+          if (generation == _connectionGeneration) {
+            _handleMessage(data);
+          }
         },
         onError: (error) {
+          if (generation != _connectionGeneration) return;
           debugPrint("WS error: $error");
-          _failConnect("Connection error (is desktop app running?)");
+          _failConnect(
+            "Connection error (is desktop app running?)",
+            generation: generation,
+          );
         },
         onDone: () {
-          if (isConnected || isConnecting) {
-            isConnected = false;
-            isConnecting = false;
-            showSecurityGate = false;
-            securityText = "";
-            securityRequestId = null;
-            statusMessage = "Disconnected";
-            statusColor = "#E74C3C";
-            notifyListeners();
-          }
+          if (generation != _connectionGeneration) return;
+          final closeCode = channel.closeCode;
+          final rejected = closeCode == 1008;
+          _failConnect(
+            rejected
+                ? "Desktop rejected the mobile token. Check the saved token."
+                : "Connection lost",
+            generation: generation,
+            retry: !rejected,
+          );
         },
         cancelOnError: true,
       );
 
-      // Do NOT mark Online until server sends type=connected
-      _connectTimeout?.cancel();
       _connectTimeout = Timer(const Duration(seconds: 5), () {
-        if (!isConnected && isConnecting) {
-          _failConnect("No response from desktop (check IP / app running on :8765)");
+        if (generation == _connectionGeneration && !isConnected && isConnecting) {
+          _failConnect(
+            "No response from desktop (check IP / app running on :8765)",
+            generation: generation,
+          );
         }
       });
-    } catch (e) {
-      _failConnect("Failed to connect: $e");
+    } catch (error) {
+      _failConnect(
+        "Failed to connect: $error",
+        generation: generation,
+      );
     }
   }
 
-  void _failConnect(String msg) {
+  void _failConnect(
+    String message, {
+    required int generation,
+    bool retry = true,
+  }) {
+    if (generation != _connectionGeneration) return;
+    ++_connectionGeneration;
     _connectTimeout?.cancel();
     _connectTimeout = null;
     try {
       _sub?.cancel();
     } catch (_) {}
     _sub = null;
-    try {
-      _channel?.sink.close();
-    } catch (_) {}
+    final oldChannel = _channel;
     _channel = null;
+    try {
+      oldChannel?.sink.close();
+    } catch (_) {}
     isConnected = false;
     isConnecting = false;
     showSecurityGate = false;
     securityText = "";
     securityRequestId = null;
-    statusMessage = msg;
+    statusMessage = message;
     statusColor = "#E74C3C";
-    lastError = msg;
+    lastError = message;
     notifyListeners();
+    if (retry) _scheduleReconnect();
+  }
+
+  void _scheduleReconnect() {
+    if (_manualDisconnect || _lastHost == null || _reconnectTimer != null) return;
+    const delays = [1, 2, 4, 8, 16, 30];
+    final delayIndex = math.min(_reconnectAttempts, delays.length - 1).toInt();
+    final seconds = delays[delayIndex];
+    _reconnectAttempts++;
+    statusMessage = "Connection lost. Retrying in ${seconds}s...";
+    statusColor = "#F39C12";
+    notifyListeners();
+    _reconnectTimer = Timer(Duration(seconds: seconds), () {
+      _reconnectTimer = null;
+      if (!_manualDisconnect && !isConnected && !isConnecting) {
+        _connectInternal();
+      }
+    });
   }
 
   void disconnect() {
+    _manualDisconnect = true;
+    unawaited(_setAutoConnect(false));
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    ++_connectionGeneration;
     _connectTimeout?.cancel();
     _connectTimeout = null;
     try {
       _sub?.cancel();
     } catch (_) {}
     _sub = null;
-    try {
-      _channel?.sink.close();
-    } catch (_) {}
+    final oldChannel = _channel;
     _channel = null;
+    try {
+      oldChannel?.sink.close();
+    } catch (_) {}
     isConnected = false;
     isConnecting = false;
     showSecurityGate = false;
@@ -189,6 +351,10 @@ class WebSocketService extends ChangeNotifier {
     _sendRaw({"type": "list_schedules"});
   }
 
+  void requestUndo() {
+    _sendRaw({"type": "undo_last"});
+  }
+
   void cancelSchedule(String jobId) {
     _sendRaw({"type": "cancel_schedule", "job_id": jobId});
   }
@@ -222,6 +388,7 @@ class WebSocketService extends ChangeNotifier {
   void _handleMessage(dynamic raw) {
     try {
       final data = jsonDecode(raw);
+      if (data is! Map) return;
       final type = data["type"];
 
       switch (type) {
@@ -230,13 +397,16 @@ class WebSocketService extends ChangeNotifier {
           _connectTimeout = null;
           isConnecting = false;
           isConnected = true;
+          _reconnectAttempts = 0;
           statusMessage = data["message"] ?? "Connected to VoiceAssistant";
           statusColor = "#27AE60";
           lastError = null;
-          // Ask for state after real handshake
+          unawaited(_persistConnection());
           Future.delayed(const Duration(milliseconds: 200), () {
-            requestSessionState();
-            requestSchedules();
+            if (isConnected) {
+              requestSessionState();
+              requestSchedules();
+            }
           });
           break;
 
@@ -251,7 +421,6 @@ class WebSocketService extends ChangeNotifier {
             "text": data["text"] ?? "",
             "time": DateTime.now().toIso8601String(),
           });
-          // Bound the in-memory transcript for long-running mobile sessions.
           if (messages.length > 500) {
             messages.removeRange(0, messages.length - 500);
           }
@@ -289,17 +458,29 @@ class WebSocketService extends ChangeNotifier {
           }
           break;
 
+        case "undo_result":
+          final result = data["result"];
+          final ok = result is Map && result["ok"] == true;
+          lastUndoMessage = ok
+              ? (result["message"]?.toString() ?? "Undo completed")
+              : (result is Map
+                  ? (result["message"]?.toString() ?? "Undo failed")
+                  : "Undo failed");
+          if (!ok) lastError = lastUndoMessage;
+          break;
+
         case "schedule_cancelled":
+          lastStatus = data["message"]?.toString() ?? "Schedule updated";
           break;
 
         case "error":
-          lastError = data["message"];
+          lastError = data["message"]?.toString();
           break;
       }
 
       notifyListeners();
-    } catch (e) {
-      debugPrint("Parse error: $e");
+    } catch (error) {
+      debugPrint("Parse error: $error");
     }
   }
 
@@ -310,9 +491,12 @@ class WebSocketService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _manualDisconnect = true;
+    _reconnectTimer?.cancel();
     _connectTimeout?.cancel();
     _sub?.cancel();
     _channel?.sink.close();
+    _reconnectTimer = null;
     _connectTimeout = null;
     _sub = null;
     _channel = null;

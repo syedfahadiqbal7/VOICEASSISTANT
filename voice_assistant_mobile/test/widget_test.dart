@@ -7,6 +7,7 @@ void main() {
     expect(service.isConnected, isFalse);
     expect(service.isConnecting, isFalse);
     expect(service.statusMessage, 'Disconnected');
+    expect(service.securityWarning, isNull);
     service.dispose();
   });
 
@@ -33,6 +34,7 @@ void main() {
     expect(() => service.sendApproval(true), returnsNormally);
     expect(() => service.requestSessionState(), returnsNormally);
     expect(() => service.requestSchedules(), returnsNormally);
+    expect(() => service.requestUndo(), returnsNormally);
     service.dispose();
   });
 }

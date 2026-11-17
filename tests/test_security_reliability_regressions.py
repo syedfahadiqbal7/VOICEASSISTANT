@@ -328,3 +328,85 @@ def test_policy_fails_closed_when_allowed_roots_are_empty(tmp_path):
     allowed, reason = engine.evaluate_write_path(str(tmp_path / "output.txt"))
     assert allowed is False
     assert "No allowed_write_roots" in reason
+
+
+def test_mobile_rate_limiter_applies_global_and_user_message_quotas():
+    from mobile_api.server import SlidingWindowRateLimiter
+
+    limiter = SlidingWindowRateLimiter(window_seconds=60, max_messages=3, max_user_messages=1)
+    assert limiter.allow("user_message", now=0.0) is True
+    assert limiter.allow("user_message", now=1.0) is False
+    assert limiter.allow("ping", now=2.0) is True
+    assert limiter.allow("get_session_state", now=3.0) is True
+    assert limiter.allow("ping", now=4.0) is False
+    assert limiter.allow("user_message", now=61.0) is True
+
+
+def test_mobile_schedule_cancel_requires_bounded_string_id():
+    from mobile_api.server import _validate_job_id
+
+    assert _validate_job_id({"job_id": "job-123"}) == "job-123"
+    assert _validate_job_id({"id": "job-456"}) == "job-456"
+    for payload in ({"job_id": {"id": "x"}}, {"job_id": ""}, {"job_id": "x" * 129}):
+        with pytest.raises(ValueError, match="job_id"):
+            _validate_job_id(payload)
+
+
+def test_mobile_tls_configuration_requires_a_matching_certificate_and_key(tmp_path, monkeypatch):
+    from mobile_api.server import _tls_options_from_env
+
+    monkeypatch.delenv("VOICEASSISTANT_TLS_CERTFILE", raising=False)
+    monkeypatch.delenv("VOICEASSISTANT_TLS_KEYFILE", raising=False)
+    assert _tls_options_from_env() == {}
+
+    cert = tmp_path / "server.crt"
+    key = tmp_path / "server.key"
+    cert.write_text("test certificate", encoding="utf-8")
+    key.write_text("test private key", encoding="utf-8")
+    monkeypatch.setenv("VOICEASSISTANT_TLS_CERTFILE", str(cert))
+    monkeypatch.delenv("VOICEASSISTANT_TLS_KEYFILE", raising=False)
+    with pytest.raises(RuntimeError, match="both"):
+        _tls_options_from_env()
+
+    monkeypatch.setenv("VOICEASSISTANT_TLS_KEYFILE", str(key))
+    assert _tls_options_from_env() == {
+        "ssl_certfile": str(cert),
+        "ssl_keyfile": str(key),
+    }
+
+
+def test_mobile_approval_disconnect_is_denied_when_desktop_fallback_is_absent():
+    bridge = MobileBridge()
+    event = threading.Event()
+    bridge._pending_approvals["disconnect-request"] = event
+    bridge._approval_results["disconnect-request"] = False
+    bridge._approval_clients["disconnect-request"] = "mobile-123"
+
+    bridge.client_disconnected("mobile-123")
+
+    assert event.is_set() is True
+    assert bridge._approval_results["disconnect-request"] is False
+
+
+def test_connection_manager_disconnect_callback_and_snapshot_access():
+    import asyncio
+    from mobile_api.connection_manager import ConnectionManager
+
+    class FakeWebSocket:
+        async def accept(self):
+            return None
+
+    manager = ConnectionManager()
+    disconnected = []
+    manager.on_disconnect = disconnected.append
+    socket = FakeWebSocket()
+    connection_id = asyncio.run(manager.connect(socket))
+
+    assert manager.connection_count() == 1
+    first, first_id = manager.first_connection()
+    assert first is socket
+    assert first_id == connection_id
+
+    manager.disconnect(socket)
+    assert manager.connection_count() == 0
+    assert disconnected == [connection_id]

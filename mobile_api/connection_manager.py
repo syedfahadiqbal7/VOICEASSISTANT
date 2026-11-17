@@ -4,7 +4,8 @@ WebSocket connection manager.
 Har connected mobile phone ka record rakhta hai aur unko messages broadcast karta hai.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Callable, Optional
+import threading
 from fastapi import WebSocket
 import json
 import asyncio
@@ -15,20 +16,41 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self.connection_ids: Dict[WebSocket, str] = {}
+        self._lock = threading.RLock()
+        self.on_disconnect: Optional[Callable[[str], None]] = None
 
     async def connect(self, websocket: WebSocket) -> str:
         await websocket.accept()
         conn_id = str(uuid.uuid4())[:8]
-        self.active_connections.append(websocket)
-        self.connection_ids[websocket] = conn_id
+        with self._lock:
+            self.active_connections.append(websocket)
+            self.connection_ids[websocket] = conn_id
         print(f"[MobileAPI] New connection: {conn_id} | Total: {len(self.active_connections)}")
         return conn_id
 
     def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-        conn_id = self.connection_ids.pop(websocket, "unknown")
-        print(f"[MobileAPI] Disconnected: {conn_id} | Remaining: {len(self.active_connections)}")
+        with self._lock:
+            if websocket in self.active_connections:
+                self.active_connections.remove(websocket)
+            conn_id = self.connection_ids.pop(websocket, "unknown")
+            remaining = len(self.active_connections)
+        print(f"[MobileAPI] Disconnected: {conn_id} | Remaining: {remaining}")
+        if self.on_disconnect and conn_id != "unknown":
+            try:
+                self.on_disconnect(conn_id)
+            except Exception as error:
+                print(f"[MobileAPI] disconnect callback failed: {error}")
+
+    def first_connection(self):
+        with self._lock:
+            if not self.active_connections:
+                return None, None
+            websocket = self.active_connections[0]
+            return websocket, self.connection_ids.get(websocket)
+
+    def connection_count(self) -> int:
+        with self._lock:
+            return len(self.active_connections)
 
     async def send_personal(self, websocket: WebSocket, data: dict):
         try:
@@ -39,13 +61,15 @@ class ConnectionManager:
 
     async def broadcast(self, data: dict):
         """Saare connected phones ko message bhejo."""
-        if not self.active_connections:
+        with self._lock:
+            connections = list(self.active_connections)
+        if not connections:
             return
 
         message = json.dumps(data, ensure_ascii=False)
         dead = []
 
-        for connection in self.active_connections:
+        for connection in connections:
             try:
                 await connection.send_text(message)
             except Exception:
@@ -55,7 +79,7 @@ class ConnectionManager:
             self.disconnect(conn)
 
     def has_connections(self) -> bool:
-        return len(self.active_connections) > 0
+        return self.connection_count() > 0
 
 
 # Global instance
