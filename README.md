@@ -84,7 +84,7 @@ By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. 
 ## Tests
 
 ```powershell
-python -m pytest -q tests/test_security_reliability_regressions.py tests/test_scheduler_reliability.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_privacy_manager.py
+python -m pytest -q tests/test_security_reliability_regressions.py tests/test_scheduler_reliability.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_privacy_manager.py tests/test_observability.py
 python tests/phase0_smoke_tests.py
 ```
 

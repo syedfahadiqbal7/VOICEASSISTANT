@@ -11,7 +11,23 @@ The repository is a functional prototype / advanced local-agent foundation, not 
 
 A multi-phase security, reliability, privacy, mobile and desktop UX hardening pass has been committed to GitHub main. The desktop includes safer modal lifecycles, UI-thread dispatch, destructive-action confirmations, scheduler input validation and orderly restart behavior. Mobile includes connection-scoped approval, acknowledgement/retry behavior, message quotas, optional TLS and platform permission/backup declarations. In addition to mobile API/approval binding, policy fail-closed behavior, canonical write paths, plugin ZIP/manifest/permission enforcement, scheduler recovery and concurrency protection, private local stores now use AES-256-GCM at rest with DPAPI-backed Windows key protection. Portable passphrase-encrypted backup/restore and opt-in retention preview/purge CLIs are available.
 
-Latest verified mainline CI run [44031832443](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44031832443) passes 78 Python regression tests, 16 Phase 0 smoke checks, Python compileall, Flutter analysis/tests, Android release APK build and unsigned iOS build. Mobile security now includes secure credential storage, bounded reconnect, approval acknowledgements, optional WSS/TLS, rate limits and consent-first microphone permission. Real Windows desktop GUI/audio/Ollama operation and physical Android/iOS device behavior still require testing on target hardware.
+Latest fully green cross-platform CI run [44037080154](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44037080154) passes 91 Python regression tests, 16 Phase 0 smoke checks, Python compileall, Flutter analysis/tests, Android release APK build and unsigned iOS build. Mobile security includes secure credential storage, bounded reconnect, connection-scoped approval acknowledgements, optional WSS/TLS, per-client message quotas, an atomic connection cap and consent-first microphone permission. Real Windows desktop GUI/audio/Ollama operation and physical Android/iOS device behavior still require testing on target hardware.
+
+## Phase completion map
+
+| Phase | Scope | Status | Remaining boundary |
+|---|---|---|---|
+| 0.1–0.3 | Security baseline | Complete | Ongoing threat-model review still applies |
+| 1 | Reliability and recovery | Complete for the implemented scope | Full real-desktop end-to-end validation remains |
+| 2 | Plugin and integration hardening | Core hardening complete | Third-party sandboxing, publisher signatures and full dependency lifecycle remain |
+| 3 | Persistence and privacy | Complete for the implemented scope | Retention is opt-in/manual; secure erasure and in-app privacy dashboard remain |
+| 4 | Mobile companion | Source and CI validation complete | Physical device, real LAN and signed distribution testing remain |
+| 5 | Desktop UI/UX and lifecycle | Source-level hardening complete | Interactive Windows GUI, audio and Ollama runtime validation remain |
+| 6 | QA and observability | Foundation implemented; broader QA in progress | Performance/load, full E2E and remaining exception-handler cleanup remain |
+| 7 | Deployment and release | Pending | Windows installer, production Android/iOS signing and release packaging remain |
+| 8 | Enterprise capabilities | Pending | Plugin sandbox, per-device identity/revocation, roles and key-rotation lifecycle remain |
+
+A phase marked complete here means its scoped source changes and automated checks are implemented; it does not imply physical-device or production-environment certification.
 
 ## 2. Source inventory
 
@@ -19,17 +35,17 @@ Post-hardening inventory (includes the new helper and regression test files):
 
 | Area | Files | Approx. lines |
 |---|---:|---:|
-| `agent/` | 19 | 5,415 |
-| `audio/` | 3 | 136 |
-| `mobile_api/` | 4 | 539 |
-| `plugins/` | 56 Python files | 5,235 |
-| `tools/` | 4 | 293 |
-| `ui/` | 9 | 2,590 |
-| `security/` | 1 | 54 |
-| `tests/` | 5 | Expanded regression suites and authoring docs |
-| Startup/legacy/template files | 10 | 1,796 |
+| `agent/` | 23 | Core orchestration, persistence, scheduler and observability |
+| `audio/` | 3 | Speech capture and output |
+| `mobile_api/` | 4 | FastAPI/WebSocket bridge and connection lifecycle |
+| `plugins/` | 111 total (56 Python + 55 JSON manifests) | Plugin implementations and manifests |
+| `tools/` | 4 | Built-in tools |
+| `ui/` | 9 | Desktop UI and operational viewers |
+| `security/` | 1 | Policy/security support |
+| `tests/` | 8 | Regression suites, smoke tests and authoring docs |
+| `voice_assistant_mobile/` | 137 | Flutter app, platform projects and tests |
 
-The full tree currently contains 109 Python files. Line/function/class totals are not used as a release-quality measure and were not re-counted after Phase 2. The plugin folder contains 55 tool/plugin Python files and 55 sidecar manifests; one legacy scheduler plugin remains intentionally disabled.
+The current tracked tree contains 336 files, including 118 Python files. The plugin folder contains 55 tool/plugin Python files and 55 sidecar manifests; one legacy scheduler plugin remains intentionally disabled.
 
 ## 3. Existing feature inventory (source-confirmed)
 
@@ -148,13 +164,16 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 
 | Check | Result | Notes |
 |---|---:|---|
-| Python AST / compile check | Pass | 108 Python files; zero syntax errors |
+| Python AST / compile check | Pass | 118 Python files; zero syntax errors |
 | Focused security/reliability tests | 25/25 pass | Windows GitHub Actions |
 | Scheduler durability/recovery tests | 10/10 pass | Crash recovery, retries, cancellation, concurrency and checkpoint failure |
 | Plugin marketplace/security tests | 16/16 pass | ZIP traversal, checksum mismatch, symlink, overwrite, permissions, trust metadata, generator and registry checks |
 | Local data protection and backup tests | 15/15 pass | AES-GCM, tamper/wrong-key detection, plaintext migration, encrypted stores/undo, portable restore across different keys, wrong-passphrase and ZIP-slip rejection |
 | Privacy retention tests | 4/4 pass | Default-off policy, encrypted settings, preview, explicit purge, pending/unknown-record preservation and tamper detection |
-| Combined Python regression tests | 78/78 pass | Security/reliability + scheduler + plugin + data-protection/backup + privacy + mobile platform/approval suites |
+| Observability tests | 3/3 pass | JSON formatting, secret redaction in messages/tracebacks and rotating sink idempotency |
+| Mobile connection capacity tests | 2/2 pass | Configured bounds and concurrent connection rejection |
+| Mobile shutdown lifecycle tests | 3/3 pass | Graceful signal, safe no-server behavior and startup/shutdown race |
+| Combined Python regression tests | 91/91 pass | All Windows regression suites including mobile, observability and lifecycle cases |
 | Existing Phase 0 smoke suite | 16/16 pass | Windows GitHub Actions |
 | Plugin manifest/checksum scan | 55/55 pass | Checks shipped Python file checksums and manifest shape |
 | Plugin manifest/export parity | 54/54 pass | AST check for all active plugin modules; legacy scheduler excluded |
@@ -195,7 +214,7 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 - Add visible provider status and actionable missing-dependency diagnostics to the desktop UI.
 - Add structured task progress and cancellation-state visibility across desktop and mobile.
 - Add explicit time-zone handling for schedules and a user-controlled retry-now action for failed jobs.
-- Add mobile connection persistence via secure storage, optional TLS/WSS configuration and a connection diagnostics screen.
+- Add a mobile connection diagnostics screen; secure credential persistence, reconnect handling and optional TLS/WSS configuration are implemented.
 - Add plugin dependency/version resolution, publisher signatures, hot-reload lifecycle and isolated worker-process sandboxing.
 - Add accessibility, responsive layout, keyboard navigation and visual regression checks.
 - Replace remaining placeholder/starter project metadata and validate app branding/package identifiers before release.
@@ -217,8 +236,8 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 
 ## 9. Final status
 
-**Implemented:** focused security/reliability hardening, durable scheduler recovery/retries, plugin ZIP/manifest/permission hardening, AES-256-GCM local persistence encryption, DPAPI/environment key handling, plaintext migration, fail-closed integrity checks, portable passphrase-encrypted backup/restore and opt-in retention preview/purge CLI.  
-**Verified:** Windows Python compileall, 83 Python regression tests, 15/15 local data-protection/backup tests, 4/4 privacy-retention tests, 16 Phase 0 smoke checks, 55 plugin manifest/checksum checks, 54 plugin export-parity checks, Flutter analysis/tests and unsigned iOS build. Structured logging is being added and awaits CI validation. Android release APK build passed in CI 44027913630: https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44027913630.  
+**Implemented:** focused security/reliability hardening, durable scheduler recovery/retries, plugin ZIP/manifest/permission enforcement, AES-256-GCM local persistence encryption, DPAPI/environment key handling, plaintext migration, fail-closed integrity checks, portable passphrase-encrypted backup/restore, opt-in retention preview/purge, mobile connection quotas/capacity limits, graceful mobile API shutdown, desktop lifecycle/confirmation improvements and structured secret-redacting rotating diagnostics.  
+**Verified:** 91 Python regression tests, 16 Phase 0 smoke checks, 118-file Python compileall, Flutter analysis/tests, Android release APK build and unsigned iOS build. Full CI: [44037080154](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44037080154).  
 **Not certified:** Windows desktop GUI/runtime, microphone/STT/TTS, Ollama/cloud-provider integration, real Android device behavior, direct-LAN TLS/WSS deployment and external account integrations.
 
 This is a meaningful engineering hardening release candidate, not a claim that every original feature is production-ready or that all remaining findings have been resolved.
