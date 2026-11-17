@@ -24,7 +24,7 @@ The token is a shared secret, not per-user identity or device certificate authen
 - The mobile token must be at least 32 characters when the desktop API binds to a non-loopback address.
 - The Flutter client stores the desktop address and token with `flutter_secure_storage` (Android Keystore-backed encrypted storage / iOS Keychain). It does not write the token to SharedPreferences or a plaintext config file.
 - After a successful authenticated handshake, the client remembers the connection and reconnects on the next app launch. Reconnect attempts use bounded exponential backoff (1, 2, 4, 8, 16, then 30 seconds).
-- Authentication rejection (WebSocket close code 1008) stops automatic retries so the user can correct the token. The **Forget saved connection** action removes stored host/token values.
+- Authentication rejection (WebSocket close code 1008) stops automatic retries so the user can correct the token. The **Forget saved connection** action disconnects the active socket, stops reconnect attempts and removes stored host/token values.
 
 ### Transport security
 

@@ -101,17 +101,48 @@ class WebSocketService extends ChangeNotifier {
   }
 
   Future<void> forgetSavedConnection() async {
+    // Forgetting credentials must also stop the live socket and its reconnect loop.
+    _manualDisconnect = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    ++_connectionGeneration;
+    _connectTimeout?.cancel();
+    _connectTimeout = null;
+    _approvalTimeout?.cancel();
+    _approvalTimeout = null;
+
+    try {
+      await _sub?.cancel();
+    } catch (_) {}
+    _sub = null;
+    try {
+      await _channel?.sink.close();
+    } catch (_) {}
+    _channel = null;
+
+    isConnected = false;
+    isConnecting = false;
+    showSecurityGate = false;
+    securityText = "";
+    securityRequestId = null;
+    approvalSubmitting = false;
+    statusMessage = "Disconnected";
+    statusColor = "#E74C3C";
+    _lastHost = null;
+    _lastToken = "";
+    _lastPort = 8765;
+
     try {
       await _secureStorage.delete(key: "desktop_host");
       await _secureStorage.delete(key: "mobile_token");
       await _secureStorage.delete(key: "auto_connect");
       hasSavedConnection = false;
-      notifyListeners();
+      lastError = null;
     } catch (error) {
-      lastError = "Could not remove saved secure connection settings";
+      lastError = "Connection stopped, but saved credentials could not be removed";
       debugPrint("Secure connection settings delete failed: $error");
-      notifyListeners();
     }
+    notifyListeners();
   }
 
   void connect(String host, {int port = 8765, String token = ""}) {
