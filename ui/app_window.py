@@ -45,6 +45,7 @@ class AgenticVoiceAssistant(ctk.CTk):
         self._ui_queue = queue.Queue()
         self._ui_poll_id = None
         self._undo_in_progress = False
+        self._undo_completion_callbacks = []
         self._models_refreshing = False
         self._stt_ready = False
         self._tts_ready = False
@@ -744,8 +745,12 @@ class AgenticVoiceAssistant(ctk.CTk):
         self._hide_action_bar()
         self.update_status("History cleared")
 
-    def _undo_last_action(self):
-        if self._undo_in_progress or self._closing:
+    def _undo_last_action(self, on_complete=None):
+        if self._closing:
+            return
+        if on_complete is not None:
+            self._undo_completion_callbacks.append(on_complete)
+        if self._undo_in_progress:
             return
         self._undo_in_progress = True
         try:
@@ -773,33 +778,40 @@ class AgenticVoiceAssistant(ctk.CTk):
     def _finish_undo(self, result, stack, error):
         self._undo_in_progress = False
         if self._closing:
+            self._undo_completion_callbacks.clear()
             return
         try:
             self.inline_undo_btn.configure(state="normal")
         except Exception:
             pass
+
         if error:
             self.update_transcript(f"[Undo] Error: {error}")
             self.update_status("Undo failed", "#E74C3C")
-            return
-        if not isinstance(result, dict):
+        elif not isinstance(result, dict):
             self.update_transcript("[Undo] Undo returned an invalid result.")
             self.update_status("Undo failed", "#E74C3C")
-            return
+        else:
+            message = result.get("message") or ("Undo completed." if result.get("ok") else "Nothing to undo.")
+            self.update_transcript(f"[Undo] {message}")
+            if not result.get("ok"):
+                self.update_status("Nothing to undo", "#E67E22")
+                self._hide_action_bar()
+            else:
+                self.update_status("Undone", "#27AE60")
+                self._hide_action_bar()
+                if stack:
+                    filepath = stack[0].get("filepath") or ""
+                    if filepath:
+                        self._show_action_bar(f"Previous file change: {filepath}")
 
-        message = result.get("message") or ("Undo completed." if result.get("ok") else "Nothing to undo.")
-        self.update_transcript(f"[Undo] {message}")
-        if not result.get("ok"):
-            self.update_status("Nothing to undo", "#E67E22")
-            self._hide_action_bar()
-            return
-
-        self.update_status("Undone", "#27AE60")
-        self._hide_action_bar()
-        if stack:
-            filepath = stack[0].get("filepath") or ""
-            if filepath:
-                self._show_action_bar(f"Previous file change: {filepath}")
+        callbacks = self._undo_completion_callbacks
+        self._undo_completion_callbacks = []
+        for callback in callbacks:
+            try:
+                callback()
+            except Exception as callback_error:
+                print(f"[Undo] Completion callback failed: {callback_error}")
 
 
     def _show_scheduler(self):

@@ -141,12 +141,14 @@ class UndoViewer(ctk.CTkToplevel):
     def _undo_latest(self):
         try:
             if self.on_undo:
-                self.on_undo()
-            else:
-                result = self.undo.undo_last()
-                msg = result.get("message") or "Undo done."
-                if self.on_transcript:
-                    self.on_transcript(f"[Undo] {msg}")
+                # The application callback may run undo asynchronously. Refresh only
+                # after it reports completion so the list cannot show stale entries.
+                self.on_undo(self.reload)
+                return
+            result = self.undo.undo_last()
+            msg = result.get("message") or "Undo done."
+            if self.on_transcript:
+                self.on_transcript(f"[Undo] {msg}")
         except Exception as e:
             if self.on_transcript:
                 self.on_transcript(f"[Undo] Error: {e}")
