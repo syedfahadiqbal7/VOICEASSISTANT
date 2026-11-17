@@ -469,9 +469,9 @@ def test_mobile_platform_permissions_and_secure_storage_backup_policy():
 
 
 def test_desktop_approval_resolution_acknowledges_mobile_prompt(monkeypatch):
-    import asyncio
-    from mobile_api import bridge as bridge_module
+    import importlib
 
+    bridge_module = importlib.import_module("mobile_api.bridge")
     sent = []
     async def fake_broadcast(payload):
         sent.append(payload)
