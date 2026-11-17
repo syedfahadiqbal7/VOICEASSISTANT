@@ -25,7 +25,7 @@ pygetwindow>=0.0.9; platform_system == "Windows"
 pytesseract>=0.3.10
 Pillow>=10.0
 openpyxl>=3.1
-python-docx>=1.1
+python-docx>=1.2.0
 pypdf>=4.0
 PyPDF2>=3.0
 pdfminer.six>=20231228
