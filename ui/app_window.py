@@ -12,6 +12,7 @@ except Exception:
         notify_background = None
 
 import customtkinter as ctk
+from tkinter import messagebox
 from config import WINDOW_TITLE, WINDOW_SIZE, AVAILABLE_MODELS, DEFAULT_MODEL
 from audio.stt_engine import STTEngine
 from audio.tts_engine import TTSEngine
@@ -722,36 +723,44 @@ class AgenticVoiceAssistant(ctk.CTk):
         self.update_transcript(f"[System] Dry-Run Mode {status}")
 
     def _clear_history(self):
-        self.conversation.clear_history()
-        self.transcript_area.configure(state="normal")
-        self.transcript_area.delete("0.0", "end")
-        self.transcript_area.insert("0.0", "[System] Conversation history cleared.\n")
-        self.transcript_area.configure(state="disabled")
+        if not messagebox.askyesno(
+            "Clear conversation history",
+            "This permanently clears the current conversation history. Continue?",
+            parent=self,
+        ):
+            return
         try:
-            tb = self.transcript_area._textbox
-            tb.tag_config("user", foreground="#5DADE2")
-            tb.tag_config("assistant", foreground="#ABEBC6")
-            tb.tag_config("system", foreground="#95A5A6")
-            tb.tag_config("success", foreground="#58D68D")
-            tb.tag_config("error", foreground="#F1948A")
-            tb.tag_config("meta", foreground="#7F8C8D")
-            tb.tag_config("divider", foreground="#34495E")
-            tb.tag_config("bold", font=("Segoe UI", 13, "bold"))
-            tb.tag_config("italic", font=("Segoe UI", 13, "italic"))
-            tb.tag_config("heading", font=("Segoe UI", 14, "bold"), foreground="#F5B041")
-            tb.tag_config("bullet", foreground="#AED6F1")
-        except Exception:
-            pass
-        self._hide_action_bar()
-        self.update_status("History cleared")
+            self.conversation.clear_history()
+            self.transcript_area.configure(state="normal")
+            self.transcript_area.delete("0.0", "end")
+            self.transcript_area.insert("0.0", "[System] Conversation history cleared.\n")
+            self.transcript_area.configure(state="disabled")
+            self._hide_action_bar()
+            self.update_status("History cleared", "#27AE60")
+        except Exception as error:
+            self.update_transcript(f"[Error] Could not clear conversation history: {error}")
+            self.update_status("Clear history failed", "#E74C3C")
 
     def _undo_last_action(self, on_complete=None):
         if self._closing:
             return
+        if self._undo_in_progress:
+            if on_complete is not None:
+                self._undo_completion_callbacks.append(on_complete)
+            return
+        if not messagebox.askyesno(
+            "Undo last change",
+            "Restore the previous file content for the latest undo entry?",
+            parent=self,
+        ):
+            if on_complete is not None:
+                try:
+                    on_complete()
+                except Exception:
+                    pass
+            return
         if on_complete is not None:
             self._undo_completion_callbacks.append(on_complete)
-        if self._undo_in_progress:
-            return
         self._undo_in_progress = True
         try:
             self.inline_undo_btn.configure(state="disabled")
@@ -837,10 +846,13 @@ class AgenticVoiceAssistant(ctk.CTk):
             self.update_transcript(f"[Undo] History UI error: {e}")
 
     def _restart_app(self):
-        try:
-            self.update_transcript("[System] Restarting application...")
-        except Exception:
-            pass
+        if not messagebox.askyesno(
+            "Restart VoiceAssistant",
+            "The application will close and start again. Continue?",
+            parent=self,
+        ):
+            return
+        self.update_transcript("[System] Restarting application...")
         restart_app(self)
 
     def _show_skill_author(self):
