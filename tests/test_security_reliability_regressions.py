@@ -545,3 +545,61 @@ def test_desktop_ui_dispatcher_drops_callbacks_after_shutdown():
     ui = FakeUI()
     assert ui._post_ui(lambda: None) is False
     assert ui._ui_queue.empty()
+
+
+
+def test_scheduler_form_rejects_invalid_minutes_and_path_traversal():
+    from ui.scheduler_viewer import SchedulerViewer
+
+    class Field:
+        def __init__(self, value):
+            self.value = value
+
+        def get(self, *args):
+            return self.value
+
+    class FakeSchedulerForm:
+        _build_prompt = SchedulerViewer._build_prompt
+
+        def __init__(self, minutes="2", name="../outside", action="Create a text file on Desktop"):
+            self.action_var = Field(action)
+            self.minutes_entry = Field(minutes)
+            self.file_entry = Field(name)
+            self.content_entry = Field("safe content")
+            self.custom_entry = Field("")
+
+    with pytest.raises(ValueError, match="whole number"):
+        FakeSchedulerForm(minutes="abc")._build_prompt()
+    with pytest.raises(ValueError, match="between 1 and 525600"):
+        FakeSchedulerForm(minutes="0")._build_prompt()
+    with pytest.raises(ValueError, match="file name only"):
+        FakeSchedulerForm(name="../outside")._build_prompt()
+
+
+def test_scheduler_form_normalizes_text_extension_and_limits_custom_app():
+    from ui.scheduler_viewer import SchedulerViewer
+
+    class Field:
+        def __init__(self, value):
+            self.value = value
+
+        def get(self, *args):
+            return self.value
+
+    class FakeSchedulerForm:
+        _build_prompt = SchedulerViewer._build_prompt
+
+        def __init__(self, action, app="notepad", name="notes", content="hello"):
+            self.action_var = Field(action)
+            self.app_var = Field(app)
+            self.minutes_entry = Field("2")
+            self.when_var = Field("Once, after a delay")
+            self.file_entry = Field(name)
+            self.content_entry = Field(content)
+            self.custom_entry = Field("")
+
+    prompt = FakeSchedulerForm("Create a text file on Desktop")._build_prompt()
+    assert "notes.txt" in prompt
+    assert "hello" in prompt
+    with pytest.raises(ValueError, match="approved list"):
+        FakeSchedulerForm("Open an app", app="powershell.exe")._build_prompt()

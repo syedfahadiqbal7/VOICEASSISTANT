@@ -197,22 +197,32 @@ class SchedulerViewer(ctk.CTkToplevel):
 
     def _build_prompt(self) -> str:
         action = self.action_var.get()
-        try:
-            minutes = max(1, int(self.minutes_entry.get().strip() or "1"))
-        except ValueError:
-            minutes = 1
+        raw_minutes = self.minutes_entry.get().strip()
+        if not raw_minutes.isdigit():
+            raise ValueError("Minutes must be a whole number between 1 and 525600.")
+        minutes = int(raw_minutes)
+        if not 1 <= minutes <= 525600:
+            raise ValueError("Minutes must be between 1 and 525600.")
 
         if action == "Open an app":
             app = self.app_var.get().strip() or "notepad"
+            if app not in COMMON_APPS:
+                raise ValueError("Choose an application from the approved list.")
             body = f"Open {app}"
         elif action == "Create a text file on Desktop":
             name = (self.file_entry.get() or "note.txt").strip()
-            if "." not in name:
+            if not name or name in {".", ".."} or "/" in name or "\\" in name:
+                raise ValueError("Enter a file name only; folder paths are not allowed.")
+            if not name.lower().endswith(".txt"):
                 name += ".txt"
             content = (self.content_entry.get() or "OK").strip()
+            if len(content) > 5000:
+                raise ValueError("File content is limited to 5000 characters.")
             body = f"Create a file named {name} on desktop with text {content}"
         else:
             body = self.custom_entry.get("1.0", "end").strip() or "Open notepad"
+            if len(body) > 10000:
+                raise ValueError("Custom instructions are limited to 10000 characters.")
 
         if self.when_var.get().startswith("Once"):
             return f"schedule in {minutes} minutes: {body}"
@@ -220,9 +230,9 @@ class SchedulerViewer(ctk.CTkToplevel):
 
     def _update_preview(self, _=None):
         try:
-            self.preview.configure(text=self._build_prompt())
-        except Exception:
-            pass
+            self.preview.configure(text=self._build_prompt(), text_color="#1ABC9C")
+        except ValueError as error:
+            self.preview.configure(text=f"Invalid schedule: {error}", text_color="#E74C3C")
 
     def _clear_form(self):
         """Reset form to defaults after successful Fill / Schedule now."""
@@ -242,18 +252,28 @@ class SchedulerViewer(ctk.CTkToplevel):
 
     def _fill_only(self):
         """Only put the generated command into the main message box. Does not schedule."""
-        prompt = self._build_prompt()
-        self._update_preview()
-        if self.on_fill_message:
-            self.on_fill_message(prompt)
+        try:
+            prompt = self._build_prompt()
+        except ValueError:
+            self._update_preview()
+            return
+        if not self.on_fill_message:
+            self.preview.configure(text="Message box is unavailable.", text_color="#E74C3C")
+            return
+        self.on_fill_message(prompt)
         self._clear_form()
 
     def _schedule_now(self):
         """Schedule immediately. Does NOT write anything into the message box."""
-        prompt = self._build_prompt()
-        self._update_preview()
-        if self.on_schedule_direct:
-            self.on_schedule_direct(prompt)
+        try:
+            prompt = self._build_prompt()
+        except ValueError:
+            self._update_preview()
+            return
+        if not self.on_schedule_direct:
+            self.preview.configure(text="Scheduler action is unavailable.", text_color="#E74C3C")
+            return
+        self.on_schedule_direct(prompt)
         self._clear_form()
         self.after(200, self.reload)
 
@@ -318,9 +338,13 @@ class SchedulerViewer(ctk.CTkToplevel):
 
     def _cancel(self, job_id: str):
         try:
-            self.scheduler.cancel(job_id)
-        except Exception:
-            pass
+            cancelled = self.scheduler.cancel(job_id)
+            if cancelled is False:
+                self.preview.configure(text=f"Could not cancel scheduled job {job_id}.", text_color="#E74C3C")
+            else:
+                self.preview.configure(text=f"Scheduled job {job_id} cancelled.", text_color="#27AE60")
+        except Exception as error:
+            self.preview.configure(text=f"Cancel failed: {error}", text_color="#E74C3C")
         self.reload()
 
 
