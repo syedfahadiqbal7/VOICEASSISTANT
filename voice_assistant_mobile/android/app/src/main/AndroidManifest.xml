@@ -6,6 +6,7 @@
     <!-- permission_handler: open app settings -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     <application
+        android:allowBackup="false"
         android:usesCleartextTraffic="true"
         android:label="Voice Assistant"
         android:name="${applicationName}"

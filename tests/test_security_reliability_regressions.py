@@ -438,3 +438,30 @@ def test_mobile_approval_handler_acknowledges_accepted_and_stale_requests(monkey
         {"type": "approval_ack", "request_id": "active", "accepted": True},
         {"type": "approval_ack", "request_id": "stale", "accepted": False},
     ]
+
+
+
+def test_mobile_platform_permissions_and_secure_storage_backup_policy():
+    import plistlib
+    import xml.etree.ElementTree as ET
+
+    root = Path(__file__).resolve().parents[1]
+    android_manifest = ET.parse(
+        root / "voice_assistant_mobile" / "android" / "app" / "src" / "main" / "AndroidManifest.xml"
+    ).getroot()
+    android_ns = "{http://schemas.android.com/apk/res/android}"
+    application = android_manifest.find("application")
+    assert application is not None
+    assert application.attrib.get(android_ns + "allowBackup") == "false"
+    assert application.attrib.get(android_ns + "usesCleartextTraffic") == "true"
+    permissions = {
+        element.attrib.get(android_ns + "name")
+        for element in android_manifest.findall("uses-permission")
+    }
+    assert "android.permission.RECORD_AUDIO" in permissions
+    assert "android.permission.INTERNET" in permissions
+
+    with (root / "voice_assistant_mobile" / "ios" / "Runner" / "Info.plist").open("rb") as stream:
+        ios_plist = plistlib.load(stream)
+    assert ios_plist.get("NSMicrophoneUsageDescription")
+    assert ios_plist.get("NSSpeechRecognitionUsageDescription")

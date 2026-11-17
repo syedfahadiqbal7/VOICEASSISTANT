@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Voice Assistant uses the microphone when you tap the microphone button to dictate a command.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Voice Assistant uses system speech recognition to convert your spoken command into text.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

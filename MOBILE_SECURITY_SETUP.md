@@ -46,3 +46,10 @@ Android permits cleartext traffic because local development/VPN deployments may 
 - Mobile undo is available only when the desktop session reports an undo entry and requires a confirmation dialog on the phone.
 - Approval responses are bound to the authenticated connection that received the challenge. A disconnected mobile client cannot approve a request from another connection; the desktop approval dialog remains a fallback when available.
 - Real-device tests are still required for Android Keystore, iOS Keychain, WSS certificate trust, background/resume and reconnect behavior.
+
+
+### Platform permission and backup policy
+
+- iOS declares both `NSMicrophoneUsageDescription` and `NSSpeechRecognitionUsageDescription`; these are required by the speech-recognition flow.
+- Android requests microphone permission at runtime. Android app backup is disabled because the mobile access token is stored in Keystore-backed secure storage and must not be restored independently of its encryption key.
+- Approval buttons remain visible until the desktop acknowledges the exact request ID; a missing acknowledgement times out locally and permits retry. A stale/rejected acknowledgement does not dismiss a different pending challenge.
