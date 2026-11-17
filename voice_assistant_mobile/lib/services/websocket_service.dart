@@ -77,19 +77,31 @@ class WebSocketService extends ChangeNotifier {
     }
   }
 
-  Future<void> _persistConnection() async {
+  Future<void> _persistConnection(int generation) async {
     final host = _lastHost;
-    if (host == null || host.isEmpty) return;
+    if (host == null ||
+        host.isEmpty ||
+        generation != _connectionGeneration ||
+        _manualDisconnect) {
+      return;
+    }
     try {
       await _secureStorage.write(key: "desktop_host", value: host);
+      if (generation != _connectionGeneration || _manualDisconnect) return;
       await _secureStorage.write(key: "mobile_token", value: _lastToken);
+      if (generation != _connectionGeneration || _manualDisconnect) return;
       await _secureStorage.write(key: "auto_connect", value: "true");
+      if (generation != _connectionGeneration || _manualDisconnect) return;
       hasSavedConnection = true;
     } catch (error) {
-      lastError = "Connection works, but secure credential storage failed";
-      debugPrint("Secure connection settings write failed: $error");
+      if (generation == _connectionGeneration && !_manualDisconnect) {
+        lastError = "Connection works, but secure credential storage failed";
+        debugPrint("Secure connection settings write failed: $error");
+      }
     }
-    notifyListeners();
+    if (generation == _connectionGeneration && !_manualDisconnect) {
+      notifyListeners();
+    }
   }
 
   Future<void> _setAutoConnect(bool enabled) async {
@@ -458,7 +470,7 @@ class WebSocketService extends ChangeNotifier {
           statusMessage = data["message"] ?? "Connected to VoiceAssistant";
           statusColor = "#27AE60";
           lastError = null;
-          unawaited(_persistConnection());
+          unawaited(_persistConnection(_connectionGeneration));
           Future.delayed(const Duration(milliseconds: 200), () {
             if (isConnected) {
               requestSessionState();
