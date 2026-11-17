@@ -9,9 +9,9 @@
 
 The repository is a functional prototype / advanced local-agent foundation, not yet a production-certified enterprise application. It contains a Windows desktop assistant, Ollama-compatible LLM integration, planner/executor, tool registry, local history and memory, scheduler, policy/undo mechanisms, 55 plugin source files and a Flutter mobile client.
 
-A focused security and reliability hardening pass has been implemented in this development copy. The highest-priority fixes address mobile API exposure and approval binding, policy fail-open behavior, canonical file path validation, plugin loading integrity, PowerShell result verification, undo snapshot failures, shared conversation concurrency and atomic JSON persistence.
+A multi-phase security, reliability and privacy hardening pass has been committed to GitHub main. In addition to mobile API/approval binding, policy fail-closed behavior, canonical write paths, plugin ZIP/manifest/permission enforcement, scheduler recovery and concurrency protection, private local stores now use AES-256-GCM at rest with DPAPI-backed Windows key protection. A portable passphrase-encrypted backup/restore CLI is available.
 
-The source compiles at the Python syntax level and the available Python regression suites pass. A complete Windows desktop run, audio hardware test, Ollama request, Android/iOS build and Flutter analyzer run remain unverified because this execution environment does not have the required Windows runtime, audio hardware or Flutter/Dart SDK.
+Latest verified implementation CI: 66 Python regression tests passed, 16 Phase 0 smoke checks passed, Python compileall passed, Flutter analyze/tests passed and Android release APK build passed. Real Windows desktop GUI/audio/Ollama operation and Android device-level behavior still require testing on target hardware.
 
 ## 2. Source inventory
 
@@ -148,7 +148,7 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 | Plugin manifest/export parity | 54/54 pass | AST check for all active plugin modules; legacy scheduler excluded |
 | Python compileall | Pass | Windows GitHub Actions |
 | Flutter `flutter analyze` / `flutter test` | Pass | Ubuntu GitHub Actions |
-| Android release APK build | In progress | Latest CI run 44026350158; wait for final job result |
+| Android release APK build | Pass | GitHub Actions Android release build succeeded; no release artifact published on branch push |
 | Windows desktop startup / audio / Ollama | Not run | Requires the user's Windows desktop, audio hardware and local model runtime |
 | Windows desktop startup | Not run | Requires Windows, desktop dependencies and GUI session |
 | Microphone/STT/TTS | Not run | Requires supported audio devices and model download |
@@ -171,8 +171,8 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 - **Retention and deletion semantics.** Conversation and audit caps exist, but there is no central user-configurable retention policy, verified secure-erasure workflow or privacy dashboard yet.
 - **Backup transaction boundary.** Restore validates the full archive before writing and atomically replaces each file, but the set of files is not committed as one filesystem transaction. Take a fresh backup before restore.
 - **Broad exception handling remains.** Static scan found 337 exception handlers, including 310 `except Exception` handlers and 75 handlers whose only statement is `pass`. These are not all defects, but they need a dedicated exception-observability pass with structured logs and typed recovery behavior.
-- **No comprehensive integration suite.** Mobile/desktop end-to-end workflows, scheduler restart recovery, file-write rollback under disk failure, concurrent cancellation, and external plugin integrations still need automated Windows tests.
-- **History corruption handling.** Some JSON loaders still return empty defaults after parse errors. A quarantine/restore flow should be implemented consistently across all persisted stores.
+- **No comprehensive end-to-end suite.** Real Windows desktop GUI/audio/Ollama workflows, Android device-level behavior, concurrent cancellation and external account/plugin integrations still need target-environment validation. Unit/regression coverage already exercises scheduler restart recovery and undo snapshot failure paths.
+- **Malformed legacy data recovery.** Encrypted authentication failures fail closed. Malformed legacy plaintext JSON is not quarantined uniformly across every store; some stores raise a typed or validation error and require restore from a portable backup or manual repair.
 - **No rate limiting per authenticated mobile connection.** Message and frame size limits are in place, but per-client request quotas and connection limits are still recommended.
 
 ### P2 — product and UX
@@ -204,7 +204,7 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 ## 9. Final status
 
 **Implemented:** focused security/reliability hardening, durable scheduler recovery/retries, plugin ZIP/manifest/permission hardening, AES-256-GCM local persistence encryption, DPAPI/environment key handling, plaintext migration, fail-closed integrity checks and portable passphrase-encrypted backup/restore with interactive CLI.  
-**Verified:** Windows Python compileall, 66 Python regression tests, 16 Phase 0 smoke checks, 55 plugin manifest/checksum checks, 54 plugin export-parity checks, Flutter analysis/tests and Android APK build (latest full CI pending).  
+**Verified:** Windows Python compileall, 66 Python regression tests, 15/15 local data-protection/backup tests, 16 Phase 0 smoke checks, 55 plugin manifest/checksum checks, 54 plugin export-parity checks, Flutter analysis/tests and Android APK build. Full implementation CI: https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44027034836.  
 **Not certified:** Windows desktop runtime, audio, Ollama, Flutter analysis/build, Android runtime, TLS/mobile production deployment and external integrations.
 
 This is a meaningful engineering hardening release candidate, not a claim that every original feature is production-ready or that all remaining findings have been resolved.
