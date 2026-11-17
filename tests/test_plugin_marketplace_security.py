@@ -233,13 +233,24 @@ class ActualTool(BaseTool):
         "checksum_sha256": "0" * 64,
     }), encoding="utf-8")
 
+    legacy_entry = plugins / "legacy_plugin.py"
+    legacy_entry.write_text(source.replace("actual_tool", "legacy_tool"), encoding="utf-8")
+    legacy_entry.with_suffix(".manifest.json").write_text(json.dumps({
+        "name": "legacy_plugin", "version": "1.0.0", "entry": legacy_entry.name,
+        "tools": ["legacy_tool"], "permissions": ["network"],
+        "checksum_sha256": hashlib.sha256(legacy_entry.read_bytes()).hexdigest(),
+    }), encoding="utf-8")
+
     written = generate_manifests_for_plugins_dir(plugins)
-    assert len(written) == 1
+    assert len(written) == 2
     manifest = json.loads(entry.with_suffix(".manifest.json").read_text(encoding="utf-8"))
     assert manifest["tools"] == ["actual_tool"]
     assert manifest["permissions"] == ["filesystem:write"]
     assert manifest["version"] == "2.0.0"
     assert manifest["checksum_sha256"] == hashlib.sha256(entry.read_bytes()).hexdigest()
+    legacy_manifest = json.loads(legacy_entry.with_suffix(".manifest.json").read_text(encoding="utf-8"))
+    assert legacy_manifest["tools"] == ["legacy_tool"]
+    assert legacy_manifest["permissions"] == ["system:admin"]
 
 
 def test_registry_defaults_undeclared_legacy_permissions_to_privileged(tmp_path, monkeypatch):
