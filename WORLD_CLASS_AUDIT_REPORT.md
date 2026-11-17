@@ -87,6 +87,7 @@ Feature presence in source does not imply every integration was successfully exe
 18. **Protected key management.** Windows uses a random 256-bit data key protected by the current Windows user profile with DPAPI. Other platforms require an explicit 32-byte `VOICEASSISTANT_DATA_KEY`; a malformed key never falls back to plaintext.
 19. **Fail-closed decryption and migration.** Existing plaintext JSON stores migrate atomically on first encrypted read. Wrong keys, tampering and store-context mismatch raise a data-protection error; affected stores are not silently reset to empty defaults.
 20. **Custom skill source minimization.** Generated plugin source no longer embeds private triggers, URLs or action arguments; it reads the protected custom-skill manifest at runtime.
+21. **Portable encrypted backup/restore.** A bounded allowlisted runtime-data archive is protected by PBKDF2-HMAC-SHA256 (600,000 iterations) and AES-256-GCM. Restore verifies archive authentication, path safety, symlinks, duplicate entries, size/compression limits and JSON shapes before writing; each restored file is atomic. The interactive CLI requests passphrases via `getpass` and requires an explicit `RESTORE` confirmation.
 
 ### Reliability and data integrity
 
@@ -102,6 +103,7 @@ Feature presence in source does not imply every integration was successfully exe
 10. Missing `openai` import no longer prevents importing non-LLM agent components; an actual LLM request reports the missing dependency.
 11. Scheduler jobs now persist `pending/running/completed/failed/cancelled` states, recover interrupted `running` jobs after restart, retry failed handlers up to three attempts with bounded delays, and prevent concurrent duplicate firing. Completion checkpoints are atomic; if a checkpoint fails, the job is re-queued for at-least-once recovery. Corrupt scheduler JSON is quarantined instead of silently discarded.
 12. Scheduler handlers now report success/failure to the scheduler; the mobile schedules view receives job status, attempt count and last error.
+13. **Portable backup and restore.** `BackupManager` supports portable passphrase-encrypted backups of approved runtime stores and undo snapshots, with custom-skill loader regeneration on restore. Multi-file restore is per-file atomic, not a single transaction.
 
 ### Mobile UX and lifecycle
 
@@ -139,8 +141,8 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 | Focused security/reliability tests | 25/25 pass | Windows GitHub Actions |
 | Scheduler durability/recovery tests | 10/10 pass | Crash recovery, retries, cancellation, concurrency and checkpoint failure |
 | Plugin marketplace/security tests | 16/16 pass | ZIP traversal, checksum mismatch, symlink, overwrite, permissions, trust metadata, generator and registry checks |
-| Local data protection tests | 12/12 pass | AES-GCM, tamper/wrong-key detection, plaintext migration, encrypted undo, policy/scheduler/memory/history/skill persistence and fail-closed behavior |
-| Combined Python regression tests | 63/63 pass | Security/reliability + scheduler + plugin + data-protection suites |
+| Local data protection and backup tests | 15/15 pass | AES-GCM, tamper/wrong-key detection, plaintext migration, encrypted stores/undo, portable restore across different keys, wrong-passphrase and ZIP-slip rejection |
+| Combined Python regression tests | 66/66 pass | Security/reliability + scheduler + plugin + data-protection/backup suites |
 | Existing Phase 0 smoke suite | 16/16 pass | Windows GitHub Actions |
 | Plugin manifest/checksum scan | 55/55 pass | Checks shipped Python file checksums and manifest shape |
 | Plugin manifest/export parity | 54/54 pass | AST check for all active plugin modules; legacy scheduler excluded |
@@ -165,8 +167,9 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 ### P1/P2 — reliability and privacy
 
 - **Scheduler delivery semantics.** A durable Pending/Running/Completed/Failed/Cancelled state machine and crash recovery are implemented. Delivery is at-least-once: if the process crashes after a handler performs an external side effect but before the completion checkpoint is persisted, the handler may run again after restart. Handlers that create files, send messages or otherwise mutate external state still need operation-level idempotency keys/duplicate detection before unattended production use.
-- **Key recovery and portability.** Windows DPAPI key material is bound to the current Windows user profile. Losing the DPAPI key file/profile or moving encrypted data to another account/device without preserving the same data key makes data unrecoverable. A guided key export/rotation and portable encrypted backup workflow are not yet implemented. Explicit Markdown/text conversation exports remain plaintext and must be stored securely.
+- **Key recovery and rotation.** Windows DPAPI key material is bound to the current Windows user profile. Losing the DPAPI key file/profile makes raw encrypted runtime files unrecoverable. Portable backups can be restored on another machine using their separate passphrase, but key rotation for an existing live data set is not implemented. Explicit Markdown/text conversation exports remain plaintext and must be stored securely.
 - **Retention and deletion semantics.** Conversation and audit caps exist, but there is no central user-configurable retention policy, verified secure-erasure workflow or privacy dashboard yet.
+- **Backup transaction boundary.** Restore validates the full archive before writing and atomically replaces each file, but the set of files is not committed as one filesystem transaction. Take a fresh backup before restore.
 - **Broad exception handling remains.** Static scan found 337 exception handlers, including 310 `except Exception` handlers and 75 handlers whose only statement is `pass`. These are not all defects, but they need a dedicated exception-observability pass with structured logs and typed recovery behavior.
 - **No comprehensive integration suite.** Mobile/desktop end-to-end workflows, scheduler restart recovery, file-write rollback under disk failure, concurrent cancellation, and external plugin integrations still need automated Windows tests.
 - **History corruption handling.** Some JSON loaders still return empty defaults after parse errors. A quarantine/restore flow should be implemented consistently across all persisted stores.
@@ -200,8 +203,8 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 
 ## 9. Final status
 
-**Implemented:** focused security/reliability hardening, durable scheduler recovery/retries, plugin ZIP/manifest/permission hardening, AES-256-GCM local persistence encryption, DPAPI/environment key handling, plaintext migration and fail-closed integrity checks.  
-**Verified:** Windows Python compileall, 63 Python regression tests, 16 Phase 0 smoke checks, 55 plugin manifest/checksum checks, 54 plugin export-parity checks and Flutter analysis/tests. Android APK build is still running in CI run 44026350158.  
+**Implemented:** focused security/reliability hardening, durable scheduler recovery/retries, plugin ZIP/manifest/permission hardening, AES-256-GCM local persistence encryption, DPAPI/environment key handling, plaintext migration, fail-closed integrity checks and portable passphrase-encrypted backup/restore with interactive CLI.  
+**Verified:** Windows Python compileall, 66 Python regression tests, 16 Phase 0 smoke checks, 55 plugin manifest/checksum checks, 54 plugin export-parity checks, Flutter analysis/tests and Android APK build (latest full CI pending).  
 **Not certified:** Windows desktop runtime, audio, Ollama, Flutter analysis/build, Android runtime, TLS/mobile production deployment and external integrations.
 
 This is a meaningful engineering hardening release candidate, not a claim that every original feature is production-ready or that all remaining findings have been resolved.

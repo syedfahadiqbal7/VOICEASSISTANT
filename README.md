@@ -117,6 +117,7 @@ Scheduled jobs use persisted execution states and retry failed handlers up to th
 
 - [Comprehensive engineering audit](WORLD_CLASS_AUDIT_REPORT.md)
 - [Mobile security setup](MOBILE_SECURITY_SETUP.md)
+- [Local data protection and portable backups](docs/DATA_PROTECTION_AND_BACKUP.md)
 - [Plugin authoring guide](tests/PLUGIN_AUTHORING.md)
 - [Plugin security model](docs/PLUGIN_SECURITY_MODEL.md)
 - [Help](HELP.md)
