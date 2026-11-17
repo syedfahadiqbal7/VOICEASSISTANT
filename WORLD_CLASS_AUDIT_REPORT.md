@@ -1,7 +1,7 @@
 # Voice Assistant — Comprehensive Engineering Audit & Hardening Report
 
 **Assessment mode:** source inspection + isolated regression testing  
-**Development target:** separate copy of the supplied archive  
+**Development target:** GitHub repository main branch; original uploaded archive remains untouched  
 **Original archive:** not modified  
 **Runtime certification:** not completed on the user's Windows machine
 
@@ -26,10 +26,10 @@ Post-hardening inventory (includes the new helper and regression test files):
 | `tools/` | 4 | 293 |
 | `ui/` | 9 | 2,590 |
 | `security/` | 1 | 54 |
-| `tests/` | 2 | 607 |
+| `tests/` | 5 | Expanded regression suites and authoring docs |
 | Startup/legacy/template files | 10 | 1,796 |
 
-The full tree contains 108 Python files and approximately 16,665 Python source lines (732 functions and 107 classes). The plugin folder contains 55 tool/plugin Python files and 55 sidecar manifests; one legacy scheduler plugin remains intentionally disabled.
+The full tree currently contains 109 Python files. Line/function/class totals are not used as a release-quality measure and were not re-counted after Phase 2. The plugin folder contains 55 tool/plugin Python files and 55 sidecar manifests; one legacy scheduler plugin remains intentionally disabled.
 
 ## 3. Existing feature inventory (source-confirmed)
 
@@ -76,7 +76,11 @@ Feature presence in source does not imply every integration was successfully exe
 7. **Policy fail-closed.** Exceptions during policy evaluation now stop direct tool calls and plan steps.
 8. **Canonical write-path checks.** Allowed write roots are resolved before path comparison, preventing folder-name lookalikes and existing symlink escapes.
 9. **Manifest enforcement.** Plugins without manifests, with invalid checksums, or exporting undeclared tool names are blocked. Duplicate tool names no longer overwrite existing registrations.
-10. **Permission metadata.** Shipped high-impact plugin manifests now declare relevant file, process, screen, network, service, environment, messaging and clipboard permissions. Read-only policy rejects declared mutating capabilities; PlanExecutor also refuses to auto-approve a tool whose manifest declares mutating permissions.
+10. **Plugin ZIP hardening.** ZIP-slip/absolute paths, backslashes, symlinks, encrypted entries, unsupported compression, oversized archives, excessive member counts and unexpected files are rejected. The installer reads bounded members without `extractall`, verifies the supplied SHA-256 exactly (no silent checksum refresh), stages installation, refuses overwrites by default and requires explicit desktop confirmation for replacement.
+11. **Exact plugin exports.** All active plugin manifests now declare the actual `BaseTool.name` exports. Registry loading is all-or-nothing: undeclared/missing exports, duplicate names and collisions block the whole plugin rather than partially registering it.
+12. **Permission metadata and fail-closed defaults.** Shipped plugin manifests declare file, process, screen, network, service, environment, registry, messaging, email and clipboard capabilities. Read-only policy rejects declared mutating capabilities and common mutating tool-name verbs. Plugins with missing/empty permission metadata default to `system:admin`, except the two built-in pure utilities `say_hello` and `json_formatter`.
+13. **Safe manifest regeneration.** The manifest generator derives actual tool names from Python AST without importing plugin code and preserves existing permissions. Unknown or missing permission metadata defaults to `system:admin`; the disabled legacy scheduler plugin is skipped.
+14. **Publisher identity is not spoofable metadata.** The manifest author field is exposed only as an unverified claim; it is never treated as verified publisher trust. Direct scheduled tool execution now passes through policy evaluation and fails closed on policy errors.
 11. **API key handling.** Cloud LLM API keys are no longer persisted to the failover JSON file; use `VOICEASSISTANT_CLOUD_API_KEY`.
 12. **No placeholder API key.** The example failover config no longer contains a fake `sk-...` value.
 
@@ -117,23 +121,28 @@ Feature presence in source does not imply every integration was successfully exe
 
 ## 5. Plugin registry verification
 
-The initial enforcement pass found a mismatch between plugin manifest `tools` values and actual `BaseTool.name` values. This would have disabled existing browser, Office, VS Code and workflow tools. The shipped manifest declarations were corrected rather than weakening validation.
+The initial enforcement pass found mismatches between plugin manifest `tools` values and actual `BaseTool.name` values. The shipped manifests were corrected rather than weakening validation. A static AST regression checks exact manifest/export parity for all **54 active plugin modules**; the legacy `task_scheduler.py` remains disabled.
 
-A real `ToolRegistry()` load in an isolated copy registered **61 tools** (including the three built-in tools). The registry intentionally rejects the duplicate `open_app` class exported by the Office plugin because the dedicated `open_app` plugin already owns that name. The legacy `task_scheduler.py` remains disabled.
+Registry registration is atomic. A plugin is registered only when its complete exported tool-name set matches its manifest and no existing tool name conflicts. Plugins with no capability declarations are treated as privileged by default, with only the two built-in pure utilities explicitly allowlisted for an empty permission set.
+
+The installer does not claim cryptographic publisher authentication or OS-level sandboxing. SHA-256 checks integrity against the included manifest; a malicious publisher can replace both. The `author` field is unverified. Plugins still execute inside the desktop process.
 
 ## 6. Verification performed
 
 | Check | Result | Notes |
 |---|---:|---|
 | Python AST / compile check | Pass | 108 Python files; zero syntax errors |
-| Focused security/reliability tests | 25/25 pass | Run on an isolated copy |
+| Focused security/reliability tests | 25/25 pass | Windows GitHub Actions |
 | Scheduler durability/recovery tests | 10/10 pass | Crash recovery, retries, cancellation, concurrency and checkpoint failure |
-| Combined Python regression tests | 35/35 pass | Security/reliability + scheduler suites |
-| Existing Phase 0 smoke suite | 16/16 pass | Run on an isolated copy so undo/history data is not changed |
+| Plugin marketplace/security tests | 16/16 pass | ZIP traversal, checksum mismatch, symlink, overwrite, permissions, trust metadata, generator and registry checks |
+| Combined Python regression tests | 51/51 pass | Security/reliability + scheduler + plugin suites |
+| Existing Phase 0 smoke suite | 16/16 pass | Windows GitHub Actions |
 | Plugin manifest/checksum scan | 55/55 pass | Checks shipped Python file checksums and manifest shape |
-| Runtime plugin registry load | 61 tools registered | One legacy plugin disabled; duplicate `open_app` rejected |
-| Flutter `flutter analyze` / `flutter test` | Not run | Flutter/Dart executable unavailable in this environment |
-| Android/iOS build | Not run | Requires local SDK/toolchain and accepted Android licenses |
+| Plugin manifest/export parity | 54/54 pass | AST check for all active plugin modules; legacy scheduler excluded |
+| Python compileall | Pass | Windows GitHub Actions |
+| Flutter `flutter analyze` / `flutter test` | Pass | Ubuntu GitHub Actions |
+| Android release APK build | Pass | Build succeeded; branch run did not publish a release artifact |
+| Windows desktop startup / audio / Ollama | Not run | Requires the user's Windows desktop, audio hardware and local model runtime |
 | Windows desktop startup | Not run | Requires Windows, desktop dependencies and GUI session |
 | Microphone/STT/TTS | Not run | Requires supported audio devices and model download |
 | Ollama / cloud provider | Not run | Requires running Ollama/model or configured cloud credentials |
@@ -144,8 +153,8 @@ A real `ToolRegistry()` load in an isolated copy registered **61 tools** (includ
 
 - **No TLS in the direct mobile transport.** The current Flutter client uses `ws://`. A shared token on an untrusted network can be sniffed/replayed. Use a VPN or TLS-terminating `wss://` proxy before any untrusted-network deployment.
 - **Shared-token identity model.** Authentication is one shared secret, not per-device credentials, certificate identity, revocation or user roles. Rotate it if a phone is lost.
-- **Plugin sandboxing is absent.** Plugins execute in the desktop Python process with the user's OS permissions. Checksums are integrity checks, not cryptographic publisher signatures; manifests are self-declared metadata.
-- **Permission declarations are not a sandbox.** Read-only policy now blocks declared mutating permissions, but a malicious or incorrectly declared plugin can understate its capabilities. Require code review and explicit trust before adding third-party plugins.
+- **Plugin sandboxing is absent.** Plugins execute in the desktop Python process with the user's OS permissions. Checksums are integrity checks, not cryptographic publisher signatures; the author field is unverified metadata.
+- **Permission declarations are not a sandbox.** Read-only policy blocks declared mutating permissions and missing permissions fail closed to `system:admin`, but a malicious plugin can understate its capabilities. Require code review and explicit trust before adding third-party plugins.
 - **Command analysis remains heuristic.** The command analyzer is not a PowerShell sandbox. High-impact commands need OS-level least privilege and strong approval UX.
 
 ### P1/P2 — reliability and privacy
@@ -164,6 +173,7 @@ A real `ToolRegistry()` load in an isolated copy registered **61 tools** (includ
 - Add structured task progress and cancellation-state visibility across desktop and mobile.
 - Add explicit time-zone handling for schedules and a user-controlled retry-now action for failed jobs.
 - Add mobile connection persistence via secure storage, optional TLS/WSS configuration and a connection diagnostics screen.
+- Add plugin dependency/version resolution, publisher signatures, hot-reload lifecycle and isolated worker-process sandboxing.
 - Add accessibility, responsive layout, keyboard navigation and visual regression checks.
 - Replace remaining placeholder/starter project metadata and validate app branding/package identifiers before release.
 
@@ -184,8 +194,8 @@ A real `ToolRegistry()` load in an isolated copy registered **61 tools** (includ
 
 ## 9. Final status
 
-**Implemented:** focused security/reliability hardening, durable scheduler recovery/retries and documentation in the separate development copy.  
-**Verified:** Python syntax, 35 Python regression tests, 16 Phase 0 smoke checks, plugin manifest/checksum validation and runtime plugin registry load.  
+**Implemented:** focused security/reliability hardening, durable scheduler recovery/retries, plugin ZIP/manifest/permission hardening and documentation on GitHub main.  
+**Verified:** Windows Python compileall, 51 Python regression tests, 16 Phase 0 smoke checks, 55 plugin manifest/checksum checks, 54 plugin export-parity checks, Flutter analysis/tests and Android release APK build. Latest green CI: https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44024370357.  
 **Not certified:** Windows desktop runtime, audio, Ollama, Flutter analysis/build, Android runtime, TLS/mobile production deployment and external integrations.
 
 This is a meaningful engineering hardening release candidate, not a claim that every original feature is production-ready or that all remaining findings have been resolved.
