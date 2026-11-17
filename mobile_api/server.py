@@ -278,6 +278,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 def start_server(host: str = "127.0.0.1", port: int = 8765):
+    if _server_stop_requested.is_set():
+        logger.info("Mobile API startup skipped because shutdown was already requested", extra={"event": "mobile.startup_cancelled"})
+        return
     token = _expected_mobile_token()
     _max_mobile_connections()  # Fail fast on invalid connection-cap configuration.
     if host not in ("127.0.0.1", "localhost", "::1") and len(token) < 32:

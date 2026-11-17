@@ -678,7 +678,10 @@ def test_connection_manager_rejects_excess_connections_without_accepting_socket(
 
 
 def test_mobile_api_stop_server_requests_shutdown_on_server_loop(monkeypatch):
+    import threading
     from mobile_api import server
+
+    monkeypatch.setattr(server, "_server_stop_requested", threading.Event())
 
     class FakeLoop:
         closed = False
@@ -702,8 +705,25 @@ def test_mobile_api_stop_server_requests_shutdown_on_server_loop(monkeypatch):
 
 
 def test_mobile_api_stop_server_is_safe_when_not_running(monkeypatch):
+    import threading
     from mobile_api import server
 
+    monkeypatch.setattr(server, "_server_stop_requested", threading.Event())
     monkeypatch.setattr(server, "_active_server", None)
     monkeypatch.setattr(server, "_active_server_loop", None)
     assert server.stop_server() is False
+
+
+
+def test_mobile_api_startup_is_cancelled_if_shutdown_wins_race(monkeypatch):
+    import threading
+    from mobile_api import server
+
+    requested = threading.Event()
+    requested.set()
+    monkeypatch.setattr(server, "_server_stop_requested", requested)
+    monkeypatch.setattr(server, "_active_server", None)
+    monkeypatch.setattr(server, "_active_server_loop", None)
+
+    assert server.start_server() is None
+    assert server._active_server is None
