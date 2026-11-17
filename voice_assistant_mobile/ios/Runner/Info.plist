@@ -6,6 +6,8 @@
 	<string>Voice Assistant uses the microphone when you tap the microphone button to dictate a command.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Voice Assistant uses system speech recognition to convert your spoken command into text.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Voice Assistant connects to your desktop on your trusted local network to send commands and receive responses.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

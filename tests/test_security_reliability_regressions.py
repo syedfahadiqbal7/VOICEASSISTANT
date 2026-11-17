@@ -465,6 +465,7 @@ def test_mobile_platform_permissions_and_secure_storage_backup_policy():
         ios_plist = plistlib.load(stream)
     assert ios_plist.get("NSMicrophoneUsageDescription")
     assert ios_plist.get("NSSpeechRecognitionUsageDescription")
+    assert ios_plist.get("NSLocalNetworkUsageDescription")
 
 
 
