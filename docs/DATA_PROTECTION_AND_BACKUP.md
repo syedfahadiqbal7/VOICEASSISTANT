@@ -96,3 +96,19 @@ Before writing, restore validates the authenticated archive, format version, pat
 - There is no central user-configurable retention policy or privacy dashboard yet.
 - Portable backup creation and restoration hold decrypted content in process memory.
 - The backup passphrase must be stored separately from the backup file. Anyone with both can restore the included data.
+
+
+## User-controlled retention
+
+Retention settings are stored encrypted in `history/data_retention.json`. All retention rules are disabled by default; nothing is purged automatically at application startup. Use the interactive CLI:
+
+```powershell
+python privacy_cli.py show
+python privacy_cli.py set --conversation-days 90 --audit-days 365 --memory-days 180 --completed-job-days 180
+python privacy_cli.py preview
+python privacy_cli.py purge
+```
+
+A value of `0` disables an individual rule. Conversation history and memory are deleted as whole stores based on file modification time. Audit events are filtered by their ISO timestamp. Only terminal scheduled jobs (completed, failed or cancelled) are eligible; pending/running jobs and records with unknown timestamps are retained. The purge command prints a preview and requires the user to type `PURGE`. Close the desktop app and create a portable backup before purging to avoid races with live writes.
+
+Deletion is ordinary filesystem deletion, not secure erasure. This CLI is not a privacy dashboard and does not purge undo snapshots, custom skills, exports or policy settings.

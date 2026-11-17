@@ -109,7 +109,22 @@ python backup_cli.py restore "D:/Backups/voiceassistant.vabackup"
 
 The backup archive is protected with PBKDF2-HMAC-SHA256 (600,000 iterations) and AES-256-GCM, so it can be restored on another machine using a different local data key. Use a strong passphrase of at least 12 characters and keep it separately; losing it makes that backup unrecoverable. Restore requires typing `RESTORE` and replaces matching store files only; it does not delete files absent from the backup. Each restored file is written atomically, but the entire multi-file restore is not a single filesystem transaction. Backups include the supported JSON stores, custom-skill manifests and undo snapshots; they do not include application source, plugin binaries, exports, API credentials or machine-specific settings. Generated custom-skill loader files are rebuilt from validated manifests.
 
-For migration to another machine, create a portable backup on the source machine and restore it on the destination; do not copy a DPAPI key file to another Windows profile and expect it to work. Key rotation and a guided retention/secure-erasure workflow are not yet implemented.
+For migration to another machine, create a portable backup on the source machine and restore it on the destination; do not copy a DPAPI key file to another Windows profile and expect it to work.
+
+### User-controlled retention
+
+Retention is disabled by default and never runs automatically. Configure it, inspect the preview, then explicitly confirm a purge:
+
+```powershell
+python privacy_cli.py show
+python privacy_cli.py set --conversation-days 90 --audit-days 365 --memory-days 180 --completed-job-days 180
+python privacy_cli.py preview
+python privacy_cli.py purge
+```
+
+Use `0` for any setting to disable that rule. Conversation history and memory are removed as whole files based on their last-modified age; audit entries are filtered by timestamp; only old completed/failed/cancelled jobs are eligible. Pending/running jobs and entries with unknown timestamps are retained. Close VoiceAssistant and create a portable backup before purging. Deletion is not secure erasure.
+
+Key rotation and a guided secure-erasure workflow are not yet implemented.
 
 Scheduled jobs use persisted execution states and retry failed handlers up to three times. Delivery is at-least-once: a crash after an external side effect but before its completion checkpoint can replay the handler, so side-effecting scheduled operations must be idempotent.
 
