@@ -82,7 +82,7 @@ class AgenticVoiceAssistant(ctk.CTk):
         try:
             self.conversation.session_sync.attach_bridge(bridge)
         except Exception as e:
-            print(f"[SessionSync] attach failed: {e}")
+            logger.exception("Session synchronization bridge attach failed", extra={"event": "ui.session_sync_attach_failed"})
         bridge.set_clear_gate_callback(self._clear_security_gate_threadsafe)
         import os
         self.mobile_host = os.environ.get("VOICEASSISTANT_MOBILE_HOST", "127.0.0.1").strip() or "127.0.0.1"
@@ -274,7 +274,7 @@ class AgenticVoiceAssistant(ctk.CTk):
             self._ui_queue.put_nowait((callback, args, kwargs))
             return True
         except Exception as error:
-            print(f"[UI] Could not queue UI callback: {error}")
+            logger.exception("Could not queue UI callback", extra={"event": "ui.callback_queue_failed"})
             return False
 
     def _drain_ui_queue(self):
@@ -292,7 +292,7 @@ class AgenticVoiceAssistant(ctk.CTk):
             try:
                 callback(*args, **kwargs)
             except Exception as error:
-                print(f"[UI] Callback failed: {error}")
+                logger.exception("Queued UI callback failed", extra={"event": "ui.callback_failed"})
         if not self._closing:
             try:
                 self._ui_poll_id = self.after(25, self._drain_ui_queue)
@@ -339,7 +339,7 @@ class AgenticVoiceAssistant(ctk.CTk):
         try:
             self.destroy()
         except Exception as e:
-            print(f"[Shutdown] Window destroy: {e}")
+            logger.exception("Desktop window destruction failed", extra={"event": "shutdown.window_destroy_failed"})
 
     def _show_action_bar(self, message: str):
         self.action_bar_label.configure(text=message)
@@ -353,7 +353,7 @@ class AgenticVoiceAssistant(ctk.CTk):
             keyboard.add_hotkey("ctrl+shift+space", lambda: self._post_ui(self.toggle_assistant))
             keyboard.add_hotkey("esc", lambda: self._post_ui(self._stop_activity))
         except Exception as error:
-            print(f"[Hotkeys] Registration unavailable: {error}")
+            logger.exception("Global hotkey registration unavailable", extra={"event": "ui.hotkey_registration_failed"})
 
     def _hotkey_toggle(self):
         self._post_ui(self.toggle_assistant)
@@ -446,7 +446,7 @@ class AgenticVoiceAssistant(ctk.CTk):
                     preview = preview[:157] + "..."
                 notify_background(title or "VoiceAssistant", preview, hwnd=hwnd)
             except Exception as error:
-                print(f"[Notify] Background notification failed: {error}")
+                logger.exception("Background notification failed", extra={"event": "ui.notification_failed"})
 
         self._post_ui(_apply)
 
@@ -462,7 +462,7 @@ class AgenticVoiceAssistant(ctk.CTk):
                 self.transcript_area.see("end")
                 self.transcript_area.configure(state="disabled")
             except Exception as e:
-                print(f"[UI] update_transcript skipped: {e}")
+                logger.exception("Transcript update failed", extra={"event": "ui.transcript_update_failed"})
                 return
 
             if "File deployed successfully" in text or "[Success] File deployed" in text:
@@ -493,7 +493,7 @@ class AgenticVoiceAssistant(ctk.CTk):
             if excess > 0:
                 textbox.delete("1.0", f"{excess + 1}.0")
         except Exception as error:
-            print(f"[UI] Transcript trimming skipped: {error}")
+            logger.exception("Transcript trimming failed", extra={"event": "ui.transcript_trim_failed"})
 
     def _insert_chat_block(self, text: str) -> None:
         """Format transcript like a chat: clear You vs Assistant vs system."""
@@ -785,7 +785,7 @@ class AgenticVoiceAssistant(ctk.CTk):
                     try:
                         stack = self.conversation.undo.list_stack()
                     except Exception as stack_error:
-                        print(f"[Undo] Could not refresh remaining undo stack: {stack_error}")
+                        logger.exception("Could not refresh remaining undo stack", extra={"event": "undo.stack_refresh_failed"})
             except Exception as exc:
                 error = str(exc)
             self._post_ui(self._finish_undo, result, stack, error)
@@ -828,7 +828,7 @@ class AgenticVoiceAssistant(ctk.CTk):
             try:
                 callback()
             except Exception as callback_error:
-                print(f"[Undo] Completion callback failed: {callback_error}")
+                logger.exception("Undo completion callback failed", extra={"event": "undo.completion_callback_failed"})
 
 
     def _show_scheduler(self):

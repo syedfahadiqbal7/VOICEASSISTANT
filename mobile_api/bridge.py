@@ -6,10 +6,13 @@ Security gate ke liye mobile se approval wait karta hai.
 """
 
 import asyncio
+import logging
 import threading
 import uuid
 from typing import Callable, Optional, Dict, Any
 from mobile_api.connection_manager import manager
+
+logger = logging.getLogger("voiceassistant.mobile_bridge")
 
 
 class MobileBridge:
@@ -42,7 +45,7 @@ class MobileBridge:
             try:
                 asyncio.run(coro)
             except Exception as e:
-                print(f"[MobileBridge] async error: {e}")
+                logger.exception("Mobile bridge async dispatch failed", extra={"event": "mobile_bridge.dispatch_failed"})
 
     def attach(self, conversation):
         """
@@ -70,16 +73,16 @@ class MobileBridge:
                 except Exception:
                     pass
         except Exception as e:
-            print(f"[MobileBridge] session_sync attach: {e}")
+            logger.exception("Mobile session synchronization attach failed", extra={"event": "mobile_bridge.session_sync_attach_failed"})
 
-        print("[MobileBridge] Successfully attached to ConversationManager")
+        logger.info("Mobile bridge attached to ConversationManager", extra={"event": "mobile_bridge.attached"})
 
     def _wrapped_status(self, message: str, color: Optional[str] = None):
         if self._original_on_status:
             try:
                 self._original_on_status(message, color)
             except Exception as e:
-                print(f"[MobileBridge] status UI error: {e}")
+                logger.exception("Mobile status callback failed", extra={"event": "mobile_bridge.status_callback_failed"})
         self._run_async(manager.broadcast({
             "type": "status",
             "message": message,
@@ -97,7 +100,7 @@ class MobileBridge:
                 self._original_on_transcript(text)
             except Exception as e:
                 # UI may not be ready yet (scheduler fire during boot)
-                print(f"[MobileBridge] transcript UI error: {e}")
+                logger.exception("Mobile transcript callback failed", extra={"event": "mobile_bridge.transcript_callback_failed"})
 
         role = "system"
         out = text
@@ -119,7 +122,7 @@ class MobileBridge:
             try:
                 self._original_on_speak(text)
             except Exception as e:
-                print(f"[MobileBridge] speak UI error: {e}")
+                logger.exception("Mobile speech callback failed", extra={"event": "mobile_bridge.speech_callback_failed"})
         self._run_async(manager.broadcast({
             "type": "speak",
             "text": text
@@ -192,11 +195,11 @@ class MobileBridge:
                 return False
             expected_client = self._approval_clients.get(request_id, "")
             if client_id is not None and (not expected_client or client_id != expected_client):
-                print(f"[MobileBridge] Rejected approval from non-authorized client for {request_id}")
+                logger.warning("Rejected approval from non-authorized mobile client for request %s", request_id, extra={"event": "mobile_bridge.unauthorized_approval"})
                 return False
             self._approval_results[request_id] = bool(approved)
             event.set()
-        print(f"[MobileBridge] Approval resolved: {request_id} → {bool(approved)}")
+        logger.info("Mobile approval resolved for request %s (approved=%s)", request_id, bool(approved), extra={"event": "mobile_bridge.approval_resolved"})
 
         # A desktop-side decision must also dismiss the matching mobile prompt.
         # Mobile-originated decisions receive their acknowledgement from the API handler.
@@ -211,7 +214,7 @@ class MobileBridge:
             try:
                 self._clear_gate_callback()
             except Exception as e:
-                print(f"[MobileBridge] Could not clear desktop gate: {e}")
+                logger.exception("Could not clear desktop approval gate", extra={"event": "mobile_bridge.clear_gate_failed"})
         return True
 
 
@@ -246,7 +249,7 @@ class MobileBridge:
                 daemon=True
             ).start()
         else:
-            print("[MobileBridge] ConversationManager not attached yet!")
+            logger.warning("ConversationManager is not attached yet", extra={"event": "mobile_bridge.not_attached"})
 
     def get_session_state(self) -> Dict[str, Any]:
         if self._conversation and hasattr(self._conversation, "session_sync"):

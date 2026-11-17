@@ -8,6 +8,7 @@ handlers should therefore be idempotent where possible.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import threading
 import uuid
@@ -21,6 +22,8 @@ from agent.data_protection import DataProtectionError
 SCHEDULE_FILE = BASE_DIR / "history" / "scheduled_jobs.json"
 MAX_ATTEMPTS = 3
 RETRY_DELAYS_MINUTES = (1, 5, 15)
+
+logger = logging.getLogger("voiceassistant.scheduler")
 
 
 def _now() -> datetime:
@@ -69,9 +72,9 @@ class JobScheduler:
                 stamp = _now().strftime("%Y%m%d_%H%M%S_%f")
                 backup = SCHEDULE_FILE.with_name(f"{SCHEDULE_FILE.name}.corrupt.{stamp}.bak")
                 shutil.copy2(SCHEDULE_FILE, backup)
-                print(f"[Scheduler] Corrupt schedule preserved at {backup}: {error}")
+                logger.exception("Corrupt schedule preserved at %s", backup, extra={"event": "scheduler.corrupt_store_preserved"})
             except Exception as backup_error:
-                print(f"[Scheduler] Load failed and backup failed: {error}; {backup_error}")
+                logger.exception("Schedule load and backup recovery both failed (original error: %s)", type(error).__name__, extra={"event": "scheduler.backup_failed"})
             with self._lock:
                 self.jobs = []
             return
@@ -81,7 +84,7 @@ class JobScheduler:
             try:
                 self.save()
             except Exception as error:
-                print(f"[Scheduler] Recovery checkpoint failed: {error}")
+                logger.exception("Scheduler recovery checkpoint failed", extra={"event": "scheduler.recovery_checkpoint_failed"})
 
     def save(self) -> None:
         with self._lock:
@@ -166,7 +169,7 @@ class JobScheduler:
                 try:
                     self._fire(job)
                 except Exception as error:
-                    print(f"[Scheduler] execution cycle failed for {job.get('id')}: {error}")
+                    logger.exception("Scheduler execution cycle failed for job %s", job.get("id"), extra={"event": "scheduler.execution_cycle_failed"})
             self._stop.wait(1.0)
 
     @staticmethod
@@ -202,7 +205,7 @@ class JobScheduler:
             except Exception as error:
                 succeeded = False
                 error_text = f"{type(error).__name__}: {error}"[:1000]
-                print(f"[Scheduler] job handler error: {error}")
+                logger.exception("Scheduled job handler failed", extra={"event": "scheduler.handler_failed"})
 
         with self._lock:
             live = next((item for item in self.jobs if item.get("id") == job_id), None)
@@ -239,4 +242,4 @@ class JobScheduler:
                 live["enabled"] = True
                 live["run_at"] = (_now() + timedelta(minutes=1)).isoformat()
                 live["last_error"] = f"Completion checkpoint failed: {error}"[:1000]
-                print(f"[Scheduler] completion checkpoint failed for {job_id}: {error}")
+                logger.exception("Scheduler completion checkpoint failed for job %s", job_id, extra={"event": "scheduler.completion_checkpoint_failed"})

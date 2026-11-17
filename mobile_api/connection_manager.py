@@ -6,10 +6,13 @@ Har connected mobile phone ka record rakhta hai aur unko messages broadcast kart
 
 from typing import List, Dict, Any, Callable, Optional
 import threading
+import logging
 from fastapi import WebSocket
 import json
 import asyncio
 import uuid
+
+logger = logging.getLogger("voiceassistant.mobile_connections")
 
 
 class ConnectionManager:
@@ -41,7 +44,7 @@ class ConnectionManager:
             self.active_connections.append(websocket)
             self.connection_ids[websocket] = conn_id
             total = len(self.active_connections)
-        print(f"[MobileAPI] New connection: {conn_id} | Total: {total}")
+        logger.info("Mobile client connected (%s active)", total, extra={"event": "mobile.connection_opened"})
         return conn_id
 
     def disconnect(self, websocket: WebSocket):
@@ -50,12 +53,12 @@ class ConnectionManager:
                 self.active_connections.remove(websocket)
             conn_id = self.connection_ids.pop(websocket, "unknown")
             remaining = len(self.active_connections)
-        print(f"[MobileAPI] Disconnected: {conn_id} | Remaining: {remaining}")
+        logger.info("Mobile client disconnected (%s remaining)", remaining, extra={"event": "mobile.connection_closed"})
         if self.on_disconnect and conn_id != "unknown":
             try:
                 self.on_disconnect(conn_id)
             except Exception as error:
-                print(f"[MobileAPI] disconnect callback failed: {error}")
+                logger.exception("Mobile disconnect callback failed", extra={"event": "mobile.disconnect_callback_failed"})
 
     def first_connection(self):
         with self._lock:
@@ -72,7 +75,7 @@ class ConnectionManager:
         try:
             await websocket.send_text(json.dumps(data, ensure_ascii=False))
         except Exception as e:
-            print(f"[MobileAPI] send_personal error: {e}")
+            logger.exception("Mobile personal message delivery failed", extra={"event": "mobile.send_personal_failed"})
             self.disconnect(websocket)
 
     async def broadcast(self, data: dict):
