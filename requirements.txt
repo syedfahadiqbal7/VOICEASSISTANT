@@ -3,7 +3,7 @@
 
 # Core desktop, LLM, audio and local API
 customtkinter>=5.2,<6
-faster-whisper>=1.1
+faster-whisper>=1.2.1
 numpy>=1.26
 sounddevice>=0.4.6
 soundfile>=0.12
