@@ -10,7 +10,7 @@ from tools.file_writer import FileWriterTool
 from tools.powershell_executor import PowerShellExecutorTool
 from tools.pip_installer import PipInstallerTool
 from config import PLUGINS_DIR
-from agent.plugin_marketplace import verify_flat_plugin
+from agent.plugin_marketplace import verify_flat_plugin, SAFE_NO_PERMISSION_PLUGIN_FILES
 
 # Plugins that must not load (name collision / superseded).
 # task_scheduler.py conflicted with agent JobScheduler; use list_windows_tasks instead.
@@ -146,7 +146,11 @@ class ToolRegistry:
                 conflicts = sorted(set(actual_names) & set(self._tools))
                 if conflicts:
                     raise ValueError("tool name conflict(s): " + ", ".join(conflicts))
-                permissions = manifest.get("permissions") or []
+                permissions = list(manifest.get("permissions") or [])
+                if not permissions and file.name not in SAFE_NO_PERMISSION_PLUGIN_FILES:
+                    # Third-party/legacy plugins with no declared capabilities are
+                    # treated as privileged; do not silently grant read-only access.
+                    permissions = ["system:admin"]
                 for tool_instance in instances:
                     self.register(tool_instance, permissions=permissions)
                     print(f"[Plugin] Loaded: {tool_instance.name}")

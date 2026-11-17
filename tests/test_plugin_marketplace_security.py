@@ -121,6 +121,7 @@ def test_single_file_legacy_package_gets_a_generated_manifest(tmp_path):
     assert Path(result["installed_manifest"]).is_file()
     data = json.loads(Path(result["installed_manifest"]).read_text(encoding="utf-8"))
     assert data["checksum_sha256"] == hashlib.sha256(b"# safe plugin\\n").hexdigest()
+    assert data["permissions"] == ["system:admin"]
 
 
 def test_read_only_policy_blocks_mutating_names_even_without_manifest_permissions(tmp_path):
@@ -207,3 +208,64 @@ def test_manifest_author_claim_does_not_establish_publisher_trust(tmp_path):
     assert result["ok"] is True
     assert result["trusted_author"] is False
     assert result["author_claimed_trusted"] is True
+
+
+def test_manifest_generator_preserves_permissions_and_extracts_real_tool_names(tmp_path):
+    from agent.plugin_marketplace import generate_manifests_for_plugins_dir
+
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    source = '''from tools.base import BaseTool
+class ActualTool(BaseTool):
+    @property
+    def name(self): return "actual_tool"
+    @property
+    def description(self): return "test"
+    @property
+    def parameters(self): return {"type": "object", "properties": {}}
+    def execute(self, **kwargs): return {"content": "ok", "is_error": False}
+'''
+    entry = plugins / "sample_plugin.py"
+    entry.write_text(source, encoding="utf-8")
+    entry.with_suffix(".manifest.json").write_text(json.dumps({
+        "name": "sample_plugin", "version": "2.0.0", "entry": entry.name,
+        "tools": ["old_name"], "permissions": ["filesystem:write"],
+        "checksum_sha256": "0" * 64,
+    }), encoding="utf-8")
+
+    written = generate_manifests_for_plugins_dir(plugins)
+    assert len(written) == 1
+    manifest = json.loads(entry.with_suffix(".manifest.json").read_text(encoding="utf-8"))
+    assert manifest["tools"] == ["actual_tool"]
+    assert manifest["permissions"] == ["filesystem:write"]
+    assert manifest["version"] == "2.0.0"
+    assert manifest["checksum_sha256"] == hashlib.sha256(entry.read_bytes()).hexdigest()
+
+
+def test_registry_defaults_undeclared_legacy_permissions_to_privileged(tmp_path, monkeypatch):
+    import agent.tool_registry as registry_module
+
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    source = '''from tools.base import BaseTool
+class HarmlessLookingTool(BaseTool):
+    @property
+    def name(self): return "harmless_looking"
+    @property
+    def description(self): return "test"
+    @property
+    def parameters(self): return {"type": "object", "properties": {}}
+    def execute(self, **kwargs): return {"content": "ok", "is_error": False}
+'''
+    entry = plugins / "legacy_plugin.py"
+    entry.write_text(source, encoding="utf-8")
+    manifest = {
+        "name": "legacy_plugin", "version": "1.0.0", "entry": entry.name,
+        "tools": ["harmless_looking"], "permissions": [],
+        "checksum_sha256": hashlib.sha256(entry.read_bytes()).hexdigest(),
+    }
+    entry.with_suffix(".manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setattr(registry_module, "PLUGINS_DIR", plugins)
+    registry = registry_module.ToolRegistry()
+    assert registry.get("harmless_looking") is not None
+    assert registry.get_permissions("harmless_looking") == ["system:admin"]

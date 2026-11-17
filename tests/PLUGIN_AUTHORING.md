@@ -90,3 +90,8 @@ Manifests must use only these exact identifiers:
 - email:read, email:send, messaging:read, messaging:send
 
 Unknown or misspelled permissions are rejected by manifest validation. Permission declarations are enforced by the application policy at tool invocation; they are not an operating-system sandbox. Plugins execute in the desktop process, so install only code from sources you trust.
+
+
+## Legacy plugin defaults
+
+A plugin with no permission metadata is treated as privileged (system:admin) at runtime, so it cannot be auto-approved as a read-only tool. Only the built-in pure utilities say_hello and json_formatter are allowlisted to have no permissions. The manifest generator derives actual BaseTool.name values from source without importing the module and preserves existing permissions; a new plugin without reviewed permissions receives system:admin. Replace that default only after reviewing the code and documenting its capabilities.

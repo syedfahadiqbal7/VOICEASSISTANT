@@ -21,6 +21,7 @@ manifest.json:
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -52,6 +53,7 @@ SUPPORTED_PERMISSIONS = {
 MAX_PLUGIN_ARCHIVE_FILES = 20
 MAX_PLUGIN_ARCHIVE_TOTAL_BYTES = 10 * 1024 * 1024
 MAX_PLUGIN_SOURCE_BYTES = 5 * 1024 * 1024
+SAFE_NO_PERMISSION_PLUGIN_FILES = {"example_hello_tool.py", "json_formatter.py"}
 
 
 def sha256_file(path: Path) -> str:
@@ -146,6 +148,34 @@ def verify_plugin_dir(plugin_dir: Path) -> Dict[str, Any]:
         "trusted_author": False,
         "author_claimed_trusted": str(manifest.get("author") or "") in TRUSTED_AUTHORS,
     }
+
+
+def extract_plugin_tool_names(entry_file: Path) -> List[str]:
+    """Read BaseTool.name exports without importing or executing plugin code."""
+    tree = ast.parse(Path(entry_file).read_text(encoding="utf-8-sig"))
+    names: List[str] = []
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        is_base_tool = any(
+            (isinstance(base, ast.Name) and base.id == "BaseTool")
+            or (isinstance(base, ast.Attribute) and base.attr == "BaseTool")
+            for base in node.bases
+        )
+        if not is_base_tool:
+            continue
+        tool_name = None
+        for member in node.body:
+            if isinstance(member, ast.FunctionDef) and member.name == "name":
+                for child in ast.walk(member):
+                    if isinstance(child, ast.Return) and isinstance(child.value, ast.Constant):
+                        if isinstance(child.value.value, str):
+                            tool_name = child.value.value.strip()
+        if tool_name:
+            names.append(tool_name)
+    if not names or len(names) != len(set(names)):
+        raise ValueError("plugin must export one or more unique static BaseTool.name values")
+    return sorted(names)
 
 
 def build_manifest_for_file(
@@ -358,7 +388,7 @@ def install_from_zip(
                     "author": "local",
                     "entry": source_path.name,
                     "tools": [source_path.stem],
-                    "permissions": [],
+                    "permissions": ["system:admin"],
                     "checksum_sha256": hashlib.sha256(source_bytes).hexdigest(),
                 }
     except (OSError, zipfile.BadZipFile, RuntimeError, ValueError) as error:
@@ -437,18 +467,37 @@ def generate_manifests_for_plugins_dir(
     plugins_dir: Optional[Path] = None,
     author: str = "VoiceAssistant",
 ) -> List[str]:
-    """Create/update .manifest.json for every .py plugin (dev helper)."""
+    """Regenerate checksums/tool exports without erasing existing permissions.
+
+    New or legacy plugins without permission metadata receive system:admin so
+    read-only roles and auto-approval paths fail closed until reviewed.
+    """
     root = Path(plugins_dir) if plugins_dir else Path(PLUGINS_DIR)
     written = []
     for py in sorted(root.glob("*.py")):
-        if py.name.startswith("_"):
+        if py.name.startswith("_") or py.name == "task_scheduler.py":
             continue
+        tool_names = extract_plugin_tool_names(py)
+        manifest_path = py.with_suffix(".manifest.json")
+        previous = {}
+        if manifest_path.is_file():
+            try:
+                previous = load_manifest(manifest_path)
+            except Exception:
+                previous = {}
+        permissions = previous.get("permissions")
+        if not isinstance(permissions, list) or (
+            not permissions and py.name not in SAFE_NO_PERMISSION_PLUGIN_FILES
+        ):
+            permissions = [] if py.name in SAFE_NO_PERMISSION_PLUGIN_FILES else ["system:admin"]
         path = write_manifest_beside(
             py,
-            name=py.stem,
-            author=author,
-            description=f"Builtin/local plugin {py.stem}",
-            tools=[py.stem],
+            name=str(previous.get("name") or py.stem),
+            version=str(previous.get("version") or "1.0.0"),
+            author=str(previous.get("author") or author),
+            description=str(previous.get("description") or f"Builtin/local plugin {py.stem}"),
+            tools=tool_names,
+            permissions=permissions,
         )
         written.append(str(path))
     return written

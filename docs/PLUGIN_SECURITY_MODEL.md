@@ -4,13 +4,13 @@
 
 Plugin ZIP installation is intentionally limited to one Python entry file and one JSON manifest. The installer rejects absolute paths, parent-directory traversal, Windows drive paths, symbolic links, encrypted members, unsupported compression, oversized archives, excessive member counts, and unexpected files. It validates the manifest schema, declared tool names, supported permission vocabulary, and SHA-256 format. It compares the entry file SHA-256 to the supplied manifest and rejects mismatches; it never silently rewrites a mismatching checksum. Existing plugins are not overwritten unless the desktop installer obtains explicit confirmation.
 
-A checksum detects changes relative to the supplied manifest. It does not prove who authored the plugin: an attacker able to replace both the Python file and manifest can calculate a new checksum. The author field is a claim, not a cryptographic identity. Signed publisher manifests and a managed trust root remain future work.
+A checksum detects changes relative to the supplied manifest. It does not prove who authored the plugin: an attacker able to replace both the Python file and manifest can calculate a new checksum. The author field is a claim, not a cryptographic identity; the runtime never treats that field as verified publisher trust. Signed publisher manifests and a managed trust root remain future work.
 
 ## Permissions and policy
 
 The runtime passes manifest-declared permissions to policy evaluation. Read-only roles also block common mutating tool-name verbs as a defence-in-depth fallback when an older manifest omitted permissions. Name heuristics are not a replacement for complete capability declarations.
 
-Plugin registration is all-or-nothing: the exported BaseTool.name set must exactly match the manifest tool list, and name conflicts reject the plugin without partial registration.
+Plugin registration is all-or-nothing: the exported BaseTool.name set must exactly match the manifest tool list, and name conflicts reject the plugin without partial registration. Legacy or third-party plugins with an empty permission list are assigned system:admin at load time, except for two built-in pure utility tools (say_hello and json_formatter). Manifest regeneration preserves existing permissions, derives actual BaseTool.name values without importing the plugin, and assigns system:admin when no capability declaration exists.
 
 ## Important isolation limitation
 
