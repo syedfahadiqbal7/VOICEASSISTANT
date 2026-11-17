@@ -674,3 +674,36 @@ def test_connection_manager_rejects_excess_connections_without_accepting_socket(
     assert first.accepted is True
     assert second.accepted is False
     assert manager.connection_count() == 1
+
+
+
+def test_mobile_api_stop_server_requests_shutdown_on_server_loop(monkeypatch):
+    from mobile_api import server
+
+    class FakeLoop:
+        closed = False
+
+        def is_closed(self):
+            return self.closed
+
+        def call_soon_threadsafe(self, callback, *args):
+            callback(*args)
+
+    class FakeServer:
+        should_exit = False
+
+    fake_loop = FakeLoop()
+    fake_server = FakeServer()
+    monkeypatch.setattr(server, "_active_server", fake_server)
+    monkeypatch.setattr(server, "_active_server_loop", fake_loop)
+
+    assert server.stop_server() is True
+    assert fake_server.should_exit is True
+
+
+def test_mobile_api_stop_server_is_safe_when_not_running(monkeypatch):
+    from mobile_api import server
+
+    monkeypatch.setattr(server, "_active_server", None)
+    monkeypatch.setattr(server, "_active_server_loop", None)
+    assert server.stop_server() is False

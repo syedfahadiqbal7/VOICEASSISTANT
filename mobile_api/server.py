@@ -299,6 +299,7 @@ def start_server(host: str = "127.0.0.1", port: int = 8765):
         ws_max_size=1_048_576,
         ws_ping_interval=20,
         ws_ping_timeout=20,
+        timeout_graceful_shutdown=2,
         **tls_options,
     )
     server = uvicorn.Server(config)

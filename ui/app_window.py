@@ -26,7 +26,7 @@ from ui.diff_viewer import DiffViewer
 from ui.audit_viewer import AuditLogViewer
 from ui.help_window import HelpWindow
 from mobile_api.bridge import bridge
-from mobile_api.server import start_server
+from mobile_api.server import start_server, stop_server
 from ui.scheduler_viewer import open_scheduler_viewer
 from ui.undo_viewer import open_undo_viewer
 from ui.policy_viewer import open_policy_viewer
@@ -90,8 +90,11 @@ class AgenticVoiceAssistant(ctk.CTk):
         self._build_ui()
         self._ui_poll_id = self.after(25, self._drain_ui_queue)
         self._setup_hotkeys()
-        threading.Thread(target=self._run_mobile_server, daemon=True).start()
-        threading.Thread(target=self._initialize_engines, daemon=True).start()
+        self._mobile_server_thread = threading.Thread(
+            target=self._run_mobile_server, name="VoiceAssistantMobileAPI", daemon=True
+        )
+        self._mobile_server_thread.start()
+        threading.Thread(target=self._initialize_engines, name="VoiceAssistantEngineInit", daemon=True).start()
 
     def _build_ui(self):
         # Header
@@ -314,6 +317,10 @@ class AgenticVoiceAssistant(ctk.CTk):
             return
         self._closing = True
         self.is_running = False
+        try:
+            stop_server()
+        except Exception:
+            logger.exception("Mobile API shutdown signal failed", extra={"event": "shutdown.mobile_api_signal_failed"})
         if self._ui_poll_id is not None:
             try:
                 self.after_cancel(self._ui_poll_id)
@@ -332,6 +339,11 @@ class AgenticVoiceAssistant(ctk.CTk):
             self.conversation.scheduler.stop()
         except Exception as e:
             logger.exception("Scheduler shutdown failed", extra={"event": "shutdown.scheduler_failed"})
+        mobile_thread = getattr(self, "_mobile_server_thread", None)
+        if mobile_thread and mobile_thread.is_alive():
+            mobile_thread.join(timeout=2.5)
+            if mobile_thread.is_alive():
+                logger.warning("Mobile API did not stop within the shutdown grace period", extra={"event": "shutdown.mobile_api_timeout"})
         try:
             keyboard.unhook_all_hotkeys()
         except Exception:

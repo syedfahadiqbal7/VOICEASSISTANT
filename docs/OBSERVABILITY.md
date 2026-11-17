@@ -12,3 +12,6 @@ This is not a replacement for audit history: application logs are diagnostic and
 
 
 The structured logger is also used by the scheduler, mobile connection manager/bridge and selected desktop UI/shutdown paths. Exception tracebacks are redacted before they reach the JSONL sink. Other legacy modules still contain console output or broad exception handlers; this migration is incremental and does not claim every exception path is centrally logged.
+
+
+The desktop close path now signals the background Uvicorn server to stop and waits up to 2.5 seconds for its thread before destroying the main window. This reduces abrupt daemon-thread termination; active mobile clients are still disconnected during application shutdown.
