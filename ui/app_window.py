@@ -280,6 +280,8 @@ class AgenticVoiceAssistant(ctk.CTk):
         if self._closing:
             return
         for _ in range(100):
+            if self._closing:
+                break
             try:
                 callback, args, kwargs = self._ui_queue.get_nowait()
             except queue.Empty:
