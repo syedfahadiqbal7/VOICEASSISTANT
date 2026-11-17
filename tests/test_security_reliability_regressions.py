@@ -727,3 +727,37 @@ def test_mobile_api_startup_is_cancelled_if_shutdown_wins_race(monkeypatch):
 
     assert server.start_server() is None
     assert server._active_server is None
+
+
+
+def test_connection_manager_capacity_reservation_is_atomic_under_concurrent_handshakes():
+    import asyncio
+    from mobile_api.connection_manager import ConnectionManager
+
+    async def exercise():
+        manager = ConnectionManager()
+        release_handshakes = asyncio.Event()
+
+        class FakeWebSocket:
+            def __init__(self):
+                self.accepted = False
+
+            async def accept(self):
+                self.accepted = True
+                await release_handshakes.wait()
+
+        sockets = [FakeWebSocket() for _ in range(3)]
+        tasks = [
+            asyncio.create_task(manager.connect(socket, max_connections=2))
+            for socket in sockets
+        ]
+        await asyncio.sleep(0)
+        assert manager._pending_connections == 2
+        release_handshakes.set()
+        results = await asyncio.gather(*tasks)
+        return manager, sockets, results
+
+    manager, sockets, results = asyncio.run(exercise())
+    assert sum(result is not None for result in results) == 2
+    assert sum(socket.accepted for socket in sockets) == 2
+    assert manager.connection_count() == 2
