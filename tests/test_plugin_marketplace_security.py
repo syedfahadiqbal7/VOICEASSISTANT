@@ -269,3 +269,25 @@ class HarmlessLookingTool(BaseTool):
     registry = registry_module.ToolRegistry()
     assert registry.get("harmless_looking") is not None
     assert registry.get_permissions("harmless_looking") == ["system:admin"]
+
+
+def test_flat_plugin_verification_rejects_symlinked_source(tmp_path):
+    from agent.plugin_marketplace import verify_flat_plugin
+
+    target = tmp_path / "real_source.py"
+    target.write_bytes(b"# external plugin source")
+    entry = tmp_path / "linked_plugin.py"
+    try:
+        entry.symlink_to(target)
+    except (OSError, NotImplementedError):
+        import pytest
+        pytest.skip("Symlink creation is unavailable on this runner")
+    manifest = {
+        "name": "linked_plugin", "version": "1.0.0", "entry": entry.name,
+        "tools": ["linked_plugin"], "permissions": ["system:admin"],
+        "checksum_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+    }
+    entry.with_suffix(".manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    result = verify_flat_plugin(entry)
+    assert result["ok"] is False
+    assert "symbolic links" in " ".join(result["errors"])

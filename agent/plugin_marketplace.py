@@ -108,7 +108,15 @@ def validate_manifest(manifest: Dict[str, Any]) -> Tuple[bool, List[str]]:
 def verify_plugin_dir(plugin_dir: Path) -> Dict[str, Any]:
     """Verify manifest + checksum for a directory containing manifest + entry."""
     plugin_dir = Path(plugin_dir)
-    man_path = plugin_dir / MANIFEST_NAME
+    try:
+        plugin_root = plugin_dir.resolve()
+        if plugin_dir.is_symlink():
+            return {"ok": False, "errors": ["plugin directory must not be a symbolic link"], "path": str(plugin_dir)}
+    except OSError as error:
+        return {"ok": False, "errors": [f"plugin directory cannot be resolved: {error}"], "path": str(plugin_dir)}
+    man_path = plugin_root / MANIFEST_NAME
+    if man_path.is_symlink():
+        return {"ok": False, "errors": ["manifest must not be a symbolic link"], "path": str(plugin_dir)}
     if not man_path.is_file():
         return {"ok": False, "errors": ["manifest.json not found"], "path": str(plugin_dir)}
     try:
@@ -119,8 +127,10 @@ def verify_plugin_dir(plugin_dir: Path) -> Dict[str, Any]:
     if not ok:
         return {"ok": False, "errors": errors, "manifest": manifest, "path": str(plugin_dir)}
 
-    entry = plugin_dir / str(manifest["entry"])
-    if not entry.is_file():
+    entry = plugin_root / str(manifest["entry"])
+    if entry.is_symlink():
+        return {"ok": False, "errors": ["plugin entry must not be a symbolic link"], "manifest": manifest, "path": str(plugin_dir)}
+    if not entry.is_file() or entry.resolve().parent != plugin_root:
         return {
             "ok": False,
             "errors": [f"entry file missing: {manifest['entry']}"],
@@ -215,6 +225,14 @@ def verify_flat_plugin(entry_file: Path, manifest_path: Optional[Path] = None) -
     """Verify a flat plugins/<name>.py with plugins/<name>.manifest.json."""
     entry_file = Path(entry_file)
     man_path = Path(manifest_path) if manifest_path else entry_file.with_suffix(".manifest.json")
+    try:
+        plugin_root = entry_file.parent.resolve()
+        if entry_file.is_symlink() or man_path.is_symlink():
+            return {"ok": False, "errors": ["plugin source and manifest must not be symbolic links"], "path": str(entry_file)}
+        if entry_file.resolve().parent != plugin_root or man_path.resolve().parent != plugin_root:
+            return {"ok": False, "errors": ["plugin source and manifest must remain inside the plugin directory"], "path": str(entry_file)}
+    except OSError as error:
+        return {"ok": False, "errors": [f"plugin paths cannot be safely resolved: {error}"], "path": str(entry_file)}
     if not man_path.is_file():
         return {
             "ok": False,
@@ -486,7 +504,12 @@ def generate_manifests_for_plugins_dir(
             except Exception:
                 previous = {}
         permissions = previous.get("permissions")
-        if not isinstance(permissions, list) or (
+        valid_permissions = (
+            isinstance(permissions, list)
+            and all(isinstance(item, str) and item.strip().lower() in SUPPORTED_PERMISSIONS for item in permissions)
+            and len({item.strip().lower() for item in permissions}) == len(permissions)
+        )
+        if not valid_permissions or (
             not permissions and py.name not in SAFE_NO_PERMISSION_PLUGIN_FILES
         ):
             permissions = [] if py.name in SAFE_NO_PERMISSION_PLUGIN_FILES else ["system:admin"]
