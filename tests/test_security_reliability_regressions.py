@@ -491,3 +491,57 @@ def test_desktop_approval_resolution_acknowledges_mobile_prompt(monkeypatch):
         "request_id": "desktop-request",
         "accepted": True,
     }]
+
+
+
+def test_desktop_ui_dispatcher_runs_worker_callbacks_only_on_main_loop():
+    import queue
+    import threading
+    from ui.app_window import AgenticVoiceAssistant
+
+    class FakeUI:
+        _post_ui = AgenticVoiceAssistant._post_ui
+        _drain_ui_queue = AgenticVoiceAssistant._drain_ui_queue
+
+        def __init__(self):
+            self._closing = False
+            self._ui_queue = queue.Queue()
+            self._ui_poll_id = None
+            self.scheduled = []
+
+        def after(self, delay, callback):
+            self.scheduled.append((delay, callback))
+            return f"poll-{len(self.scheduled)}"
+
+    ui = FakeUI()
+    observed_threads = []
+    main_thread = threading.get_ident()
+
+    worker = threading.Thread(
+        target=lambda: ui._post_ui(lambda: observed_threads.append(threading.get_ident()))
+    )
+    worker.start()
+    worker.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert observed_threads == []
+    ui._drain_ui_queue()
+    assert observed_threads == [main_thread]
+    assert ui._ui_poll_id == "poll-1"
+    assert ui.scheduled[0][0] == 25
+
+
+def test_desktop_ui_dispatcher_drops_callbacks_after_shutdown():
+    import queue
+    from ui.app_window import AgenticVoiceAssistant
+
+    class FakeUI:
+        _post_ui = AgenticVoiceAssistant._post_ui
+
+        def __init__(self):
+            self._closing = True
+            self._ui_queue = queue.Queue()
+
+    ui = FakeUI()
+    assert ui._post_ui(lambda: None) is False
+    assert ui._ui_queue.empty()

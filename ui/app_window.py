@@ -1,6 +1,7 @@
 # ui/app_window.py
 import threading
 import time
+import queue
 import keyboard  # pip install keyboard
 try:
     from ui.notify import notify_background
@@ -41,6 +42,13 @@ class AgenticVoiceAssistant(ctk.CTk):
         self.minsize(960, 640)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._closing = False
+        self._ui_queue = queue.Queue()
+        self._ui_poll_id = None
+        self._undo_in_progress = False
+        self._models_refreshing = False
+        self._stt_ready = False
+        self._tts_ready = False
+        self._max_transcript_lines = 8000
         self.configure(fg_color=("#E8EEF5", "#0F1419"))
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(3, weight=1)
@@ -75,6 +83,7 @@ class AgenticVoiceAssistant(ctk.CTk):
         self.mobile_host = os.environ.get("VOICEASSISTANT_MOBILE_HOST", "127.0.0.1").strip() or "127.0.0.1"
 
         self._build_ui()
+        self._ui_poll_id = self.after(25, self._drain_ui_queue)
         self._setup_hotkeys()
         threading.Thread(target=self._run_mobile_server, daemon=True).start()
         threading.Thread(target=self._initialize_engines, daemon=True).start()
@@ -250,6 +259,38 @@ class AgenticVoiceAssistant(ctk.CTk):
             command=self.toggle_assistant,
         )
         self.action_button.grid(row=7, column=0, padx=16, pady=12, sticky="ew")
+        self.action_button.configure(state="disabled")
+
+    def _post_ui(self, callback, *args, **kwargs) -> bool:
+        """Queue UI work; only the Tk main thread touches widgets."""
+        if self._closing:
+            return False
+        try:
+            self._ui_queue.put_nowait((callback, args, kwargs))
+            return True
+        except Exception as error:
+            print(f"[UI] Could not queue UI callback: {error}")
+            return False
+
+    def _drain_ui_queue(self):
+        """Run queued callbacks from the Tk event loop."""
+        self._ui_poll_id = None
+        if self._closing:
+            return
+        for _ in range(100):
+            try:
+                callback, args, kwargs = self._ui_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                callback(*args, **kwargs)
+            except Exception as error:
+                print(f"[UI] Callback failed: {error}")
+        if not self._closing:
+            try:
+                self._ui_poll_id = self.after(25, self._drain_ui_queue)
+            except Exception:
+                self._ui_poll_id = None
 
     def _run_mobile_server(self):
         try:
@@ -266,6 +307,16 @@ class AgenticVoiceAssistant(ctk.CTk):
             return
         self._closing = True
         self.is_running = False
+        if self._ui_poll_id is not None:
+            try:
+                self.after_cancel(self._ui_poll_id)
+            except Exception:
+                pass
+            self._ui_poll_id = None
+        try:
+            self.conversation.request_cancel("shutdown")
+        except Exception as e:
+            print(f"[Shutdown] Conversation: {e}")
         try:
             self.tts.shutdown()
         except Exception as e:
@@ -292,13 +343,13 @@ class AgenticVoiceAssistant(ctk.CTk):
 
     def _setup_hotkeys(self):
         try:
-            keyboard.add_hotkey("ctrl+shift+space", self._hotkey_toggle)
-            keyboard.add_hotkey("esc", self._stop_activity)
-        except Exception:
-            pass
+            keyboard.add_hotkey("ctrl+shift+space", lambda: self._post_ui(self.toggle_assistant))
+            keyboard.add_hotkey("esc", lambda: self._post_ui(self._stop_activity))
+        except Exception as error:
+            print(f"[Hotkeys] Registration unavailable: {error}")
 
     def _hotkey_toggle(self):
-        self.after(0, self.toggle_assistant)
+        self._post_ui(self.toggle_assistant)
 
     def _initialize_engines(self):
         stt_ready = False
@@ -314,6 +365,8 @@ class AgenticVoiceAssistant(ctk.CTk):
             tts_ready = True
         except Exception as e:
             self.update_transcript(f"[Warning] Text-to-speech unavailable: {e}")
+        self._stt_ready = stt_ready
+        self._tts_ready = tts_ready
         if stt_ready and tts_ready:
             status = "Ready"
         elif stt_ready or tts_ready:
@@ -322,27 +375,36 @@ class AgenticVoiceAssistant(ctk.CTk):
             status = "Ready (text mode; voice services unavailable)"
         self.update_status(status)
         self.update_transcript("[System] Agent core initialized. Text chat remains available.")
+        self._post_ui(self._set_voice_button_state, stt_ready)
+        self._post_ui(self._schedule_model_refresh)
+
+    def _set_voice_button_state(self, available: bool):
+        if self._closing:
+            return
+        try:
+            self.action_button.configure(state="normal" if available else "disabled")
+        except Exception:
+            pass
+
+    def _schedule_model_refresh(self):
+        if self._closing:
+            return
         try:
             self.after(1500, self._refresh_models)
         except Exception:
             pass
 
     def update_status(self, text: str, color: str | None = None):
-        # Thread-safe; status_label may not exist during early boot
+        """Queue status updates for the Tk main thread; never touch widgets from workers."""
         def _apply():
-            try:
-                if not hasattr(self, "status_label"):
-                    return
-                self.status_label.configure(text=text)
-                if color:
-                    self.status_label.configure(text_color=color)
-            except Exception:
-                pass
+            if self._closing or not hasattr(self, "status_label"):
+                return
+            self.status_label.configure(text=text)
+            self.status_label.configure(
+                text_color=color or ("#1A5276", "#5DADE2")
+            )
 
-        try:
-            self.after(0, _apply)
-        except Exception:
-            _apply()
+        self._post_ui(_apply)
 
 
 
@@ -361,22 +423,25 @@ class AgenticVoiceAssistant(ctk.CTk):
         return False
 
     def _notify_if_background(self, title: str, message: str) -> None:
-        if notify_background is None:
-            return
-        try:
-            if not self._window_is_background():
+        def _apply():
+            if self._closing or notify_background is None:
                 return
-            hwnd = None
             try:
-                hwnd = int(self.winfo_id())
-            except Exception:
+                if not self._window_is_background():
+                    return
                 hwnd = None
-            preview = (message or "Your request is complete.").replace(chr(10), " ").strip()
-            if len(preview) > 160:
-                preview = preview[:157] + "..."
-            notify_background(title or "VoiceAssistant", preview, hwnd=hwnd)
-        except Exception:
-            pass
+                try:
+                    hwnd = int(self.winfo_id())
+                except Exception:
+                    hwnd = None
+                preview = (message or "Your request is complete.").replace(chr(10), " ").strip()
+                if len(preview) > 160:
+                    preview = preview[:157] + "..."
+                notify_background(title or "VoiceAssistant", preview, hwnd=hwnd)
+            except Exception as error:
+                print(f"[Notify] Background notification failed: {error}")
+
+        self._post_ui(_apply)
 
     def update_transcript(self, text: str):
         """Append to transcript as chat-style blocks (User / Assistant / System)."""
@@ -386,6 +451,7 @@ class AgenticVoiceAssistant(ctk.CTk):
                     return
                 self.transcript_area.configure(state="normal")
                 self._insert_chat_block(text)
+                self._trim_transcript()
                 self.transcript_area.see("end")
                 self.transcript_area.configure(state="disabled")
             except Exception as e:
@@ -406,11 +472,21 @@ class AgenticVoiceAssistant(ctk.CTk):
                 except Exception:
                     pass
 
-        try:
-            self.after(0, _apply)
-        except Exception:
-            _apply()
+        self._post_ui(_apply)
 
+
+    def _trim_transcript(self) -> None:
+        """Keep the live UI transcript bounded; the encrypted history remains authoritative."""
+        try:
+            textbox = getattr(self.transcript_area, "_textbox", None)
+            if textbox is None:
+                return
+            line_count = int(textbox.index("end-1c").split(".", 1)[0])
+            excess = line_count - self._max_transcript_lines
+            if excess > 0:
+                textbox.delete("1.0", f"{excess + 1}.0")
+        except Exception as error:
+            print(f"[UI] Transcript trimming skipped: {error}")
 
     def _insert_chat_block(self, text: str) -> None:
         """Format transcript like a chat: clear You vs Assistant vs system."""
@@ -597,7 +673,37 @@ class AgenticVoiceAssistant(ctk.CTk):
         self.update_transcript(f"[System] Switched model to: {model_name}")
 
     def _refresh_models(self):
-        models = self.llm.get_available_models()
+        if self._closing or self._models_refreshing:
+            return
+        self._models_refreshing = True
+        try:
+            self.refresh_models_btn.configure(state="disabled")
+        except Exception:
+            pass
+
+        def _load():
+            models = []
+            error = None
+            try:
+                models = self.llm.get_available_models() or []
+            except Exception as exc:
+                error = str(exc)
+            self._post_ui(self._apply_model_refresh, models, error)
+
+        threading.Thread(target=_load, name="OllamaModelRefresh", daemon=True).start()
+
+    def _apply_model_refresh(self, models, error):
+        self._models_refreshing = False
+        if self._closing:
+            return
+        try:
+            self.refresh_models_btn.configure(state="normal")
+        except Exception:
+            pass
+        if error:
+            self.update_status("Ollama model refresh failed", "#E67E22")
+            self.update_transcript(f"[Warning] Could not refresh Ollama models: {error}")
+            return
         if models:
             self.model_menu.configure(values=models)
             current = self.model_var.get()
@@ -639,55 +745,61 @@ class AgenticVoiceAssistant(ctk.CTk):
         self.update_status("History cleared")
 
     def _undo_last_action(self):
-        # Prevent double-click while undo runs
+        if self._undo_in_progress or self._closing:
+            return
+        self._undo_in_progress = True
         try:
             self.inline_undo_btn.configure(state="disabled")
         except Exception:
             pass
-        try:
-            result = self.conversation.undo.undo_last()
-            msg = result.get("message") or "Undo done."
-            # Log without re-triggering action-bar logic oddly
-            self.transcript_area.configure(state="normal")
-            self.transcript_area.insert("end", f"[Undo] {msg}\n\n")
-            self.transcript_area.see("end")
-            self.transcript_area.configure(state="disabled")
 
-            if not result.get("ok"):
-                self.update_status("Nothing to undo", "#E67E22")
-                self._hide_action_bar()
-                return
+        def _run_undo():
+            result = None
+            stack = []
+            error = None
+            try:
+                result = self.conversation.undo.undo_last()
+                if isinstance(result, dict) and result.get("ok"):
+                    try:
+                        stack = self.conversation.undo.list_stack()
+                    except Exception as stack_error:
+                        print(f"[Undo] Could not refresh remaining undo stack: {stack_error}")
+            except Exception as exc:
+                error = str(exc)
+            self._post_ui(self._finish_undo, result, stack, error)
 
-            self.update_status("Undone", "#27AE60")
-            stack = self.conversation.undo.list_stack()
-            # Always hide after a successful undo of the last shown file action.
-            # (Stack may still have older entries; bar represents only the latest deploy.)
-            self._hide_action_bar()
-            if stack:
-                # Optional: show older undo target
-                last = stack[0]
-                fp = last.get("filepath") or ""
-                if fp:
-                    self._show_action_bar(f"Previous file change: {fp}")
-        except Exception as e:
-            self.transcript_area.configure(state="normal")
-            self.transcript_area.insert("end", f"[Undo] Error: {e}\n\n")
-            self.transcript_area.configure(state="disabled")
+        threading.Thread(target=_run_undo, name="UndoOperation", daemon=True).start()
+
+    def _finish_undo(self, result, stack, error):
+        self._undo_in_progress = False
+        if self._closing:
+            return
         try:
-            tb = self.transcript_area._textbox
-            tb.tag_config("user", foreground="#5DADE2")
-            tb.tag_config("assistant", foreground="#ABEBC6")
-            tb.tag_config("system", foreground="#95A5A6")
-            tb.tag_config("success", foreground="#58D68D")
-            tb.tag_config("error", foreground="#F1948A")
-            tb.tag_config("meta", foreground="#7F8C8D")
-            tb.tag_config("divider", foreground="#34495E")
-            tb.tag_config("bold", font=("Segoe UI", 13, "bold"))
-            tb.tag_config("italic", font=("Segoe UI", 13, "italic"))
-            tb.tag_config("heading", font=("Segoe UI", 14, "bold"), foreground="#F5B041")
-            tb.tag_config("bullet", foreground="#AED6F1")
+            self.inline_undo_btn.configure(state="normal")
         except Exception:
             pass
+        if error:
+            self.update_transcript(f"[Undo] Error: {error}")
+            self.update_status("Undo failed", "#E74C3C")
+            return
+        if not isinstance(result, dict):
+            self.update_transcript("[Undo] Undo returned an invalid result.")
+            self.update_status("Undo failed", "#E74C3C")
+            return
+
+        message = result.get("message") or ("Undo completed." if result.get("ok") else "Nothing to undo.")
+        self.update_transcript(f"[Undo] {message}")
+        if not result.get("ok"):
+            self.update_status("Nothing to undo", "#E67E22")
+            self._hide_action_bar()
+            return
+
+        self.update_status("Undone", "#27AE60")
+        self._hide_action_bar()
+        if stack:
+            filepath = stack[0].get("filepath") or ""
+            if filepath:
+                self._show_action_bar(f"Previous file change: {filepath}")
 
 
     def _show_scheduler(self):
@@ -761,14 +873,66 @@ class AgenticVoiceAssistant(ctk.CTk):
         ).start()
 
     def _export_conversation(self):
-        path = self.history_manager.export_conversation(
-            self.conversation.session_messages, format="md"
-        )
+        if self._closing:
+            return
+        try:
+            messages = list(self.conversation.session_messages)
+            self.export_btn.configure(state="disabled")
+        except Exception as error:
+            self.update_transcript(f"[Export] Could not prepare conversation: {error}")
+            return
+
+        def _export():
+            path = None
+            error = None
+            try:
+                path = self.history_manager.export_conversation(messages, format="md")
+            except Exception as exc:
+                error = str(exc)
+            self._post_ui(self._finish_export, path, error)
+
+        threading.Thread(target=_export, name="ConversationExport", daemon=True).start()
+
+    def _finish_export(self, path, error):
+        try:
+            self.export_btn.configure(state="normal")
+        except Exception:
+            pass
+        if error:
+            self.update_transcript(f"[Export] Failed: {error}")
+            self.update_status("Export failed", "#E74C3C")
+            return
         self.update_transcript(f"[System] Conversation exported to:\n{path}")
+        self.update_status("Conversation exported", "#27AE60")
 
     def _show_audit_log(self):
-        logs = self.history_manager.get_audit_log()
-        AuditLogViewer(self, logs)
+        if self._closing:
+            return
+        try:
+            self.audit_btn.configure(state="disabled")
+        except Exception:
+            pass
+
+        def _load():
+            logs = None
+            error = None
+            try:
+                logs = self.history_manager.get_audit_log()
+            except Exception as exc:
+                error = str(exc)
+            self._post_ui(self._finish_audit_log, logs, error)
+
+        threading.Thread(target=_load, name="AuditLogLoad", daemon=True).start()
+
+    def _finish_audit_log(self, logs, error):
+        try:
+            self.audit_btn.configure(state="normal")
+        except Exception:
+            pass
+        if error:
+            self.update_transcript(f"[Audit] Could not load audit log: {error}")
+            return
+        AuditLogViewer(self, logs or [])
 
     def _show_help(self):
         try:
@@ -787,8 +951,7 @@ class AgenticVoiceAssistant(ctk.CTk):
         ).start()
 
     def show_security_gate(self, display_text: str, callback, risk_level: str = "low"):
-        # Always marshal UI updates onto the Tk main thread
-        self.after(0, lambda: self._show_security_gate_ui(display_text, callback, risk_level))
+        self._post_ui(self._show_security_gate_ui, display_text, callback, risk_level)
 
     def _show_security_gate_ui(self, display_text: str, callback, risk_level: str = "low"):
         self.pending_callback = callback
@@ -818,7 +981,7 @@ class AgenticVoiceAssistant(ctk.CTk):
         self.update_status("Awaiting Security Clearance ⚠️", "#E74C3C")
 
     def show_diff_preview(self, filepath: str, content: str, on_confirm, on_cancel):
-        DiffViewer(self, filepath, content, on_confirm, on_cancel)
+        self._post_ui(lambda: DiffViewer(self, filepath, content, on_confirm, on_cancel))
 
     def approve_action(self):
         if self.pending_callback:
@@ -840,10 +1003,7 @@ class AgenticVoiceAssistant(ctk.CTk):
             )
 
     def _clear_security_gate_threadsafe(self):
-        try:
-            self.after(0, self.clear_security_gate)
-        except Exception:
-            pass
+        self._post_ui(self.clear_security_gate)
 
     def clear_security_gate(self):
         self.pending_callback = None
@@ -851,11 +1011,18 @@ class AgenticVoiceAssistant(ctk.CTk):
 
     def toggle_assistant(self):
         if not self.is_running:
+            if not self._stt_ready:
+                self.update_status("Voice input unavailable; use text chat", "#E67E22")
+                self.update_transcript("[Warning] Speech recognition is not ready. Text chat remains available.")
+                return
             self.is_running = True
             self.action_button.configure(
                 text="Stop Assistant", fg_color="#C0392B", hover_color="#922B21"
             )
-            threading.Thread(target=self._voice_loop, daemon=True).start()
+            self._voice_thread = threading.Thread(
+                target=self._voice_loop, name="VoiceCaptureLoop", daemon=True
+            )
+            self._voice_thread.start()
         else:
             self.is_running = False
             self.tts.stop()
@@ -863,14 +1030,16 @@ class AgenticVoiceAssistant(ctk.CTk):
                 text="Start Assistant",
                 fg_color=("#3B8ED0", "#1F6AA5"),
                 hover_color=("#3278B2", "#144875"),
+                state="normal" if self._stt_ready else "disabled",
             )
             self.update_status("Stopped")
 
     def _voice_loop(self):
-        while self.is_running:
-            self.update_status("Listening... Speak now", "#2ECC71")
-            try:
-                audio_data = self.recorder.record(lambda: self.is_running)
+        failure = None
+        try:
+            while self.is_running and not self._closing:
+                self.update_status("Listening... Speak now", "#2ECC71")
+                audio_data = self.recorder.record(lambda: self.is_running and not self._closing)
                 if audio_data is None:
                     continue
                 self.update_status("Processing speech...", "#F39C12")
@@ -878,8 +1047,28 @@ class AgenticVoiceAssistant(ctk.CTk):
                 if not user_text:
                     continue
                 self.conversation.process_user_input(user_text)
-            except Exception as e:
-                self.update_transcript(f"[Error] {e}")
-                break
-            time.sleep(1.2)
-        self.update_status("Ready")
+                time.sleep(1.2)
+        except Exception as error:
+            failure = str(error)
+            self.is_running = False
+        finally:
+            self._post_ui(self._voice_loop_finished, failure)
+
+    def _voice_loop_finished(self, failure=None):
+        if self._closing:
+            return
+        self.is_running = False
+        try:
+            self.action_button.configure(
+                text="Start Assistant",
+                fg_color=("#3B8ED0", "#1F6AA5"),
+                hover_color=("#3278B2", "#144875"),
+                state="normal" if self._stt_ready else "disabled",
+            )
+        except Exception:
+            pass
+        if failure:
+            self.update_transcript(f"[Error] Voice input stopped: {failure}")
+            self.update_status("Voice input stopped", "#E74C3C")
+        else:
+            self.update_status("Ready")
