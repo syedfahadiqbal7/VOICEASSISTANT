@@ -38,3 +38,18 @@ void main() {
     service.dispose();
   });
 }
+
+
+
+  test('clearError clears the visible error state and notifies listeners', () {
+    final service = WebSocketService();
+    var notifications = 0;
+    service.addListener(() => notifications++);
+    service.lastError = 'Approval acknowledgement timed out';
+
+    service.clearError();
+
+    expect(service.lastError, isNull);
+    expect(notifications, 1);
+    service.dispose();
+  });

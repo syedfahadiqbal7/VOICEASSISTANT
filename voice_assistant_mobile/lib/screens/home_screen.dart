@@ -289,6 +289,31 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
+          if (ws.lastError != null && ws.lastError!.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              color: const Color(0xFF7F1D1D),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.white, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      ws.lastError!,
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: "Dismiss error",
+                    visualDensity: VisualDensity.compact,
+                    onPressed: ws.clearError,
+                    icon: const Icon(Icons.close, color: Colors.white, size: 18),
+                  ),
+                ],
+              ),
+            ),
+
           // Session state chips (desktop → mobile)
           if (ws.isConnected)
             Container(

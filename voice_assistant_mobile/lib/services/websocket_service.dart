@@ -527,6 +527,12 @@ class WebSocketService extends ChangeNotifier {
     }
   }
 
+  void clearError() {
+    if (lastError == null) return;
+    lastError = null;
+    notifyListeners();
+  }
+
   void clearMessages() {
     messages.clear();
     notifyListeners();
