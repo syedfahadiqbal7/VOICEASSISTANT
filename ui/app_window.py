@@ -627,11 +627,14 @@ class AgenticVoiceAssistant(ctk.CTk):
 
 
     def speak(self, text: str):
-        self.update_status("Speaking...", "#3498DB")
         try:
             self._notify_if_background("Response ready", text or "Assistant finished.")
         except Exception:
             pass
+        if not self._tts_ready:
+            self.update_status("Text response ready (speech output unavailable)", "#E67E22")
+            return
+        self.update_status("Speaking...", "#3498DB")
         self.tts.speak(
             text,
             on_finished=lambda: self.update_status("Listening... Speak now", "#2ECC71")
