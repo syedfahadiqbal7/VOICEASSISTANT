@@ -73,23 +73,38 @@ class DiffViewer(ctk.CTkToplevel):
             command=self._cancel,
         ).pack(side="left")
 
-        ctk.CTkButton(
+        self.confirm_btn = ctk.CTkButton(
             btn_frame,
             text="Approve & Write File",
             fg_color="#27AE60",
             hover_color="#219653",
             width=160,
             command=self._confirm,
-        ).pack(side="right")
+        )
+        self.confirm_btn.pack(side="right")
 
     def _load_diff(self):
-        old_lines = []
-        if os.path.exists(self.filepath):
-            try:
+        max_diff_bytes = 5 * 1024 * 1024
+        try:
+            new_size = len(self.new_content.encode("utf-8"))
+            if new_size > max_diff_bytes:
+                raise ValueError("New content exceeds the 5 MiB interactive diff limit.")
+            old_lines = []
+            if os.path.exists(self.filepath):
+                if os.path.getsize(self.filepath) > max_diff_bytes:
+                    raise ValueError("Existing file exceeds the 5 MiB interactive diff limit.")
                 with open(self.filepath, "r", encoding="utf-8") as f:
                     old_lines = f.readlines()
-            except Exception:
-                old_lines = []
+        except Exception as error:
+            self.diff_box.configure(state="normal")
+            self.diff_box.insert(
+                "0.0",
+                "Diff preview unavailable. The existing file could not be read safely.\n\n"
+                f"{error}\n\nWriting is disabled to prevent an unreviewed overwrite.",
+            )
+            self.diff_box.configure(state="disabled")
+            self.confirm_btn.configure(state="disabled")
+            return
 
         new_lines = self.new_content.splitlines(keepends=True)
 
@@ -104,6 +119,7 @@ class DiffViewer(ctk.CTkToplevel):
         diff_text = "\n".join(diff)
         if not diff_text.strip():
             diff_text = "(No differences – file content is identical)"
+            self.confirm_btn.configure(state="disabled")
 
         self.diff_box.insert("0.0", diff_text)
         self.diff_box.configure(state="disabled")
