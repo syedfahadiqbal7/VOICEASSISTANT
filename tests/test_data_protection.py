@@ -232,3 +232,120 @@ def test_custom_skill_manifests_and_packs_are_encrypted_and_source_has_no_privat
     manager = packs.SkillPackManager(path=packs.PACKS_FILE)
     assert is_encrypted_bytes(packs.PACKS_FILE.read_bytes())
     assert manager.is_enabled("private_portal")
+
+
+def test_portable_backup_restores_across_different_machine_keys(tmp_path, monkeypatch):
+    from agent.backup_manager import BackupManager
+    from agent.storage import atomic_write_encrypted_bytes
+    from agent.skill_author import install_skill
+    import agent.skill_author as author
+
+    _set_key(monkeypatch, b"A" * 32)
+    source_root = tmp_path / "source_app"
+    history = source_root / "history"
+    history.mkdir(parents=True)
+    stores = {
+        "conversation_history.json": {"messages": [{"role": "user", "content": "portable private conversation"}]},
+        "audit_log.json": [{"action": "open", "details": "private audit detail"}],
+        "agent_memory.json": {"facts": ["portable private memory"]},
+        "agent_policy.json": {"role": "operator"},
+        "scheduled_jobs.json": [{"id": "job-1", "prompt": "private scheduled prompt"}],
+        "undo_stack.json": [],
+        "skill_packs.json": {"version": 1, "enabled": {"browser": True}},
+    }
+    for name, value in stores.items():
+        atomic_write_json(history / name, value, encrypt=True)
+
+    undo_dir = history / "undo_backups"
+    undo_dir.mkdir()
+    atomic_write_encrypted_bytes(undo_dir / "snapshot.bin", b"portable private file bytes")
+
+    monkeypatch.setattr(author, "BASE_DIR", source_root)
+    skill = {
+        "skill_id": "portable_skill",
+        "title": "Portable Skill",
+        "description": "Portable custom skill",
+        "triggers": ["run my portable skill"],
+        "actions": [{"tool": "browser_open", "url": "https://portable.example.test/private"}],
+        "samples": ["run my portable skill"],
+    }
+    assert install_skill(skill, base_dir=source_root)["ok"] is True
+
+    backup_path = tmp_path / "exports" / "portable.vabackup"
+    result = BackupManager(source_root).create_backup(
+        backup_path, "a-long-backup-passphrase"
+    )
+    assert result["ok"] is True
+    raw_backup = backup_path.read_bytes()
+    assert raw_backup.startswith(b"VABACKUP")
+    assert b"portable private conversation" not in raw_backup
+    assert b"portable private file bytes" not in raw_backup
+    assert b"portable.example.test" not in raw_backup
+
+    target_root = tmp_path / "target_app"
+    _set_key(monkeypatch, b"B" * 32)
+    manager = BackupManager(target_root)
+    with pytest.raises(PermissionError):
+        manager.restore_backup(backup_path, "a-long-backup-passphrase")
+    restored = manager.restore_backup(
+        backup_path, "a-long-backup-passphrase", confirm_overwrite=True
+    )
+    assert restored["ok"] is True
+    assert restored["count"] == result["files"]
+
+    target_history = target_root / "history"
+    assert is_encrypted_bytes((target_history / "conversation_history.json").read_bytes())
+    assert load_json(target_history / "conversation_history.json")["messages"][0]["content"] == "portable private conversation"
+    assert load_json(target_history / "agent_memory.json")["facts"] == ["portable private memory"]
+    assert load_encrypted_bytes(target_history / "undo_backups" / "snapshot.bin") == b"portable private file bytes"
+
+    restored_skill = load_json(target_history / "custom_skills" / "portable_skill.json")
+    assert restored_skill["actions"][0]["url"] == "https://portable.example.test/private"
+    generated_plugin = (target_root / "plugins" / "portable_skill_skill.py").read_text(encoding="utf-8")
+    assert "portable.example.test" not in generated_plugin
+
+
+def test_portable_backup_wrong_passphrase_and_tampering_fail_closed(tmp_path, monkeypatch):
+    from agent.backup_manager import BackupManager
+
+    _set_key(monkeypatch)
+    source_root = tmp_path / "source"
+    (source_root / "history").mkdir(parents=True)
+    atomic_write_json(
+        source_root / "history" / "agent_memory.json",
+        {"facts": ["do not expose"]},
+        encrypt=True,
+    )
+    backup = tmp_path / "portable.vabackup"
+    BackupManager(source_root).create_backup(backup, "correct-horse-battery")
+    target = BackupManager(tmp_path / "target")
+
+    with pytest.raises(DataProtectionError):
+        target.restore_backup(backup, "wrong-passphrase", confirm_overwrite=True)
+    tampered = bytearray(backup.read_bytes())
+    tampered[-1] ^= 0x01
+    backup.write_bytes(tampered)
+    with pytest.raises(DataProtectionError):
+        target.restore_backup(backup, "correct-horse-battery", confirm_overwrite=True)
+    assert not (tmp_path / "target" / "history" / "agent_memory.json").exists()
+
+
+def test_portable_backup_rejects_zip_slip_before_writing_files(tmp_path, monkeypatch):
+    import io
+    import zipfile
+    from agent.backup_manager import BackupManager, _encrypt_archive
+
+    _set_key(monkeypatch)
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(archive_buffer, "w") as archive:
+        archive.writestr("../escape.txt", "malicious")
+    payload = _encrypt_archive(archive_buffer.getvalue(), "correct-horse-battery")
+    backup = tmp_path / "malicious.vabackup"
+    backup.write_bytes(payload)
+
+    target_root = tmp_path / "target"
+    with pytest.raises(DataProtectionError):
+        BackupManager(target_root).restore_backup(
+            backup, "correct-horse-battery", confirm_overwrite=True
+        )
+    assert not (tmp_path / "escape.txt").exists()
