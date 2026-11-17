@@ -84,7 +84,7 @@ By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. 
 ## Tests
 
 ```powershell
-python -m pytest -q tests/test_security_reliability_regressions.py tests/test_scheduler_reliability.py tests/test_plugin_marketplace_security.py
+python -m pytest -q tests/test_security_reliability_regressions.py tests/test_scheduler_reliability.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py
 python tests/phase0_smoke_tests.py
 ```
 
@@ -96,7 +96,20 @@ Conversation history, memory, audit logs, policy, scheduled jobs, undo stacks an
 
 Existing plaintext JSON stores are migrated atomically to encrypted files when first read by the updated application. Encrypted records are bound to their store filename; tampering, a wrong key, or a mismatched context causes a hard error. The application must not reset an encrypted store to an empty default after an authentication failure. Explicit conversation exports remain readable Markdown/text files and are not encrypted automatically; store them in a protected location.
 
-**Key recovery is essential:** on Windows, keep the DPAPI key file with the same Windows user profile and back it up as part of a protected device backup. DPAPI-protected key files are not independently portable to another Windows account/device. For migration to another machine or platform, configure the same securely stored `VOICEASSISTANT_DATA_KEY` on both environments before opening the data. Losing the active key makes encrypted local data unrecoverable. Key rotation and a guided portable-key migration workflow are not yet implemented. Never commit the DPAPI key file, environment key, runtime data or exports.
+**Key recovery is essential:** on Windows, keep the DPAPI key file with the same Windows user profile and back it up as part of a protected device backup. DPAPI-protected key files are not independently portable to another Windows account/device. Losing the active key makes encrypted local data unrecoverable. Never commit the DPAPI key file, environment key, runtime data or exports.
+
+### Portable encrypted backup
+
+Use the interactive CLI; the passphrase is prompted securely and is not passed in the command line:
+
+```powershell
+python backup_cli.py create "D:/Backups/voiceassistant.vabackup"
+python backup_cli.py restore "D:/Backups/voiceassistant.vabackup"
+```
+
+The backup archive is protected with PBKDF2-HMAC-SHA256 (600,000 iterations) and AES-256-GCM, so it can be restored on another machine using a different local data key. Use a strong passphrase of at least 12 characters and keep it separately; losing it makes that backup unrecoverable. Restore requires typing `RESTORE` and replaces matching store files only; it does not delete files absent from the backup. Each restored file is written atomically, but the entire multi-file restore is not a single filesystem transaction. Backups include the supported JSON stores, custom-skill manifests and undo snapshots; they do not include application source, plugin binaries, exports, API credentials or machine-specific settings. Generated custom-skill loader files are rebuilt from validated manifests.
+
+For migration to another machine, create a portable backup on the source machine and restore it on the destination; do not copy a DPAPI key file to another Windows profile and expect it to work. Key rotation and a guided retention/secure-erasure workflow are not yet implemented.
 
 Scheduled jobs use persisted execution states and retry failed handlers up to three times. Delivery is at-least-once: a crash after an external side effect but before its completion checkpoint can replay the handler, so side-effecting scheduled operations must be idempotent.
 
