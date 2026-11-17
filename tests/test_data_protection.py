@@ -193,3 +193,42 @@ def test_undo_and_scheduler_authentication_fail_closed(tmp_path, monkeypatch):
     monkeypatch.setattr(scheduler_module, "SCHEDULE_FILE", schedule_path)
     with pytest.raises(DataProtectionError):
         scheduler_module.JobScheduler()
+
+
+def test_custom_skill_manifests_and_packs_are_encrypted_and_source_has_no_private_actions(tmp_path, monkeypatch):
+    _set_key(monkeypatch)
+    import agent.skill_author as author
+    import agent.skill_packs as packs
+
+    monkeypatch.setattr(author, "BASE_DIR", tmp_path)
+    private_trigger = "open confidential internal portal"
+    private_url = "https://internal.example.test/private?token=super-secret-value"
+    skill = {
+        "skill_id": "private_portal",
+        "title": "Private Portal",
+        "description": "A private custom workflow",
+        "triggers": [private_trigger],
+        "actions": [{"tool": "browser_open", "url": private_url}],
+        "samples": [private_trigger],
+    }
+    result = author.install_skill(skill, base_dir=tmp_path)
+    assert result["ok"] is True
+
+    manifest_path = tmp_path / "history" / "custom_skills" / "private_portal.json"
+    index_path = tmp_path / "history" / "custom_skills" / "index.json"
+    source_path = tmp_path / "plugins" / "private_portal_skill.py"
+    assert is_encrypted_bytes(manifest_path.read_bytes())
+    assert is_encrypted_bytes(index_path.read_bytes())
+    source = source_path.read_text(encoding="utf-8")
+    compile(source, str(source_path), "exec")
+    assert private_trigger not in source
+    assert private_url not in source
+    assert "super-secret-value" not in source
+
+    loaded = author.load_all_custom_manifests(base_dir=tmp_path)
+    assert loaded[0]["actions"][0]["url"] == private_url
+
+    monkeypatch.setattr(packs, "PACKS_FILE", tmp_path / "history" / "skill_packs.json")
+    manager = packs.SkillPackManager(path=packs.PACKS_FILE)
+    assert is_encrypted_bytes(packs.PACKS_FILE.read_bytes())
+    assert manager.is_enabled("private_portal")

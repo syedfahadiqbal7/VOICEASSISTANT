@@ -13,6 +13,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from agent.skill_author import load_all_custom_manifests
+from agent.storage import atomic_write_json, load_json
+from agent.data_protection import DataProtectionError
 
 try:
     from config import BASE_DIR
@@ -74,22 +76,20 @@ class SkillPackManager:
         if not self.path.exists():
             self.save()
             return
-        try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            if isinstance(raw, dict) and isinstance(raw.get("enabled"), dict):
+        raw = load_json(self.path, default=None, encrypt=True)
+        if raw is not None:
+            if not isinstance(raw, dict):
+                raise ValueError("skill pack settings must be a JSON object")
+            if isinstance(raw.get("enabled"), dict):
                 for k, v in raw["enabled"].items():
                     if k in self.enabled:
                         self.enabled[k] = bool(v)
-        except Exception as e:
-            print(f"[SkillPacks] load failed: {e}")
 
     def save(self) -> None:
-        try:
-            from agent.storage import atomic_write_json
-            atomic_write_json(self.path, {"version": 1, "enabled": self.enabled}, indent=2)
-        except Exception as e:
-            print(f"[SkillPacks] save failed: {e}")
+        atomic_write_json(
+            self.path, {"version": 1, "enabled": self.enabled},
+            indent=2, encrypt=True,
+        )
 
     def is_enabled(self, pack_id: str) -> bool:
         return bool(self.enabled.get(pack_id, False))
@@ -146,6 +146,8 @@ class SkillPackManager:
                 }
                 if sid not in self.enabled:
                     self.enabled[sid] = bool(man.get("enabled", True))
+        except DataProtectionError:
+            raise
         except Exception as e:
             print(f"[SkillPacks] custom merge failed: {e}")
 

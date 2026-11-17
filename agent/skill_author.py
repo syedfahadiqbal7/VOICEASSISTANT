@@ -286,27 +286,21 @@ def _actions_to_steps(actions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def generate_plugin_source(skill: Dict[str, Any]) -> str:
-    """Generate a thin plugin that runs the skill's fixed action list via registry."""
+    """Generate a thin plugin that reads its encrypted skill manifest at runtime."""
     sid = skill["skill_id"]
     class_name = "".join(p.title() for p in sid.split("_")) + "SkillTool"
-    title = skill.get("title", sid)
-    desc = skill.get("description", title)
-    # Plugin exposes one tool: run_<skill_id>
     tool_name = f"run_{sid}"
     return f'''# plugins/{sid}_skill.py
-"""Auto-generated custom skill: {title}
-DO NOT edit by hand unless you know what you are doing.
-Regenerate from Skill Author UI.
-"""
+"""Auto-generated custom skill loader. Skill content remains in encrypted local storage."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Dict
 
 from tools.base import BaseTool
-
-# Fixed plan baked at generation time
-_ACTIONS: List[Dict[str, Any]] = {json.dumps(skill.get("actions") or [], indent=2)}
+from config import BASE_DIR
+from agent.storage import load_json
 
 
 class {class_name}(BaseTool):
@@ -316,11 +310,7 @@ class {class_name}(BaseTool):
 
     @property
     def description(self) -> str:
-        return (
-            "{desc} "
-            "Triggers: {", ".join(skill.get("triggers") or [])}. "
-            "Runs a fixed multi-step skill plan."
-        )
+        return "Loads the saved custom skill plan from protected local storage."
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -331,11 +321,16 @@ class {class_name}(BaseTool):
         }}
 
     def execute(self, **kwargs) -> Dict[str, Any]:
-        # Execution is normally done via OutcomeCompiler plan steps.
-        # This tool is a single-shot fallback that only reports the plan.
-        lines = ["Skill '{sid}' actions:"]
-        for a in _ACTIONS:
-            lines.append(f"  - {{a.get('tool')}}: {{ {{k:v for k,v in a.items() if k!='tool'}} }}")
+        manifest_path = Path(BASE_DIR) / "history" / "custom_skills" / "{sid}.json"
+        manifest = load_json(manifest_path, encrypt=True)
+        if not isinstance(manifest, dict):
+            return {{"content": "Custom skill manifest is unavailable or invalid.", "is_error": True}}
+        actions = manifest.get("actions") or []
+        lines = [f"Skill '{{manifest.get('title') or '{sid}'}}' actions:"]
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            lines.append(f"  - {{action.get('tool')}}: {{ {{k: v for k, v in action.items() if k != 'tool'}} }}")
         return {{"content": "\\n".join(lines), "is_error": False}}
 '''
 
