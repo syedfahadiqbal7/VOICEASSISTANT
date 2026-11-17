@@ -1004,6 +1004,23 @@ class ConversationManager:
         """Execute one tool. Optional auto_approve skips gate (trusted scheduled opens only)."""
         done = queue.Queue()
 
+        try:
+            decision = self.policy.evaluate_tool_call(
+                func_name, args, permissions=self.tool_registry.get_permissions(func_name)
+            )
+            if not decision.get("allowed", False):
+                self._log(f"[Policy] Scheduled action denied: {decision.get('reason', 'blocked')}")
+                return False
+            auto_approve = bool(
+                auto_approve
+                and func_name == "open_app"
+                and self.policy.role != "read_only"
+                and self.policy.is_trusted_scheduled_open(str(args.get("target") or ""))
+            )
+        except Exception as error:
+            self._log(f"[Policy] Scheduled action blocked because policy evaluation failed: {error}")
+            return False
+
         def execute_callback():
             backup = None
             try:

@@ -74,3 +74,19 @@ Permission examples:
 ## Disable a plugin
 - Rename to `something.py.disabled`, **or**
 - Add filename to `DISABLED_PLUGIN_FILES` in `agent/tool_registry.py`.
+
+
+## Supported permission identifiers
+
+Manifests must use only these exact identifiers:
+
+- filesystem:read, filesystem:write, filesystem:delete
+- network:read, network:write
+- process:read, process:execute, process:terminate
+- screen:read, screen:control
+- clipboard:read, clipboard:write
+- system:environment:write, system:admin
+- service:control, docker:control, registry:write
+- email:send, messaging:send
+
+Unknown or misspelled permissions are rejected by manifest validation. Permission declarations are enforced by the application policy at tool invocation; they are not an operating-system sandbox. Plugins execute in the desktop process, so install only code from sources you trust.

@@ -209,105 +209,194 @@ def install_from_zip(
     zip_path: Path,
     plugins_dir: Optional[Path] = None,
     require_checksum: bool = True,
+    replace: bool = False,
 ) -> Dict[str, Any]:
-    """
-    Install plugin package zip into plugins/.
-    Zip must contain manifest.json + entry .py at top level (or single subfolder).
+    """Safely validate and install a single-file Python plugin package.
+
+    Archive members are read into a bounded staging directory; extractall is
+    deliberately avoided. Existing plugins are never overwritten unless the
+    caller explicitly opts in with replace=True.
     """
     zip_path = Path(zip_path)
     dest_root = Path(plugins_dir) if plugins_dir else Path(PLUGINS_DIR)
-    dest_root.mkdir(parents=True, exist_ok=True)
-
     if not zip_path.is_file():
         return {"ok": False, "errors": [f"zip not found: {zip_path}"]}
+    try:
+        dest_root.mkdir(parents=True, exist_ok=True)
+        dest_root = dest_root.resolve()
+    except OSError as error:
+        return {"ok": False, "errors": [f"plugin destination unavailable: {error}"]}
 
-    import tempfile
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            infos = [item for item in zf.infolist() if not item.is_dir()]
+            if not infos:
+                return {"ok": False, "errors": ["plugin archive is empty"]}
+            if len(infos) > MAX_PLUGIN_ARCHIVE_FILES:
+                return {"ok": False, "errors": ["plugin archive contains too many files"]}
 
-    with tempfile.TemporaryDirectory() as td:
-        td_path = Path(td)
-        try:
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall(td_path)
-        except Exception as e:
-            return {"ok": False, "errors": [f"zip extract failed: {e}"]}
+            total_size = 0
+            for info in infos:
+                raw_name = info.filename
+                if "\\" in raw_name or "\\x00" in raw_name:
+                    return {"ok": False, "errors": [f"unsafe archive path: {raw_name!r}"]}
+                member_path = PurePosixPath(raw_name)
+                if (
+                    member_path.is_absolute()
+                    or not member_path.parts
+                    or any(part in {"", ".", ".."} for part in member_path.parts)
+                    or ":" in member_path.parts[0]
+                ):
+                    return {"ok": False, "errors": [f"unsafe archive path: {raw_name!r}"]}
+                mode = (info.external_attr >> 16) & 0xFFFF
+                if stat.S_ISLNK(mode):
+                    return {"ok": False, "errors": [f"symbolic links are not allowed: {raw_name}"]}
+                if info.flag_bits & 0x1:
+                    return {"ok": False, "errors": [f"encrypted member is not supported: {raw_name}"]}
+                if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}:
+                    return {"ok": False, "errors": [f"unsupported compression method: {raw_name}"]}
+                if info.file_size < 0 or info.file_size > MAX_PLUGIN_SOURCE_BYTES:
+                    return {"ok": False, "errors": [f"archive member is too large: {raw_name}"]}
+                total_size += info.file_size
+                if total_size > MAX_PLUGIN_ARCHIVE_TOTAL_BYTES:
+                    return {"ok": False, "errors": ["plugin archive exceeds the uncompressed size limit"]}
 
-        # Find manifest: manifest.json OR *.manifest.json OR auto from single .py
-        man_path = None
-        package_dir = td_path
-        man_files = list(td_path.rglob(MANIFEST_NAME))
-        if man_files:
-            man_path = man_files[0]
-            package_dir = man_path.parent
-        else:
-            alt = list(td_path.rglob("*.manifest.json"))
-            if alt:
-                man_path = alt[0]
-                package_dir = man_path.parent
+            names = [PurePosixPath(item.filename) for item in infos]
+            manifests = [
+                item for item in names
+                if item.name == MANIFEST_NAME or item.name.endswith(".manifest.json")
+            ]
+            if len(manifests) > 1:
+                return {"ok": False, "errors": ["plugin archive must contain exactly one manifest"]}
+            python_files = [item for item in names if item.suffix.lower() == ".py"]
+            if len(python_files) != 1:
+                return {"ok": False, "errors": ["plugin archive must contain exactly one Python entry file"]}
 
-        if man_path is not None:
-            try:
-                manifest = load_manifest(man_path)
-            except Exception as e:
-                return {"ok": False, "errors": [f"manifest parse error: {e}"]}
-            ok, errors = validate_manifest(manifest)
-            if not ok:
-                return {"ok": False, "errors": errors}
-            entry_name = str(manifest["entry"])
-            src_entry = package_dir / entry_name
-            if not src_entry.is_file():
-                # entry may sit next to manifest with different relative layout
-                found = list(td_path.rglob(entry_name))
-                if found:
-                    src_entry = found[0]
-                else:
-                    return {"ok": False, "errors": [f"entry missing in zip: {entry_name}"]}
-            if require_checksum:
-                digest = sha256_file(src_entry)
-                expected = str(manifest.get("checksum_sha256") or "").lower().strip()
-                if expected and digest.lower() != expected:
-                    # Refresh checksum from actual payload (user-repacked zip)
-                    manifest = dict(manifest)
-                    manifest["checksum_sha256"] = digest
-        else:
-            # No manifest — if exactly one .py (non __), auto-manifest
-            pys = [x for x in td_path.rglob("*.py") if not x.name.startswith("_")]
-            if len(pys) != 1:
-                return {
-                    "ok": False,
-                    "errors": [
-                        "manifest.json not found inside zip "
-                        "(also accepted: *.manifest.json, or a zip with exactly one .py file)"
-                    ],
+            source_path = python_files[0]
+            manifest_path = manifests[0] if manifests else None
+            if manifest_path and manifest_path.parent != source_path.parent:
+                return {"ok": False, "errors": ["manifest and Python entry must be in the same package folder"]}
+            allowed_paths = {source_path}
+            if manifest_path:
+                allowed_paths.add(manifest_path)
+            extras = [str(item) for item in names if item not in allowed_paths]
+            if extras:
+                return {"ok": False, "errors": ["unexpected files in plugin archive: " + ", ".join(extras[:5])]}
+
+            source_info = next(item for item in infos if PurePosixPath(item.filename) == source_path)
+            source_bytes = zf.read(source_info)
+            if len(source_bytes) != source_info.file_size:
+                return {"ok": False, "errors": ["plugin source size did not match archive metadata"]}
+
+            if manifest_path:
+                manifest_info = next(item for item in infos if PurePosixPath(item.filename) == manifest_path)
+                manifest_bytes = zf.read(manifest_info)
+                if len(manifest_bytes) > 64 * 1024:
+                    return {"ok": False, "errors": ["plugin manifest is too large"]}
+                try:
+                    manifest = json.loads(manifest_bytes.decode("utf-8-sig"))
+                except Exception as error:
+                    return {"ok": False, "errors": [f"manifest parse error: {error}"]}
+                if not isinstance(manifest, dict):
+                    return {"ok": False, "errors": ["manifest must be a JSON object"]}
+                valid, errors = validate_manifest(manifest)
+                if not valid:
+                    return {"ok": False, "errors": errors}
+                if manifest.get("entry") != source_path.name:
+                    return {"ok": False, "errors": ["manifest entry does not match the packaged Python file"]}
+                actual_digest = hashlib.sha256(source_bytes).hexdigest()
+                expected = str(manifest.get("checksum_sha256") or "").lower()
+                if actual_digest != expected:
+                    return {
+                        "ok": False,
+                        "errors": ["plugin checksum mismatch; package was not installed"],
+                        "expected_sha256": expected,
+                        "actual_sha256": actual_digest,
+                    }
+            else:
+                # Legacy single-file packages remain supported; their manifest is
+                # generated from the exact bytes that are installed.
+                manifest = {
+                    "name": source_path.stem,
+                    "version": "1.0.0",
+                    "description": f"Installed from zip: {source_path.name}",
+                    "author": "local",
+                    "entry": source_path.name,
+                    "tools": [source_path.stem],
+                    "permissions": [],
+                    "checksum_sha256": hashlib.sha256(source_bytes).hexdigest(),
                 }
-            src_entry = pys[0]
-            entry_name = src_entry.name
-            manifest = build_manifest_for_file(
-                src_entry,
-                name=src_entry.stem,
-                author="local",
-                description=f"Installed from zip: {src_entry.name}",
-                tools=[src_entry.stem],
-            )
+    except (OSError, zipfile.BadZipFile, RuntimeError, ValueError) as error:
+        return {"ok": False, "errors": [f"plugin archive validation failed: {error}"]}
 
-        dest_py = dest_root / Path(entry_name).name
-        dest_man = dest_root / f"{Path(entry_name).stem}.manifest.json"
-        shutil.copy2(src_entry, dest_py)
-        flat_man = dict(manifest)
-        flat_man["entry"] = dest_py.name
-        flat_man["checksum_sha256"] = sha256_file(dest_py)
-        dest_man.write_text(json.dumps(flat_man, indent=2), encoding="utf-8")
-
+    entry_name = source_path.name
+    dest_py = dest_root / entry_name
+    dest_man = dest_root / f"{Path(entry_name).stem}.manifest.json"
+    if (dest_py.exists() or dest_man.exists()) and not replace:
         return {
-            "ok": True,
-            "installed_entry": str(dest_py),
-            "installed_manifest": str(dest_man),
-            "manifest": flat_man,
-            "message": (
-                f"Installed plugin '{flat_man.get('name')}' v{flat_man.get('version', '1.0.0')}. "
-                "Restart app to load."
-            ),
+            "ok": False,
+            "requires_confirmation": True,
+            "errors": [f"plugin '{Path(entry_name).stem}' already exists; explicit replacement is required"],
         }
 
+    flat_manifest = dict(manifest)
+    flat_manifest["entry"] = dest_py.name
+    flat_manifest["checksum_sha256"] = hashlib.sha256(source_bytes).hexdigest()
+    manifest_bytes = (json.dumps(flat_manifest, indent=2, ensure_ascii=False) + "\\n").encode("utf-8")
+
+    try:
+        with tempfile.TemporaryDirectory(prefix=".plugin-install-", dir=str(dest_root)) as td:
+            stage_dir = Path(td)
+            staged_py = stage_dir / dest_py.name
+            staged_manifest = stage_dir / dest_man.name
+            for staged_path, payload in ((staged_py, source_bytes), (staged_manifest, manifest_bytes)):
+                with open(staged_path, "wb") as handle:
+                    handle.write(payload)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+
+            if not replace:
+                # Hard links are atomic and refuse to overwrite a concurrent install.
+                try:
+                    os.link(staged_py, dest_py)
+                    try:
+                        os.link(staged_manifest, dest_man)
+                    except Exception:
+                        dest_py.unlink(missing_ok=True)
+                        raise
+                except FileExistsError:
+                    return {"ok": False, "requires_confirmation": True,
+                            "errors": ["plugin destination already exists; explicit replacement is required"]}
+            else:
+                backups = {}
+                for destination in (dest_py, dest_man):
+                    if destination.exists():
+                        backup = stage_dir / (destination.name + ".backup")
+                        shutil.copy2(destination, backup)
+                        backups[destination] = backup
+                installed = []
+                try:
+                    os.replace(staged_py, dest_py)
+                    installed.append(dest_py)
+                    os.replace(staged_manifest, dest_man)
+                    installed.append(dest_man)
+                except Exception:
+                    for destination in installed:
+                        if destination in backups:
+                            os.replace(backups[destination], destination)
+                        else:
+                            destination.unlink(missing_ok=True)
+                    raise
+    except Exception as error:
+        return {"ok": False, "errors": [f"plugin install failed: {error}"]}
+
+    return {
+        "ok": True,
+        "installed_entry": str(dest_py),
+        "installed_manifest": str(dest_man),
+        "manifest": flat_manifest,
+        "message": f"Installed plugin '{flat_manifest.get('name')}' v{flat_manifest.get('version', '1.0.0')}. Restart app to load.",
+    }
 
 def generate_manifests_for_plugins_dir(
     plugins_dir: Optional[Path] = None,

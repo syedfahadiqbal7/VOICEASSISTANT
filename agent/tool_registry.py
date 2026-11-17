@@ -124,32 +124,31 @@ class ToolRegistry:
                 sys.modules[file.stem] = module
                 spec.loader.exec_module(module)
 
-                for name, obj in inspect.getmembers(module, inspect.isclass):
-                    # Only register classes defined by this plugin module; imported
-                    # BaseTool subclasses are dependencies, not plugin exports.
-                    if (
-                        issubclass(obj, BaseTool)
-                        and obj is not BaseTool
-                        and obj.__module__ == module.__name__
-                    ):
-                        try:
-                            tool_instance = obj()
-                            if tool_instance.name not in declared_tools:
-                                print(
-                                    f"[Plugin] BLOCKED undeclared tool '{tool_instance.name}' "
-                                    f"from {file.name}"
-                                )
-                                continue
-                            # Hard block legacy confusing name even if a file sneaks through
-                            if tool_instance.name == "task_scheduler":
-                                print(
-                                    "[Plugin] Blocked legacy name 'task_scheduler' "
-                                    "(use list_windows_tasks / agent Schedules)"
-                                )
-                                continue
-                            self.register(tool_instance, permissions=manifest.get("permissions") or [])
-                            print(f"[Plugin] Loaded: {tool_instance.name}")
-                        except Exception as e:
-                            print(f"[Plugin Error] Could not instantiate {name}: {e}")
+                exported_classes = [
+                    (name, obj) for name, obj in inspect.getmembers(module, inspect.isclass)
+                    if issubclass(obj, BaseTool) and obj is not BaseTool
+                    and obj.__module__ == module.__name__
+                ]
+                instances = [obj() for _, obj in exported_classes]
+                actual_names = [str(getattr(item, "name", "") or "").strip() for item in instances]
+                if (
+                    not instances
+                    or any(not name for name in actual_names)
+                    or len(actual_names) != len(set(actual_names))
+                    or set(actual_names) != declared_tools
+                ):
+                    raise ValueError(
+                        f"declared tools {sorted(declared_tools)} do not exactly match "
+                        f"plugin exports {sorted(actual_names)}"
+                    )
+                if "task_scheduler" in actual_names:
+                    raise ValueError("legacy tool name 'task_scheduler' is disabled")
+                conflicts = sorted(set(actual_names) & set(self._tools))
+                if conflicts:
+                    raise ValueError("tool name conflict(s): " + ", ".join(conflicts))
+                permissions = manifest.get("permissions") or []
+                for tool_instance in instances:
+                    self.register(tool_instance, permissions=permissions)
+                    print(f"[Plugin] Loaded: {tool_instance.name}")
             except Exception as e:
                 print(f"[Plugin Error] Failed to load {file.name}: {e}")

@@ -20,6 +20,20 @@ except Exception:
 
 POLICY_FILE = Path(BASE_DIR) / "history" / "agent_policy.json"
 
+MUTATING_TOOL_NAME_PARTS = {
+    "add", "clear", "close", "commit", "configure", "control", "copy",
+    "create", "delete", "deploy", "download", "edit", "execute", "format",
+    "install", "kill", "manage", "merge", "move", "new", "open", "publish",
+    "push", "remove", "rename", "restart", "schedule", "send", "set",
+    "start", "stop", "submit", "terminate", "update", "upload", "write",
+}
+
+
+def _tool_name_looks_mutating(tool_name: str) -> bool:
+    parts = {part for part in str(tool_name or "").lower().replace("-", "_").split("_") if part}
+    return bool(parts & MUTATING_TOOL_NAME_PARTS)
+
+
 DEFAULT_POLICY: Dict[str, Any] = {
     "version": 1,
     "role": "operator",  # future: admin | operator | read_only
@@ -102,16 +116,9 @@ class PolicyEngine:
         if tool_name in req:
             return bool(req[tool_name])
         # default: mutating-ish names need gate
-        risky = (
-            "write",
-            "execute",
-            "install",
-            "delete",
-            "kill",
-            "screen",
-            "powershell",
+        return _tool_name_looks_mutating(tool_name) or any(
+            marker in tool_name.lower() for marker in ("screen", "powershell")
         )
-        return any(k in tool_name for k in risky)
 
     def trusted_scheduled_opens(self) -> Set[str]:
         items = self.data.get("auto_approve_scheduled_opens") or []
@@ -214,6 +221,7 @@ class PolicyEngine:
         if self.role == "read_only" and (
             tool_name in ("write_developer_code", "execute_powershell_admin", "install_python_dependencies")
             or bool(declared_permissions & mutating_permissions)
+            or _tool_name_looks_mutating(tool_name)
         ):
             return {
                 "allowed": False,

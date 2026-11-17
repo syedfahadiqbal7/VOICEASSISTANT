@@ -84,7 +84,7 @@ By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. 
 ## Tests
 
 ```powershell
-python -m pytest -q tests/test_security_reliability_regressions.py tests/test_scheduler_reliability.py
+python -m pytest -q tests/test_security_reliability_regressions.py tests/test_scheduler_reliability.py tests/test_plugin_marketplace_security.py
 python tests/phase0_smoke_tests.py
 ```
 
@@ -99,6 +99,7 @@ Conversation history, memory, audit logs, policy, schedules, undo stacks and exp
 - [Comprehensive engineering audit](WORLD_CLASS_AUDIT_REPORT.md)
 - [Mobile security setup](MOBILE_SECURITY_SETUP.md)
 - [Plugin authoring guide](tests/PLUGIN_AUTHORING.md)
+- [Plugin security model](docs/PLUGIN_SECURITY_MODEL.md)
 - [Help](HELP.md)
 
 ## License

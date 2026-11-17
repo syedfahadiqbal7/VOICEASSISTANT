@@ -366,6 +366,13 @@ class SkillAuthorViewer(ctk.CTkToplevel):
             return
         try:
             res = install_from_zip(path)
+            if not res.get("ok") and res.get("requires_confirmation"):
+                if messagebox.askyesno(
+                    "Replace installed plugin?",
+                    "A plugin with this filename is already installed. Replacing it changes the code loaded after restart. Continue?",
+                    parent=self,
+                ):
+                    res = install_from_zip(path, replace=True)
             if not res.get("ok"):
                 self.status.configure(
                     text="Plugin install failed: " + "; ".join(res.get("errors") or []),
