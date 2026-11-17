@@ -81,8 +81,12 @@ Feature presence in source does not imply every integration was successfully exe
 12. **Permission metadata and fail-closed defaults.** Shipped plugin manifests declare file, process, screen, network, service, environment, registry, messaging, email and clipboard capabilities. Read-only policy rejects declared mutating capabilities and common mutating tool-name verbs. Plugins with missing/empty permission metadata default to `system:admin`, except the two built-in pure utilities `say_hello` and `json_formatter`.
 13. **Safe manifest regeneration.** The manifest generator derives actual tool names from Python AST without importing plugin code and preserves existing permissions. Unknown or missing permission metadata defaults to `system:admin`; the disabled legacy scheduler plugin is skipped.
 14. **Publisher identity is not spoofable metadata.** The manifest author field is exposed only as an unverified claim; it is never treated as verified publisher trust. Direct scheduled tool execution now passes through policy evaluation and fails closed on policy errors.
-11. **API key handling.** Cloud LLM API keys are no longer persisted to the failover JSON file; use `VOICEASSISTANT_CLOUD_API_KEY`.
-12. **No placeholder API key.** The example failover config no longer contains a fake `sk-...` value.
+15. **API key handling.** Cloud LLM API keys are no longer persisted to the failover JSON file; use `VOICEASSISTANT_CLOUD_API_KEY`.
+16. **No placeholder API key.** The example failover config no longer contains a fake `sk-...` value.
+17. **Authenticated local data encryption.** Conversation history, audit logs, memory, policy, scheduled jobs, undo metadata/snapshots, skill-pack settings and custom-skill manifests/indexes use AES-256-GCM encryption at rest.
+18. **Protected key management.** Windows uses a random 256-bit data key protected by the current Windows user profile with DPAPI. Other platforms require an explicit 32-byte `VOICEASSISTANT_DATA_KEY`; a malformed key never falls back to plaintext.
+19. **Fail-closed decryption and migration.** Existing plaintext JSON stores migrate atomically on first encrypted read. Wrong keys, tampering and store-context mismatch raise a data-protection error; affected stores are not silently reset to empty defaults.
+20. **Custom skill source minimization.** Generated plugin source no longer embeds private triggers, URLs or action arguments; it reads the protected custom-skill manifest at runtime.
 
 ### Reliability and data integrity
 
@@ -91,7 +95,7 @@ Feature presence in source does not imply every integration was successfully exe
 3. Unavailable window-title verification now fails as unverifiable instead of passing.
 4. Undo snapshot failures block the write rather than allowing an overwrite without rollback protection; Desktop-relative and placeholder paths are normalized consistently for both policy and undo snapshotting.
 5. Conversation requests are serialized to protect shared messages, queues and cancellation state from simultaneous desktop/voice/mobile turns.
-6. JSON-backed history, audit, policy, scheduler, undo, memory, skill-pack and LLM configuration writes use an atomic temp-file-and-replace helper.
+6. JSON-backed history, audit, policy, scheduler, undo, memory, skill-pack and custom-skill stores use atomic temp-file-and-replace writes; protected stores are encrypted before the atomic replace.
 7. Scheduler job-list access is guarded by a lock.
 8. Desktop shutdown now stops TTS, the scheduler and global hotkeys before destroying the window.
 9. STT and TTS initialization fail independently; text mode remains available if voice services fail.
@@ -135,13 +139,14 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 | Focused security/reliability tests | 25/25 pass | Windows GitHub Actions |
 | Scheduler durability/recovery tests | 10/10 pass | Crash recovery, retries, cancellation, concurrency and checkpoint failure |
 | Plugin marketplace/security tests | 16/16 pass | ZIP traversal, checksum mismatch, symlink, overwrite, permissions, trust metadata, generator and registry checks |
-| Combined Python regression tests | 51/51 pass | Security/reliability + scheduler + plugin suites |
+| Local data protection tests | 12/12 pass | AES-GCM, tamper/wrong-key detection, plaintext migration, encrypted undo, policy/scheduler/memory/history/skill persistence and fail-closed behavior |
+| Combined Python regression tests | 63/63 pass | Security/reliability + scheduler + plugin + data-protection suites |
 | Existing Phase 0 smoke suite | 16/16 pass | Windows GitHub Actions |
 | Plugin manifest/checksum scan | 55/55 pass | Checks shipped Python file checksums and manifest shape |
 | Plugin manifest/export parity | 54/54 pass | AST check for all active plugin modules; legacy scheduler excluded |
 | Python compileall | Pass | Windows GitHub Actions |
 | Flutter `flutter analyze` / `flutter test` | Pass | Ubuntu GitHub Actions |
-| Android release APK build | Pass | Build succeeded; branch run did not publish a release artifact |
+| Android release APK build | In progress | Latest CI run 44026350158; wait for final job result |
 | Windows desktop startup / audio / Ollama | Not run | Requires the user's Windows desktop, audio hardware and local model runtime |
 | Windows desktop startup | Not run | Requires Windows, desktop dependencies and GUI session |
 | Microphone/STT/TTS | Not run | Requires supported audio devices and model download |
@@ -160,7 +165,8 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 ### P1/P2 — reliability and privacy
 
 - **Scheduler delivery semantics.** A durable Pending/Running/Completed/Failed/Cancelled state machine and crash recovery are implemented. Delivery is at-least-once: if the process crashes after a handler performs an external side effect but before the completion checkpoint is persisted, the handler may run again after restart. Handlers that create files, send messages or otherwise mutate external state still need operation-level idempotency keys/duplicate detection before unattended production use.
-- **Plaintext local data.** Conversation history, audit log, memory, scheduler state and undo metadata are JSON files without application-level encryption at rest. Protect the Windows profile with BitLocker/ACLs and define retention/redaction policies.
+- **Key recovery and portability.** Windows DPAPI key material is bound to the current Windows user profile. Losing the DPAPI key file/profile or moving encrypted data to another account/device without preserving the same data key makes data unrecoverable. A guided key export/rotation and portable encrypted backup workflow are not yet implemented. Explicit Markdown/text conversation exports remain plaintext and must be stored securely.
+- **Retention and deletion semantics.** Conversation and audit caps exist, but there is no central user-configurable retention policy, verified secure-erasure workflow or privacy dashboard yet.
 - **Broad exception handling remains.** Static scan found 337 exception handlers, including 310 `except Exception` handlers and 75 handlers whose only statement is `pass`. These are not all defects, but they need a dedicated exception-observability pass with structured logs and typed recovery behavior.
 - **No comprehensive integration suite.** Mobile/desktop end-to-end workflows, scheduler restart recovery, file-write rollback under disk failure, concurrent cancellation, and external plugin integrations still need automated Windows tests.
 - **History corruption handling.** Some JSON loaders still return empty defaults after parse errors. A quarantine/restore flow should be implemented consistently across all persisted stores.
@@ -194,8 +200,8 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 
 ## 9. Final status
 
-**Implemented:** focused security/reliability hardening, durable scheduler recovery/retries, plugin ZIP/manifest/permission hardening and documentation on GitHub main.  
-**Verified:** Windows Python compileall, 51 Python regression tests, 16 Phase 0 smoke checks, 55 plugin manifest/checksum checks, 54 plugin export-parity checks, Flutter analysis/tests and Android release APK build. Latest green CI: https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44024370357.  
+**Implemented:** focused security/reliability hardening, durable scheduler recovery/retries, plugin ZIP/manifest/permission hardening, AES-256-GCM local persistence encryption, DPAPI/environment key handling, plaintext migration and fail-closed integrity checks.  
+**Verified:** Windows Python compileall, 63 Python regression tests, 16 Phase 0 smoke checks, 55 plugin manifest/checksum checks, 54 plugin export-parity checks and Flutter analysis/tests. Android APK build is still running in CI run 44026350158.  
 **Not certified:** Windows desktop runtime, audio, Ollama, Flutter analysis/build, Android runtime, TLS/mobile production deployment and external integrations.
 
 This is a meaningful engineering hardening release candidate, not a claim that every original feature is production-ready or that all remaining findings have been resolved.
