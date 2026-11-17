@@ -49,17 +49,6 @@ class SkillAuthorViewer(ctk.CTkToplevel):
         skill_packs=None,
     ):
         global _open_viewer
-        if _open_viewer is not None:
-            try:
-                if _open_viewer.winfo_exists():
-                    _open_viewer.lift()
-                    _open_viewer.focus_force()
-                    self.withdraw()
-                    self.after(10, self.destroy)
-                    return
-            except Exception:
-                _open_viewer = None
-
         super().__init__(parent)
         _open_viewer = self
         self.title("Skill Author — create / update skills")
@@ -389,6 +378,12 @@ class SkillAuthorViewer(ctk.CTkToplevel):
             self.status.configure(text=f"Plugin install error: {e}", text_color="#E74C3C")
 
     def _restart(self):
+        if not messagebox.askyesno(
+            "Restart VoiceAssistant",
+            "Restart the desktop application now to load the installed plugin/skill?",
+            parent=self,
+        ):
+            return
         try:
             if self.on_transcript:
                 self.on_transcript("[System] Restarting application to load plugins/skills...")

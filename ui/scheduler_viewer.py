@@ -34,18 +34,6 @@ class SchedulerViewer(ctk.CTkToplevel):
         on_schedule_direct: Optional[Callable[[str], None]] = None,
     ):
         global _open_viewer
-        if _open_viewer is not None:
-            try:
-                if _open_viewer.winfo_exists():
-                    _open_viewer.lift()
-                    _open_viewer.focus_force()
-                    _open_viewer.reload()
-                    self.withdraw()
-                    self.after(10, self.destroy)
-                    return
-            except Exception:
-                _open_viewer = None
-
         super().__init__(parent)
         _open_viewer = self
         self.title("Scheduler — Schedule a Task")

@@ -16,22 +16,10 @@ class UndoViewer(ctk.CTkToplevel):
         self,
         parent,
         undo_manager,
-        on_undo: Optional[Callable[[], None]] = None,
+        on_undo: Optional[Callable[[Callable[[], None]], None]] = None,
         on_transcript: Optional[Callable[[str], None]] = None,
     ):
         global _open_viewer
-        if _open_viewer is not None:
-            try:
-                if _open_viewer.winfo_exists():
-                    _open_viewer.lift()
-                    _open_viewer.focus_force()
-                    _open_viewer.reload()
-                    self.withdraw()
-                    self.after(10, self.destroy)
-                    return
-            except Exception:
-                _open_viewer = None
-
         super().__init__(parent)
         _open_viewer = self
         self.title("Undo History — File changes")

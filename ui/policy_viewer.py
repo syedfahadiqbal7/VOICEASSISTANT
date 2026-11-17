@@ -6,6 +6,7 @@ Phase 3 — Policy editor (role, deny tools, write roots, trusted opens).
 from __future__ import annotations
 
 import customtkinter as ctk
+from tkinter import messagebox
 from typing import Callable, Optional, List
 
 _open_viewer = None
@@ -20,18 +21,6 @@ class PolicyViewer(ctk.CTkToplevel):
         on_transcript: Optional[Callable[[str], None]] = None,
     ):
         global _open_viewer
-        if _open_viewer is not None:
-            try:
-                if _open_viewer.winfo_exists():
-                    _open_viewer.lift()
-                    _open_viewer.focus_force()
-                    _open_viewer.reload()
-                    self.withdraw()
-                    self.after(10, self.destroy)
-                    return
-            except Exception:
-                _open_viewer = None
-
         super().__init__(parent)
         _open_viewer = self
         self.title("Policy — role & allow/deny")
@@ -176,8 +165,24 @@ class PolicyViewer(ctk.CTkToplevel):
 
     def _save(self):
         try:
-            self.policy.data["role"] = self.role_var.get()
-            self.policy.data["allowed_write_roots"] = self._split_csv(self.roots_entry.get())
+            selected_role = self.role_var.get()
+            write_roots = self._split_csv(self.roots_entry.get())
+            if selected_role == "admin" and self.policy.role != "admin":
+                if not messagebox.askyesno(
+                    "Grant administrator role",
+                    "Administrator role permits broader tool capabilities. Grant this role?",
+                    parent=self,
+                ):
+                    return
+            if not write_roots:
+                if not messagebox.askyesno(
+                    "Unrestricted write roots",
+                    "An empty write-root list removes path restrictions. Continue?",
+                    parent=self,
+                ):
+                    return
+            self.policy.data["role"] = selected_role
+            self.policy.data["allowed_write_roots"] = write_roots
             self.policy.data["denied_tools"] = self._split_csv(self.denied_entry.get())
             exts = self._split_csv(self.ext_entry.get())
             # ensure leading dot
@@ -205,6 +210,12 @@ class PolicyViewer(ctk.CTkToplevel):
             self.status.configure(text=f"Save error: {e}", text_color="#E74C3C")
 
     def _reset_defaults(self):
+        if not messagebox.askyesno(
+            "Reset security policy",
+            "Replace the current policy with application defaults? This may broaden access.",
+            parent=self,
+        ):
+            return
         try:
             from agent.policy import DEFAULT_POLICY
             import json
