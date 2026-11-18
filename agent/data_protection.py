@@ -1,8 +1,8 @@
 """Authenticated encryption for local VoiceAssistant data stores.
 
-Windows uses a random AES-256 key protected by the current user's DPAPI profile.
-Other platforms must provide VOICEASSISTANT_DATA_KEY (32-byte hex or base64).
-There is deliberately no plaintext fallback when encryption is requested.
+VAENC1 remains readable with the original single data key. Once an operator
+explicitly bootstraps a protected keyring, new writes use VAENC2 and its active
+key ID; no keyring is silently created by normal application writes.
 """
 from __future__ import annotations
 
@@ -21,10 +21,13 @@ except Exception:
     BASE_DIR = Path(".").resolve()
 
 DATA_KEY_FILE = Path(BASE_DIR) / "history" / ".voiceassistant_data_key.dpapi"
-_MAGIC = b"VAENC1"
-_VERSION = 1
+_MAGIC_V1 = b"VAENC1"
+_MAGIC_V2 = b"VAENC2"
+_VERSION_V1 = 1
+_VERSION_V2 = 2
 _NONCE_SIZE = 12
 _KEY_SIZE = 32
+_KEY_ID_SIZE = 16
 _DPAPI_ENTROPY = b"VoiceAssistant.LocalData.Key.v1"
 _lock = threading.RLock()
 
@@ -38,6 +41,15 @@ def _aad(context: str) -> bytes:
     if not label:
         raise DataProtectionError("An encryption context is required")
     return b"VoiceAssistant.LocalData.v1:" + label.encode("utf-8")
+
+
+def _aad_v2(context: str, key_id: bytes) -> bytes:
+    label = str(context or "").strip()
+    if not label:
+        raise DataProtectionError("An encryption context is required")
+    if not isinstance(key_id, bytes) or len(key_id) != _KEY_ID_SIZE:
+        raise DataProtectionError("VAENC2 key ID is invalid")
+    return b"VoiceAssistant.LocalData.v2:" + label.encode("utf-8") + b":" + key_id
 
 
 def _environment_key(value: str) -> bytes:
@@ -99,14 +111,13 @@ def _windows_dpapi_key() -> bytes:
                 os.fsync(handle.fileno())
             return key
         except FileExistsError:
-            # Another process initialized the key concurrently.
             return _unprotect_dpapi(path.read_bytes())
         except Exception as error:
             raise DataProtectionError("Could not create the DPAPI-protected data key") from error
 
 
 def get_data_key() -> Tuple[bytes, str]:
-    """Return the active 256-bit key and its protection source."""
+    """Return the original 256-bit VAENC1 key and its protection source."""
     configured = os.environ.get("VOICEASSISTANT_DATA_KEY", "").strip()
     if configured:
         return _environment_key(configured), "environment"
@@ -117,37 +128,104 @@ def get_data_key() -> Tuple[bytes, str]:
     )
 
 
+def _load_existing_keyring():
+    """Load a keyring only when one already exists; never bootstrap implicitly."""
+    try:
+        from agent import keyring as keyring_module
+        path = Path(keyring_module.KEYRING_FILE)
+        if not path.is_file():
+            return None, keyring_module
+        return keyring_module.load_keyring(path), keyring_module
+    except Exception as error:
+        if isinstance(error, DataProtectionError):
+            raise
+        raise DataProtectionError(f"Could not load protected data keyring: {error}") from error
+
+
 def is_encrypted_bytes(payload: bytes) -> bool:
-    return isinstance(payload, bytes) and payload.startswith(_MAGIC)
+    return isinstance(payload, bytes) and (
+        payload.startswith(_MAGIC_V1) or payload.startswith(_MAGIC_V2)
+    )
 
 
 def encrypt_bytes(plaintext: bytes, context: str) -> bytes:
+    """Encrypt using VAENC2 after explicit keyring bootstrap, otherwise VAENC1."""
     if not isinstance(plaintext, bytes):
         raise TypeError("plaintext must be bytes")
-    key, _source = get_data_key()
-    nonce = os.urandom(_NONCE_SIZE)
-    ciphertext = AESGCM(key).encrypt(nonce, plaintext, _aad(context))
-    return _MAGIC + bytes([_VERSION]) + nonce + ciphertext
+    keyring, module = _load_existing_keyring()
+    if keyring is None:
+        key, _source = get_data_key()
+        nonce = os.urandom(_NONCE_SIZE)
+        ciphertext = AESGCM(key).encrypt(nonce, plaintext, _aad(context))
+        return _MAGIC_V1 + bytes([_VERSION_V1]) + nonce + ciphertext
+
+    try:
+        key_id, key = module.get_active_key(keyring)
+        key_id_bytes = bytes.fromhex(key_id)
+        nonce = os.urandom(_NONCE_SIZE)
+        ciphertext = AESGCM(key).encrypt(
+            nonce, plaintext, _aad_v2(context, key_id_bytes)
+        )
+        return _MAGIC_V2 + bytes([_VERSION_V2]) + key_id_bytes + nonce + ciphertext
+    except Exception as error:
+        if isinstance(error, DataProtectionError):
+            raise
+        raise DataProtectionError(f"Could not encrypt using the active keyring key: {error}") from error
 
 
 def decrypt_bytes(payload: bytes, context: str) -> bytes:
-    if not is_encrypted_bytes(payload):
-        raise DataProtectionError("File is not a VoiceAssistant encrypted payload")
-    header_size = len(_MAGIC) + 1 + _NONCE_SIZE
+    if not isinstance(payload, bytes):
+        raise TypeError("payload must be bytes")
+    if payload.startswith(_MAGIC_V1):
+        header_size = len(_MAGIC_V1) + 1 + _NONCE_SIZE
+        if len(payload) <= header_size:
+            raise DataProtectionError("VAENC1 encrypted payload is truncated")
+        version = payload[len(_MAGIC_V1)]
+        if version != _VERSION_V1:
+            raise DataProtectionError(f"Unsupported VAENC1 encrypted payload version: {version}")
+        nonce_start = len(_MAGIC_V1) + 1
+        nonce = payload[nonce_start:header_size]
+        ciphertext = payload[header_size:]
+        keyring, module = _load_existing_keyring()
+        key = module.get_legacy_key(keyring) if keyring is not None else get_data_key()[0]
+        try:
+            return AESGCM(key).decrypt(nonce, ciphertext, _aad(context))
+        except InvalidTag as error:
+            raise DataProtectionError(
+                "VAENC1 authentication failed (wrong legacy key, context or tampering)"
+            ) from error
+        except Exception as error:
+            raise DataProtectionError(f"Could not decrypt VAENC1 data: {error}") from error
+
+    if not payload.startswith(_MAGIC_V2):
+        raise DataProtectionError("File is not a supported VoiceAssistant encrypted payload")
+
+    header_size = len(_MAGIC_V2) + 1 + _KEY_ID_SIZE + _NONCE_SIZE
     if len(payload) <= header_size:
-        raise DataProtectionError("Encrypted payload is truncated")
-    version = payload[len(_MAGIC)]
-    if version != _VERSION:
-        raise DataProtectionError(f"Unsupported encrypted payload version: {version}")
-    nonce_start = len(_MAGIC) + 1
+        raise DataProtectionError("VAENC2 encrypted payload is truncated")
+    version = payload[len(_MAGIC_V2)]
+    if version != _VERSION_V2:
+        raise DataProtectionError(f"Unsupported VAENC2 encrypted payload version: {version}")
+    key_id_start = len(_MAGIC_V2) + 1
+    key_id_bytes = payload[key_id_start:key_id_start + _KEY_ID_SIZE]
+    nonce_start = key_id_start + _KEY_ID_SIZE
     nonce = payload[nonce_start:header_size]
     ciphertext = payload[header_size:]
-    key, _source = get_data_key()
+
+    keyring, module = _load_existing_keyring()
+    if keyring is None:
+        raise DataProtectionError("VAENC2 data exists but the protected keyring is unavailable")
     try:
-        return AESGCM(key).decrypt(nonce, ciphertext, _aad(context))
+        key_id = key_id_bytes.hex()
+        key = module.get_key(keyring, key_id)
+        return AESGCM(key).decrypt(
+            nonce, ciphertext, _aad_v2(context, key_id_bytes)
+        )
     except InvalidTag as error:
         raise DataProtectionError(
-            "Encrypted data authentication failed (wrong key, wrong file context or tampering)"
+            "VAENC2 authentication failed (wrong key, context or tampering)"
         ) from error
     except Exception as error:
-        raise DataProtectionError(f"Could not decrypt local data: {error}") from error
+        if isinstance(error, DataProtectionError):
+            raise
+        raise DataProtectionError(f"Could not decrypt VAENC2 data: {error}") from error
