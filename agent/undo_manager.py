@@ -135,7 +135,6 @@ class UndoManager:
             if not target.is_file() or target.read_bytes() != restored:
                 raise OSError("Restored file did not pass byte-for-byte verification")
 
-        backup.unlink(missing_ok=True)
         self.stack = [
             entry for entry in self.stack
             if not (
@@ -146,10 +145,22 @@ class UndoManager:
         ]
         try:
             self._save()
-        except Exception:
-            # The file itself is already restored. A stale persisted undo entry
-            # can only repeat restoration of the same prior state.
-            pass
+        except Exception as error:
+            # Keep the snapshot if the old stack entry may still be persisted.
+            return {
+                "ok": True,
+                "message": (
+                    f"Restored {filepath} to its pre-write state, but undo-stack "
+                    f"cleanup could not be persisted: {error}. Snapshot retained."
+                ),
+            }
+        try:
+            backup.unlink(missing_ok=True)
+        except OSError:
+            return {
+                "ok": True,
+                "message": f"Restored {filepath}; stale undo snapshot cleanup is pending.",
+            }
         return {"ok": True, "message": f"Restored {filepath} to its pre-write state."}
 
     def undo_last(self) -> Dict[str, Any]:
