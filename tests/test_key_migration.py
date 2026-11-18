@@ -154,7 +154,7 @@ def test_migration_rejects_symlinks_and_existing_lock(tmp_path, monkeypatch):
     with pytest.raises(MigrationError, match="symbolic"):
         inspect_migration(root, [MigrationTarget(link, link.name)])
 
-    lock = history / ".voiceassistant_migration_v1.lock"
+    lock = history / ".voiceassistant_key_admin.lock"
     lock.write_text('{"pid":999}', encoding="utf-8")
     with pytest.raises(MigrationError, match="lock exists"):
         migrate_to_vaenc2(
