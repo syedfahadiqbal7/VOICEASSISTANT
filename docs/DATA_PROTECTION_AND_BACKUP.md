@@ -92,8 +92,8 @@ Before writing, restore validates the authenticated archive, format version, pat
 - Encryption protects persisted files at rest; it does not protect plaintext while the application is running or from malware executing as the same Windows user.
 - Explicit Markdown/text exports remain plaintext and should be stored in a protected location.
 - No secure-erasure guarantee is made when files are deleted; filesystem journaling, snapshots and SSD wear-leveling may retain old blocks.
-- Key rotation and a guided data-key export workflow are not implemented.
-- There is no central user-configurable retention policy or privacy dashboard yet.
+- Local-only key bootstrap, rotation, recovery-kit export/import, and guarded retained-key retirement are available through `data_key_cli.py`. These operations require explicit confirmation and verified recovery artifacts.
+- Retention policy is user-configurable through `privacy_cli.py`; it is stored encrypted and included in portable backups. There is no graphical privacy dashboard.
 - Portable backup creation and restoration hold decrypted content in process memory.
 - The backup passphrase must be stored separately from the backup file. Anyone with both can restore the included data.
 
@@ -112,3 +112,21 @@ python privacy_cli.py purge
 A value of `0` disables an individual rule. Conversation history and memory are deleted as whole stores based on file modification time. Audit events are filtered by their ISO timestamp. Only terminal scheduled jobs (completed, failed or cancelled) are eligible; pending/running jobs and records with unknown timestamps are retained. The purge command prints a preview and requires the user to type `PURGE`. Close the desktop app and create a portable backup before purging to avoid races with live writes.
 
 Deletion is ordinary filesystem deletion, not secure erasure. This CLI is not a privacy dashboard and does not purge undo snapshots, custom skills, exports or policy settings.
+
+
+## Protected key recovery and retirement
+
+The local-only data-key CLI supports:
+
+```powershell
+python data_key_cli.py status
+python data_key_cli.py recovery-export --output "D:/Offline/voiceassistant.varecovery"
+python data_key_cli.py recovery-import --kit "D:/Offline/voiceassistant.varecovery"
+python data_key_cli.py retire --key-id <32-character-key-id> --backup "D:/Offline/voiceassistant.vabackup" --recovery-kit "D:/Offline/voiceassistant.varecovery"
+```
+
+Recovery-kit passphrases are collected interactively and are never accepted as command-line arguments. Keep the recovery kit and its passphrase offline and separately from the device. Import refuses to overwrite an existing keyring.
+
+Key retirement is a separate, explicit, local-only operation. It refuses the active key and requires: every registered encrypted store to be authenticated VAENC2; no registered store envelope to reference the selected key; a recent authenticated portable backup containing every registered store with matching current logical-content digests; and a recent recovery kit that decrypts to the exact current keyring. The operator must close VoiceAssistant and other processes that can write runtime stores before taking the backup and retiring a key. If any check is incomplete, retirement fails closed.
+
+Retirement removes key material from the live keyring. It does not claim secure erasure: backups, recovery kits, filesystem snapshots, journals, SSD wear-leveling, or other copies may retain prior key material. Do not destroy offline recovery artifacts until the retention and disaster-recovery policy explicitly permits it.
