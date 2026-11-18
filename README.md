@@ -2,6 +2,71 @@
 
 A Windows-oriented local AI assistant with a CustomTkinter desktop UI, Ollama-compatible LLM integration, planning and tool execution, security approvals, local history/memory, scheduled jobs, plugins, audio input/output, a FastAPI/WebSocket mobile bridge, and a Flutter companion app.
 
+## Application features
+
+Voice Assistant combines a local-first Windows desktop AI agent with a Flutter companion app. The desktop remains the trusted execution and security authority; the mobile app is a companion interface, not a standalone agent host.
+
+### 1. AI assistant and conversation
+- Chat with an Ollama-compatible local language model; select/configure the model in the desktop application.
+- Optional cloud-provider failover can be configured separately; it is disabled by default.
+- Conversation history and local agent memory persist between sessions.
+- Text and voice interaction: microphone capture, Faster-Whisper speech-to-text and pyttsx3 text-to-speech.
+- Structured status/transcript feedback, including desktop-to-mobile session updates.
+
+### 2. Planning, tools and controlled execution
+- Convert user goals into structured multi-step plans with tool arguments, risk levels and success checks.
+- Preview plans and request confirmation before multi-step or sensitive operations.
+- Execute registered tools such as file/code writing, PowerShell/process operations and application launching.
+- Verify outcomes after actions (for example file/directory existence, expected file content, process state and command exit status).
+- Cancel execution, inspect step status and use undo/recovery support where the operation has a recorded inverse or snapshot.
+- Apply local policy rules, tool allow/deny controls, risk gates and safe write-root restrictions.
+
+### 3. Desktop workspace and operations UI
+- CustomTkinter Windows desktop interface for conversations and agent interaction.
+- Operational viewers for audit events, policy, scheduler jobs, undo history and file diffs.
+- Help and skill-authoring interfaces.
+- Desktop lifecycle/restart handling and structured, redacted diagnostics.
+
+### 4. Plugins and reusable skills
+- Manifest-backed plugin/tool discovery and registration.
+- Plugin permission declarations, integrity/checksum validation and archive/manifest validation.
+- Built-in plugin capabilities cover common development, Windows administration, document/data handling, browser workflows, productivity and reusable work skills.
+- Examples in the repository include Git/GitHub helpers, Docker/process/environment tools, file and PDF/Excel readers, document writing, email/Office helpers, browser and clipboard tools, and architecture/review/planning skills.
+- Plugin execution is in-process; the current permission and manifest checks are not an operating-system sandbox.
+
+### 5. Scheduling and automation
+- Create and inspect scheduled jobs from the desktop assistant.
+- Persist job state and recover eligible work after restart.
+- Retry failed handlers with bounded attempts and expose status/error/attempt information in the desktop and mobile schedules view.
+- Delivery is at-least-once, so integrations that perform external side effects should be idempotent.
+
+### 6. Flutter mobile companion
+- Connect to the running desktop over the local WebSocket API.
+- View conversation transcripts, assistant speech/status events and synchronized plan checklists.
+- Submit text and voice input where platform speech permissions/capabilities are available.
+- View scheduled jobs and refresh session/schedule state.
+- Save connection settings using platform secure storage and optionally restore a saved connection.
+- Pair individual devices with unique credentials; revoke devices and enforce server-side roles (admin, operator, approver, viewer).
+- Route sensitive approval prompts to an authenticated admin/approver device, with desktop approval as fallback.
+- Supports secure WSS/TLS deployments; non-loopback cleartext WS requires an explicit warning/confirmation and is intended only for a trusted private LAN/VPN.
+
+### 7. Privacy, data protection and recovery
+- Encrypt supported local runtime stores at rest with AES-256-GCM; protect the Windows data key with the current user's DPAPI profile or use the documented environment-key mode.
+- Use portable passphrase-encrypted backups with authenticated verification and explicit restore confirmation.
+- Inspect registered encrypted stores and explicitly migrate legacy VAENC1 data to VAENC2 after verifying a current backup.
+- Bootstrap and rotate data-encryption keys locally while retaining previous keys for old data.
+- Export/import a separate encrypted offline recovery kit containing the keyring; import refuses to overwrite an existing keyring.
+- Retire a retained key only after registered stores, authenticated backup and recovery-kit checks pass and the operator confirms the action.
+- Preview and explicitly confirm retention cleanup; retention is disabled by default.
+- Redacted structured diagnostics and audit/policy controls support troubleshooting and accountability.
+
+### 8. Current limitations to understand
+- The desktop application must be running for mobile connectivity and scheduled jobs; the mobile app does not independently execute desktop tools.
+- This repository does not yet provide an OS-level plugin sandbox.
+- Windows GUI, microphone/speaker, Ollama lifecycle, physical Android/iOS behavior and real private-LAN/TLS deployment require target-environment validation.
+- CI mobile artifacts are validation/development artifacts, not production-signed distribution packages.
+- Key retirement is not secure erasure from old backups, recovery kits, snapshots or storage media. Stop the desktop and all runtime writers before migration or key retirement.
+
 > **Project status:** hardened development release. Python regression checks are included in CI. Windows GUI/audio/Ollama runtime and mobile device testing still require validation on the target machine. Review [WORLD_CLASS_AUDIT_REPORT.md](WORLD_CLASS_AUDIT_REPORT.md) and [SECURITY.md](SECURITY.md) before enabling automation or LAN access.
 
 ## Repository layout
@@ -118,7 +183,7 @@ python data_key_cli.py recovery-export --output "D:/Offline/voiceassistant.varec
 python data_key_cli.py recovery-import --kit "D:/Offline/voiceassistant.varecovery"
 ```
 
-Import requires a typed confirmation, authenticates the complete kit, and refuses to overwrite any existing keyring. The imported keyring is protected using the destination's current Windows DPAPI profile or configured environment-key mode. This is not a portable data backup: it restores encryption keys, not application data. Losing both the original keyring and all valid recovery kits/passphrases makes the encrypted data unrecoverable. Never send kits to mobile clients, cloud logs, telemetry, or source control. Never delete the legacy key or retained keys as a cleanup shortcut. See [Phase 8.3 key rotation and recovery](docs/PHASE_8_3_KEY_ROTATION_RECOVERY_DESIGN.md).
+Import requires a typed confirmation, authenticates the complete kit, and refuses to overwrite any existing keyring. The imported keyring is protected using the destination's current Windows DPAPI profile or configured environment-key mode. This is not a portable data backup: it restores encryption keys, not application data. Losing both the original keyring and all valid recovery kits/passphrases makes the encrypted data unrecoverable. Never send kits to mobile clients, cloud logs, telemetry, or source control. Never delete the legacy key or retained keys as a cleanup shortcut. See [Phase 8.3 key rotation and recovery](docs/PHASE_8_3_KEY_ROTATION_RECOVERY_DESIGN.md) and [the key-management runbook](docs/KEY_MANAGEMENT_RUNBOOK.md).
 
 ## Diagnostics and observability
 
@@ -158,13 +223,15 @@ python privacy_cli.py purge
 
 Use `0` for any setting to disable that rule. Conversation history and memory are removed as whole files based on their last-modified age; audit entries are filtered by timestamp; only old completed/failed/cancelled jobs are eligible. Pending/running jobs and entries with unknown timestamps are retained. Close VoiceAssistant and create a portable backup before purging. Deletion is not secure erasure.
 
-Local data-key bootstrap, rotation and offline recovery-kit export/import are implemented. A guided secure-erasure workflow and legacy-key retirement are not yet implemented.
+Local data-key bootstrap, rotation, backup-verified VAENC1-to-VAENC2 migration, offline recovery-kit export/import, and guarded retained-key retirement are implemented. Secure erasure is not provided; removing a key from the live keyring does not erase copies from historical backups, recovery kits, snapshots or storage media.
 
 Scheduled jobs use persisted execution states and retry failed handlers up to three times. Delivery is at-least-once: a crash after an external side effect but before its completion checkpoint can replay the handler, so side-effecting scheduled operations must be idempotent.
 
 ## Documentation
 
-- [Comprehensive engineering audit](WORLD_CLASS_AUDIT_REPORT.md)
+- [Comprehensive engineering audit and current phase status](WORLD_CLASS_AUDIT_REPORT.md)
+- [Security threat model](docs/PHASE_8_3_SECURITY_THREAT_MODEL.md)
+- [Key-management operator runbook](docs/KEY_MANAGEMENT_RUNBOOK.md)
 - [Mobile security setup](MOBILE_SECURITY_SETUP.md)
 - [Local data protection and portable backups](docs/DATA_PROTECTION_AND_BACKUP.md)
 - [Plugin authoring guide](tests/PLUGIN_AUTHORING.md)
