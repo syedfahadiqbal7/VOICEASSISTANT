@@ -150,64 +150,81 @@ class UndoManager:
     def undo_last(self) -> Dict[str, Any]:
         if not self.stack:
             return {"ok": False, "message": "Nothing to undo."}
-        entry = self.stack.pop()
-        self._save()
+
+        # Keep the entry until restoration succeeds. A corrupt/missing snapshot
+        # must never silently consume the only undo metadata.
+        entry = self.stack[-1]
         if entry.get("type") != "file_write":
             return {"ok": False, "message": f"Unsupported undo type: {entry.get('type')}"}
 
         filepath = self._clean_path(entry.get("filepath") or "")
         backup = entry.get("backup_path") or ""
+        backup_file = Path(backup) if backup else None
         try:
-            is_new = bool(
-                backup.endswith(".new")
-                or (backup and Path(backup).name.endswith(".new"))
-            )
+            is_new = bool(backup and backup_file.name.endswith(".new"))
+            target = Path(filepath) if filepath else None
+
+            if not filepath or target is None:
+                return {"ok": False, "message": "Undo entry has no target path."}
+
             if is_new:
-                # Newly created file → remove if still present
-                deleted = False
-                if filepath and os.path.isfile(filepath):
-                    os.remove(filepath)
-                    deleted = True
-                if backup and os.path.isfile(backup):
+                if backup_file.is_symlink() or not backup_file.is_file():
+                    return {"ok": False, "message": f"Undo new-file marker is missing or unsafe: {backup}"}
+                if backup_file.read_text(encoding="utf-8") != "NEW_FILE":
+                    return {"ok": False, "message": "Undo new-file marker is invalid; target was not changed."}
+                if target.is_symlink():
+                    return {"ok": False, "message": "Undo target is a symbolic link; refusing deletion."}
+                if target.is_file():
+                    target.unlink()
+                    message = f"Undo: deleted newly created file {filepath}"
+                elif target.is_dir():
                     try:
-                        os.remove(backup)
-                    except Exception:
-                        pass
-                if deleted:
+                        target.rmdir()
+                        message = f"Undo: removed newly created empty folder {filepath}"
+                    except OSError:
+                        return {
+                            "ok": False,
+                            "message": f"Undo: folder is not empty; preserved it and kept the undo entry: {filepath}",
+                        }
+                else:
+                    message = f"Undo: target was already missing: {filepath}"
+            else:
+                if not backup or backup_file is None or backup_file.is_symlink() or not backup_file.is_file():
                     return {
-                        "ok": True,
-                        "message": f"Undo: deleted newly created file {filepath}",
+                        "ok": False,
+                        "message": f"Undo: backup missing or unsafe; target left unchanged: {filepath}",
                     }
-                # Stack entry consumed, but file was already gone (manual delete / prior undo)
+                restored = load_encrypted_bytes(backup_file)
+                parent = target.parent
+                parent.mkdir(parents=True, exist_ok=True)
+                atomic_write_bytes(target, restored)
+                if not target.is_file() or target.read_bytes() != restored:
+                    return {
+                        "ok": False,
+                        "message": f"Undo: restored bytes failed verification; undo entry retained: {filepath}",
+                    }
+                message = f"Undo: restored {filepath} from backup"
+
+            self.stack.pop()
+            try:
+                self._save()
+            except Exception as save_error:
+                # The file is restored, but retain the in-memory entry and its
+                # backup so the user can retry/inspect after a persistence fault.
+                self.stack.append(entry)
                 return {
                     "ok": True,
-                    "message": (
-                        f"Undo: entry cleared — file already missing "
-                        f"(not deleted again): {filepath}"
-                    ),
+                    "message": f"{message}; undo stack cleanup could not be persisted: {save_error}",
                 }
 
-            if backup and os.path.isfile(backup):
-                parent = os.path.dirname(filepath) or "."
-                os.makedirs(parent, exist_ok=True)
-                restored = load_encrypted_bytes(backup)
-                from agent.storage import atomic_write_bytes
-                atomic_write_bytes(filepath, restored)
-                return {
-                    "ok": True,
-                    "message": f"Undo: restored {filepath} from backup",
-                }
-            if filepath and os.path.isfile(filepath) and not backup:
-                return {
-                    "ok": False,
-                    "message": f"Undo: no backup for {filepath}; left file as-is",
-                }
-            return {
-                "ok": False,
-                "message": f"Undo: backup missing and file not restored: {filepath}",
-            }
+            try:
+                if backup_file and backup_file.is_file() and not backup_file.is_symlink():
+                    backup_file.unlink()
+            except OSError:
+                message += "; stale snapshot cleanup is pending"
+            return {"ok": True, "message": message}
         except Exception as e:
-            return {"ok": False, "message": f"Undo failed: {e}"}
+            return {"ok": False, "message": f"Undo failed; entry retained: {e}"}
 
     def list_stack(self) -> List[Dict[str, Any]]:
         return list(reversed(self.stack[-20:]))
