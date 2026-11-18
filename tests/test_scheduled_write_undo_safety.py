@@ -309,3 +309,42 @@ def test_rollback_unrecorded_write_preserves_nonempty_new_folder(tmp_path, monke
 
     assert child.read_text(encoding="utf-8") == "keep"
     assert marker.exists()
+
+
+def test_rollback_keeps_snapshot_if_undo_stack_cleanup_fails(tmp_path, monkeypatch):
+    manager, undo_root = _undo_manager_for_test(tmp_path, monkeypatch)
+    target = tmp_path / "target.txt"
+    target.write_text("after", encoding="utf-8")
+    backup = undo_root / "snapshot.bin"
+    backup.write_bytes(b"encrypted")
+    entry = {"type": "file_write", "filepath": str(target), "backup_path": str(backup)}
+    manager.stack = [entry]
+    manager._save = lambda: (_ for _ in ()).throw(OSError("disk full"))
+    monkeypatch.setattr(undo_module, "load_encrypted_bytes", lambda _path: b"before")
+
+    result = manager.rollback_unrecorded_write(str(target), str(backup))
+
+    assert result["ok"] is True
+    assert "Snapshot retained" in result["message"]
+    assert target.read_bytes() == b"before"
+    assert backup.exists()
+
+
+def test_undo_last_keeps_snapshot_and_entry_if_stack_save_fails(tmp_path, monkeypatch):
+    manager, undo_root = _undo_manager_for_test(tmp_path, monkeypatch)
+    target = tmp_path / "target.txt"
+    target.write_text("after", encoding="utf-8")
+    backup = undo_root / "snapshot.bin"
+    backup.write_bytes(b"encrypted")
+    entry = {"type": "file_write", "filepath": str(target), "backup_path": str(backup)}
+    manager.stack = [entry]
+    manager._save = lambda: (_ for _ in ()).throw(OSError("disk full"))
+    monkeypatch.setattr(undo_module, "load_encrypted_bytes", lambda _path: b"before")
+
+    result = manager.undo_last()
+
+    assert result["ok"] is True
+    assert "undo stack cleanup could not be persisted" in result["message"]
+    assert target.read_bytes() == b"before"
+    assert manager.stack == [entry]
+    assert backup.exists()
