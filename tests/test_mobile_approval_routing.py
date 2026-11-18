@@ -52,3 +52,47 @@ def test_disconnect_preserves_desktop_approval_fallback():
 
     assert event.is_set() is False
     assert bridge._approval_results[request_id] is False
+
+
+
+def test_concurrent_security_gates_are_serialized_for_single_prompt_mobile_ui():
+    import threading
+    import time
+
+    bridge = MobileBridge()
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_entered = threading.Event()
+    active = 0
+    maximum_active = 0
+    state_lock = threading.Lock()
+
+    def fake_gate(label, _callback, _risk):
+        nonlocal active, maximum_active
+        with state_lock:
+            active += 1
+            maximum_active = max(maximum_active, active)
+        if label == "first":
+            first_entered.set()
+            assert release_first.wait(timeout=2)
+        else:
+            second_entered.set()
+        with state_lock:
+            active -= 1
+
+    bridge._wrapped_security_gate_serialized = fake_gate
+    first = threading.Thread(target=bridge._wrapped_security_gate, args=("first", lambda: None, "high"))
+    second = threading.Thread(target=bridge._wrapped_security_gate, args=("second", lambda: None, "high"))
+    first.start()
+    assert first_entered.wait(timeout=1)
+    second.start()
+    time.sleep(0.05)
+    assert second_entered.is_set() is False
+    release_first.set()
+    first.join(timeout=1)
+    second.join(timeout=1)
+
+    assert first.is_alive() is False
+    assert second.is_alive() is False
+    assert second_entered.is_set() is True
+    assert maximum_active == 1
