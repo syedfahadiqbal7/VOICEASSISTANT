@@ -17,7 +17,7 @@ from typing import Any
 
 from agent.storage import atomic_write_json, load_json
 from config import HISTORY_DIR
-from mobile_api.authorization import DEFAULT_ROLE, VALID_ROLES
+from mobile_api.authorization import DEFAULT_ROLE, is_valid_role
 
 _DEVICE_ID = re.compile(r"^[0-9a-f]{32}$")
 _lock = threading.RLock()
@@ -36,8 +36,8 @@ class MobileDeviceRegistry:
         if not isinstance(value, dict) or value.get("version") != 1 or not isinstance(value.get("devices"), list):
             raise ValueError("Mobile device registry has an unsupported or invalid shape")
 
-        # Phase 8.2 migration: pre-RBAC entries are least-privilege operators.
-        # Unknown role values are corruption/security errors, never elevated.
+        # Pre-RBAC entries are least-privilege operators. Unknown/malformed roles
+        # are corruption/security errors and must never be interpreted permissively.
         changed = False
         for device in value["devices"]:
             if not isinstance(device, dict):
@@ -45,7 +45,7 @@ class MobileDeviceRegistry:
             if "role" not in device:
                 device["role"] = DEFAULT_ROLE
                 changed = True
-            elif device["role"] not in VALID_ROLES:
+            elif not is_valid_role(device["role"]):
                 raise ValueError("Mobile device registry contains an unsupported role")
         if changed:
             self._save(value)
@@ -58,7 +58,7 @@ class MobileDeviceRegistry:
         label = str(name or "").strip()
         if not label or len(label) > 80 or any(ord(ch) < 32 for ch in label):
             raise ValueError("Device name must contain 1–80 printable characters")
-        if role not in VALID_ROLES:
+        if not is_valid_role(role):
             raise ValueError("Unsupported device role")
         device_id = uuid.uuid4().hex
         secret = secrets.token_urlsafe(32)
@@ -93,7 +93,7 @@ class MobileDeviceRegistry:
                 if not matched or device.get("revoked_at") is not None:
                     return None
                 role = device.get("role")
-                if role not in VALID_ROLES:
+                if not is_valid_role(role):
                     return None
                 return {
                     "device_id": identifier,
@@ -110,7 +110,7 @@ class MobileDeviceRegistry:
         identifier = str(device_id or "").strip().lower()
         if not _DEVICE_ID.fullmatch(identifier):
             raise ValueError("Invalid device ID")
-        if role not in VALID_ROLES:
+        if not is_valid_role(role):
             raise ValueError("Unsupported device role")
         with _lock:
             data = self._load()
@@ -165,6 +165,6 @@ class MobileDeviceRegistry:
                 "revoked_at": item.get("revoked_at"),
                 "status": "revoked" if item.get("revoked_at") else "active",
             } for item in data["devices"]]
-            
+
 
 registry = MobileDeviceRegistry()
