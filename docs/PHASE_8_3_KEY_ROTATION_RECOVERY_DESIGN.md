@@ -178,3 +178,18 @@ The first keyring foundation is now present in `agent/keyring.py`:
 **Important boundary:** These primitives are not yet wired into `agent/data_protection.py`; the live application continues using the existing `VAENC1` behavior. No existing encrypted files are migrated or rewritten by this subphase.
 
 Automated tests are in `tests/test_keyring.py` and are included in the Windows Python CI regression command. Phase 8.3.1 is not complete until the latest CI run passes and the protection/persistence tests have been reviewed. Cross-process locking, recovery export/import, and runtime integration remain subsequent work.
+
+## 13. Implementation progress — Phase 8.3.2 VAENC2
+
+The version-2 envelope is now implemented in `agent/data_protection.py`:
+
+- `VAENC2 | version | 16-byte key ID | 12-byte nonce | ciphertext + GCM tag`.
+- VAENC2 AAD uses a separate domain and binds both the logical store context and key ID.
+- When a protected keyring is already present, new encrypted writes use its active DEK and include that DEK's key ID.
+- Normal writes do not silently create a keyring. Until an explicit local bootstrap exists, writes retain the existing VAENC1 format and original key behavior.
+- VAENC1 reads continue to use the original data key when no keyring exists. After keyring bootstrap, VAENC1 reads resolve the single preserved `legacy` key from the keyring.
+- VAENC2 reads require the keyring and exact referenced key ID; missing keys, wrong context, tampering, truncation, and unsupported versions fail closed.
+- Retained keys remain usable for old VAENC2 ciphertext after the active key changes.
+
+Automated coverage is in `tests/test_data_protection_v2.py` and is included in the Windows CI regression suite. This phase does not yet add the operator-facing bootstrap/rotation command or rewrite existing VAENC1 files. Those remain explicit later subphases; no existing encrypted store is migrated automatically.
+
