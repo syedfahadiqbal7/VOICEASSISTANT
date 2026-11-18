@@ -104,6 +104,21 @@ def _safe_target(root: Path, target: MigrationTarget) -> Path:
     return resolved
 
 
+class _MigrationLock:
+    """Translate the shared key-admin lock error into the migration API error."""
+    def __init__(self, history: Path):
+        self._lock = KeyAdminLock(history)
+
+    def __enter__(self):
+        try:
+            return self._lock.__enter__()
+        except KeyAdminLockError as error:
+            raise MigrationError(f"Migration lock exists: {error}") from error
+
+    def __exit__(self, exc_type, exc, tb):
+        return self._lock.__exit__(exc_type, exc, tb)
+
+
 def _root_binding(root: Path) -> str:
     return hashlib.sha256(str(root).encode("utf-8")).hexdigest()
 
@@ -227,7 +242,7 @@ def migrate_to_vaenc2(
     journal_path.parent.mkdir(parents=True, exist_ok=True)
     result = {"migrated": 0, "already_current": 0, "failed": [], "files": []}
 
-    with KeyAdminLock(history):
+    with _MigrationLock(history):
         journal = _load_journal(journal_path, root)
         for item in selected:
             try:
