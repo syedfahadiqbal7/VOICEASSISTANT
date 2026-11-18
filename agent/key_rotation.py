@@ -7,7 +7,7 @@ keys keep existing VAENC1/VAENC2 files readable. It does not rewrite stores.
 from __future__ import annotations
 
 import copy
-import hashlib
+import base64
 import json
 import os
 import time
@@ -206,7 +206,7 @@ def rotate_data_key(
                 new_id = os.urandom(16).hex()
             updated["keys"][old_active_id]["state"] = "retained"
             updated["keys"][new_id] = {
-                "key": __import__("base64").b64encode(os.urandom(32)).decode("ascii"),
+                "key": base64.b64encode(os.urandom(32)).decode("ascii"),
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "state": "active",
             }
