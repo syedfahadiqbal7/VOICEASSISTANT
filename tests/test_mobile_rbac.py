@@ -148,3 +148,34 @@ def test_connection_manager_selects_only_authorized_approval_roles():
     target, target_id = manager.first_connection(allowed_roles={"admin", "approver"})
     assert target is approver
     assert target_id == "approver-1"
+
+
+
+def test_malformed_unhashable_registry_roles_fail_closed(tmp_path, monkeypatch):
+    import pytest
+    from agent.data_protection import encrypt_bytes
+    from mobile_api.device_registry import MobileDeviceRegistry
+
+    monkeypatch.setenv("VOICEASSISTANT_DATA_KEY", "64" * 32)
+    path = tmp_path / "mobile_devices.json"
+    malformed = {
+        "version": 1,
+        "devices": [{
+            "device_id": "a" * 32,
+            "name": "Tampered entry",
+            "token_sha256": "0" * 64,
+            "role": ["admin"],
+            "revoked_at": None,
+        }],
+    }
+    path.write_bytes(encrypt_bytes(
+        __import__("json").dumps(malformed).encode("utf-8"),
+        context="mobile_devices.json",
+    ))
+    registry = MobileDeviceRegistry(path)
+    with pytest.raises(ValueError, match="unsupported role"):
+        registry.list_devices()
+    with pytest.raises(ValueError, match="Unsupported device role"):
+        registry.register("Bad role", role=["admin"])
+    with pytest.raises(ValueError, match="Unsupported device role"):
+        registry.set_role("a" * 32, role=["admin"])
