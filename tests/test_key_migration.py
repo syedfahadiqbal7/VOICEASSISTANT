@@ -163,6 +163,21 @@ def test_migration_rejects_symlinks_and_existing_lock(tmp_path, monkeypatch):
     assert target.read_bytes().startswith(b"VAENC1")
 
 
+def test_migration_rejects_symlinked_parent_component(tmp_path, monkeypatch):
+    root, history, _legacy = _setup(tmp_path, monkeypatch)
+    target = history / "agent_memory.json"
+    target.write_bytes(encrypt_bytes(b"{}", target.name))
+    alias = root / "history_alias"
+    try:
+        alias.symlink_to(history, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlink creation is unavailable")
+    with pytest.raises(MigrationError, match="symbolic-link"):
+        inspect_migration(
+            root, [MigrationTarget(alias / target.name, target.name)]
+        )
+
+
 def test_discovery_excludes_new_file_undo_markers(tmp_path, monkeypatch):
     root, history, _legacy = _setup(tmp_path, monkeypatch)
     undo = history / "undo_backups"
