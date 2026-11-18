@@ -67,7 +67,7 @@ def _environment_wrap_key() -> bytes:
             master = bytes.fromhex(configured)
         else:
             padded = configured + ("=" * (-len(configured) % 4))
-            master = base64.urlsafe_b64decode(padded.encode("ascii"))
+            master = base64.b64decode(padded.encode("ascii"), altchars=b"-_", validate=True)
     except Exception as error:
         raise KeyringError("VOICEASSISTANT_DATA_KEY is malformed") from error
     if len(master) != _KEY_SIZE:
@@ -202,6 +202,16 @@ def _atomic_write(path: Path, payload: bytes) -> None:
             raise
         os.replace(temporary, path)
         temporary = None
+        if os.name != "nt":
+            try:
+                directory_fd = os.open(str(path.parent), os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:
+                # Some filesystems do not support directory fsync.
+                pass
     finally:
         if temporary:
             try:
@@ -218,12 +228,28 @@ def save_keyring(value: dict, path: Path | str | None = None,
     clear = json.dumps(validated, sort_keys=True, separators=(",", ":")).encode("utf-8")
     protected = _protect(clear, selected_source)
     with _lock:
-        _atomic_write(target, protected)
-        # Read-after-write verification prevents reporting success for an
-        # unreadable/corrupt keyring. The previous file is atomically replaced.
-        reopened = load_keyring(target, source=selected_source)
-        if reopened != validated:
-            raise KeyringError("Keyring verification after persistence failed")
+        previous = target.read_bytes() if target.is_file() else None
+        replaced = False
+        try:
+            _atomic_write(target, protected)
+            replaced = True
+            # Read-after-write verification prevents reporting success for an
+            # unreadable/corrupt keyring.
+            reopened = load_keyring(target, source=selected_source)
+            if reopened != validated:
+                raise KeyringError("Keyring verification after persistence failed")
+        except Exception:
+            # Never strand the application with a newly-written keyring that
+            # cannot be reopened. Restore the prior bytes when one existed.
+            if replaced:
+                if previous is None:
+                    try:
+                        target.unlink()
+                    except OSError:
+                        pass
+                else:
+                    _atomic_write(target, previous)
+            raise
 
 
 def load_keyring(path: Path | str | None = None,
