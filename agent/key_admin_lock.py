@@ -35,13 +35,27 @@ class KeyAdminLock:
             self.descriptor = os.open(
                 str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
             )
-            os.write(self.descriptor, payload)
-            os.fsync(self.descriptor)
         except FileExistsError as error:
             raise KeyAdminLockError(
                 "Another local key-administration operation holds the lock; "
                 "inspect its owner before removing a stale lock"
             ) from error
+        try:
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(self.descriptor, remaining)
+                if written <= 0:
+                    raise OSError("Could not persist key-administration lock metadata")
+                remaining = remaining[written:]
+            os.fsync(self.descriptor)
+        except Exception:
+            os.close(self.descriptor)
+            self.descriptor = None
+            try:
+                self.path.unlink()
+            except OSError:
+                pass
+            raise
         return self
 
     def __exit__(self, exc_type, exc, tb):
