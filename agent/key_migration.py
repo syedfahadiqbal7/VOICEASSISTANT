@@ -80,8 +80,17 @@ def _safe_target(root: Path, target: MigrationTarget) -> Path:
     path = Path(target.path)
     if not target.context or not isinstance(target.context, str):
         raise MigrationError("Every migration target requires an explicit encryption context")
-    if path.is_symlink():
-        raise MigrationError(f"Refusing symbolic-link migration target: {path}")
+    lexical = Path(os.path.abspath(str(path)))
+    try:
+        relative = lexical.relative_to(root)
+    except ValueError as error:
+        raise MigrationError(f"Migration target escapes the configured data root: {path}") from error
+    # Reject symlinks in every path component, not only the final filename.
+    current = root
+    for component in relative.parts:
+        current = current / component
+        if current.is_symlink():
+            raise MigrationError(f"Refusing symbolic-link migration path component: {current}")
     resolved = path.resolve(strict=True)
     try:
         if os.path.commonpath([os.path.normcase(str(root)), os.path.normcase(str(resolved))]) != os.path.normcase(str(root)):
