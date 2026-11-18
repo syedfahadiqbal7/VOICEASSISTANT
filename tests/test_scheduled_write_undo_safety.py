@@ -260,3 +260,20 @@ def test_undo_last_removes_new_file_and_consumes_entry(tmp_path, monkeypatch):
     assert not target.exists()
     assert manager.stack == []
     assert not marker.exists()
+
+
+def test_undo_last_rejects_snapshot_outside_managed_directory(tmp_path, monkeypatch):
+    manager, _undo_root = _undo_manager_for_test(tmp_path, monkeypatch)
+    target = tmp_path / "target.txt"
+    target.write_text("after", encoding="utf-8")
+    external = tmp_path / "external.snapshot"
+    external.write_bytes(b"encrypted")
+    manager.stack = [{"type": "file_write", "filepath": str(target), "backup_path": str(external)}]
+
+    result = manager.undo_last()
+
+    assert result["ok"] is False
+    assert "outside the configured undo directory" in result["message"]
+    assert len(manager.stack) == 1
+    assert target.read_text(encoding="utf-8") == "after"
+    assert external.exists()
