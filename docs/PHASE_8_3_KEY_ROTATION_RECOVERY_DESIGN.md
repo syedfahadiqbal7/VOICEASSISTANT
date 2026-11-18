@@ -197,7 +197,7 @@ Automated coverage is in `tests/test_data_protection_v2.py` and is included in t
 
 ## 14. Phase 8.3.3 — Resumable VAENC1 to VAENC2 migration engine
 
-Implementation status: **engine and regression tests committed; CI validation pending**.
+Implementation status: **engine and regression tests committed; full CI validation passed in run #174**.
 
 - Added `agent/key_migration.py` with a read-only inventory and an explicit-target migration API.
 - Default discovery is allow-listed: known encrypted history JSON stores, custom-skill JSON manifests, and encrypted undo snapshots. It does not recursively walk the runtime tree; `.new` undo markers, exports, source files, and arbitrary files are excluded.
@@ -215,3 +215,31 @@ Implementation status: **engine and regression tests committed; CI validation pe
 ### Phase 8.3.3 additional crash-boundary hardening
 
 Follow-up regression tests now simulate interruption immediately before atomic replacement and immediately after replacement but before the journal checkpoint. They assert that pre-replace interruption preserves the original VAENC1 bytes and removes the staging file; post-replace interruption is recognized as already-current on the next invocation. Tests also inspect the staged payload to ensure only VAENC2 ciphertext—not plaintext—is written to the temporary file. Duplicate target paths are rejected. The journal stores a one-way hash of the canonical data-root path rather than disclosing the absolute path, rejects malformed or mismatched-root state, and the migration fsyncs the containing directory after atomic replacement where the platform supports it.
+
+
+## 15. Phase 8.3.4 — Local-only key bootstrap and rotation
+
+Implementation status: **local API, CLI, backup preflight, audit events, and regression tests committed; CI validation pending**.
+
+- Added `data_key_cli.py` with local `status`, `bootstrap`, and `rotate` commands. No mobile API, WebSocket command, plugin, or remote tool route is registered for key administration.
+- Backup passphrases are collected through `getpass`, never command-line arguments. Bootstrap and rotation require an exact interactive confirmation phrase and a recent (default maximum age: 24 hours) portable backup.
+- `BackupManager.verify_backup` authenticates the backup with its passphrase and validates the complete archive without restoring it. The backup file must be a regular non-symlink file and remain unchanged during verification.
+- Bootstrap explicitly preserves the currently effective legacy data key and creates a new random active DEK. It refuses to overwrite an existing keyring.
+- Rotation creates a fresh random 256-bit DEK and key ID, switches the active key only after atomic keyring persistence and read-back verification, and changes the previous active key to `retained`. The legacy VAENC1 key and all prior VAENC2 keys remain available.
+- Rotation does not rewrite existing stores; the result explicitly reports `existing_files_rewritten: 0`. Future encrypted writes use the new active key; existing data remains decryptable through its key ID or legacy mapping.
+- Bootstrap and rotation share `agent/key_admin_lock.py` with the migration engine. Stale or concurrent locks fail closed and require operator inspection; they are never automatically removed.
+- Encrypted `audit_log.json` records start/completion events with timestamps, key IDs, and a backup digest. No key bytes, passphrase, plaintext, or backup path are recorded. A failed pre-rotation audit write aborts before key activation; a post-commit audit failure is surfaced as a warning without unsafe rollback.
+- The CLI reports only key IDs and retention metadata. It never exports or prints key material.
+- Regression tests cover explicit confirmation, valid/wrong/stale backup, legacy key retention, old VAENC2 key retention, active-key switching, no existing-file rewrite, audit events, lock contention, audit failure, and repeated rotation.
+
+Operational commands (run from the repository root):
+
+```powershell
+python backup_cli.py create .\history\pre-key-rotation.vabackup
+python data_key_cli.py status
+python data_key_cli.py bootstrap --backup .\history\pre-key-rotation.vabackup
+python backup_cli.py create .\history\before-next-rotation.vabackup
+python data_key_cli.py rotate --backup .\history\before-next-rotation.vabackup
+```
+
+The CLI prompts for the backup passphrase and typed confirmation. Keep the backup and passphrase separate. Do not delete or retire old keys; that is reserved for a later independently verified phase.
