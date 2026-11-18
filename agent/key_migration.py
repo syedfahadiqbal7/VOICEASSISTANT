@@ -10,7 +10,6 @@ import json
 import os
 import stat
 import tempfile
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -22,11 +21,12 @@ from agent.data_protection import (
     is_encrypted_bytes,
 )
 from agent.storage import atomic_write_bytes
+from agent.key_admin_lock import KeyAdminLock, KeyAdminLockError
 
 _V1 = b"VAENC1"
 _V2 = b"VAENC2"
 _JOURNAL_NAME = ".voiceassistant_migration_v1.json"
-_LOCK_NAME = ".voiceassistant_migration_v1.lock"
+_LOCK_NAME = KeyAdminLock.NAME
 _MAX_JOURNAL_BYTES = 2 * 1024 * 1024
 
 
@@ -102,39 +102,6 @@ def _safe_target(root: Path, target: MigrationTarget) -> Path:
     if not resolved.is_file():
         raise MigrationError(f"Migration target is not a regular file: {path}")
     return resolved
-
-
-class _MigrationLock:
-    """Exclusive-create lock; stale locks fail closed and require operator review."""
-    def __init__(self, path: Path):
-        self.path = path
-        self.descriptor = None
-
-    def __enter__(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps({
-            "pid": os.getpid(), "created_at": time.time(),
-        }).encode("utf-8")
-        try:
-            self.descriptor = os.open(
-                str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
-            )
-            os.write(self.descriptor, payload)
-            os.fsync(self.descriptor)
-        except FileExistsError as error:
-            raise MigrationError(
-                f"Another migration lock exists at {self.path}; verify its owner before removing it"
-            ) from error
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        if self.descriptor is not None:
-            os.close(self.descriptor)
-            self.descriptor = None
-        try:
-            self.path.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def _root_binding(root: Path) -> str:
@@ -260,7 +227,7 @@ def migrate_to_vaenc2(
     journal_path.parent.mkdir(parents=True, exist_ok=True)
     result = {"migrated": 0, "already_current": 0, "failed": [], "files": []}
 
-    with _MigrationLock(lock_path):
+    with KeyAdminLock(history):
         journal = _load_journal(journal_path, root)
         for item in selected:
             try:
