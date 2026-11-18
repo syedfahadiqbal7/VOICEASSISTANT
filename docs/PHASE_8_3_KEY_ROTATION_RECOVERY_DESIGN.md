@@ -193,3 +193,20 @@ The version-2 envelope is now implemented in `agent/data_protection.py`:
 
 Automated coverage is in `tests/test_data_protection_v2.py` and is included in the Windows CI regression suite. This phase does not yet add the operator-facing bootstrap/rotation command or rewrite existing VAENC1 files. Those remain explicit later subphases; no existing encrypted store is migrated automatically.
 
+
+
+## 14. Phase 8.3.3 — Resumable VAENC1 to VAENC2 migration engine
+
+Implementation status: **engine and regression tests committed; CI validation pending**.
+
+- Added `agent/key_migration.py` with a read-only inventory and an explicit-target migration API.
+- Default discovery is allow-listed: known encrypted history JSON stores, custom-skill JSON manifests, and encrypted undo snapshots. It does not recursively walk the runtime tree; `.new` undo markers, exports, source files, and arbitrary files are excluded.
+- Storage encryption context is the destination filename, matching `agent.storage` and the current persistence callers. Each target carries an explicit context; caller-supplied targets are confined to the configured application data root and symbolic links are rejected.
+- Migration requires both `confirm=True` and `backup_verified=True`. Plaintext, unknown formats, unsupported envelopes, and unauthenticated VAENC1 payloads are never rewritten.
+- Each VAENC1 file is decrypted, plaintext SHA-256 recorded, re-encrypted with the active keyring key, staged in the same directory, flushed, decrypted again, and digest-compared before atomic replacement. The persisted replacement is verified again; a failed post-replace verification attempts to restore the original ciphertext.
+- A data-root-bound, atomic progress journal stores relative paths and ciphertext/plaintext digests only (no plaintext or key material). Re-running is idempotent: already-VAENC2 files are authenticated and recorded as current, covering a crash after replacement but before journal update.
+- An exclusive-create inter-process lock prevents concurrent migrations. A pre-existing lock fails closed; stale-lock ownership must be reviewed by an operator and is never guessed or auto-deleted.
+- No application startup hook, background migration, CLI command, or legacy-key retirement has been added. Existing runtime data is not migrated unless an operator explicitly calls the migration API with an explicit inventory and both confirmations.
+- Regression coverage includes read-only discovery, explicit confirmation, digest preservation, restart/idempotency, tampering, plaintext refusal, root confinement, symlinks, lock conflicts, and undo marker exclusion.
+
+**Remaining before production operation:** run the full CI suite; perform a final review of every persistent store path against the allow-list; add an operator-facing dry-run/backup/confirmation CLI only after the engine is green; test Windows crash/restart and file-permission behavior; keep the legacy key until a separate full verification and explicit retirement phase.
