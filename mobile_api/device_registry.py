@@ -54,7 +54,6 @@ class MobileDeviceRegistry:
                 "token_sha256": hashlib.sha256(secret.encode("utf-8")).hexdigest(),
                 "created_at": now,
                 "revoked_at": None,
-                "last_authenticated_at": None,
             })
             self._save(data)
         # The raw secret is returned only at enrollment time and is never persisted.
@@ -102,7 +101,6 @@ class MobileDeviceRegistry:
                 "created_at": item.get("created_at"),
                 "revoked_at": item.get("revoked_at"),
                 "status": "revoked" if item.get("revoked_at") else "active",
-                "last_authenticated_at": item.get("last_authenticated_at"),
             } for item in data["devices"] if isinstance(item, dict)]
 
 
