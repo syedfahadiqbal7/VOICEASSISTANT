@@ -153,16 +153,23 @@ def bootstrap_keyring(
             legacy_key, source = get_data_key()
             ring = create_initial_keyring(legacy_key, path, source=source)
             active_id, _active = get_active_key(ring)
-            _append_audit(
-                history, "data_key.bootstrap_completed",
-                active_key_id=active_id, backup_sha256=backup["sha256"],
-            )
+            audit_warning = None
+            try:
+                _append_audit(
+                    history, "data_key.bootstrap_completed",
+                    active_key_id=active_id, backup_sha256=backup["sha256"],
+                )
+            except Exception as error:
+                # The keyring is already durably committed; never report that
+                # bootstrap failed or attempt an unsafe rollback at this point.
+                audit_warning = str(error)
             return {
                 "ok": True,
                 "operation": "bootstrap",
                 "active_key_id": active_id,
                 "legacy_key_retained": True,
                 "backup_files_verified": backup["files"],
+                "audit_warning": audit_warning,
             }
     except KeyAdminLockError as error:
         raise KeyRotationError(str(error)) from error
