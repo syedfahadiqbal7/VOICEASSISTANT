@@ -48,6 +48,7 @@ _JSON_STORE_NAMES = {
     "scheduled_jobs.json",
     "undo_stack.json",
     "skill_packs.json",
+    "data_retention.json",
 }
 
 
@@ -271,6 +272,7 @@ class BackupManager:
             "files": len(entries),
             "bytes": after.st_size,
             "sha256": hashlib.sha256(payload).hexdigest(),
+            "file_names": sorted(name for name, _data in entries),
         }
 
     def restore_backup(
@@ -318,6 +320,7 @@ class BackupManager:
                     "scheduled_jobs.json": list,
                     "undo_stack.json": list,
                     "skill_packs.json": dict,
+                    "data_retention.json": dict,
                 }.get(name)
                 if expected and not isinstance(value, expected):
                     raise DataProtectionError(f"Unexpected data shape for backup store: {name}")
