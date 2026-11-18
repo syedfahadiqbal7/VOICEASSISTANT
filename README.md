@@ -80,12 +80,12 @@ flutter test
 flutter build apk
 ```
 
-By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. For trusted private-LAN pairing, configure `VOICEASSISTANT_MOBILE_HOST=0.0.0.0`; use either a legacy `VOICEASSISTANT_MOBILE_TOKEN` (at least 32 characters) or enroll per-device credentials with `python mobile_device_cli.py add "Device name"`. Once the encrypted device registry exists, per-device credentials are mandatory and the legacy shared token is disabled. Follow [MOBILE_SECURITY_SETUP.md](MOBILE_SECURITY_SETUP.md). The Flutter client supports direct `wss://` TLS or a TLS-terminating reverse proxy. The server allows five concurrent mobile clients by default; set `VOICEASSISTANT_MOBILE_MAX_CONNECTIONS` to 1–32 to change the process-local cap; non-loopback `ws://` requires explicit user confirmation and is suitable only for a trusted private LAN/VPN. Never expose port 8765 directly to the public internet.
+By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. For trusted private-LAN pairing, configure `VOICEASSISTANT_MOBILE_HOST=0.0.0.0`; use either a legacy `VOICEASSISTANT_MOBILE_TOKEN` (at least 32 characters) or enroll per-device credentials with `python mobile_device_cli.py add "Device name"`. Once the encrypted device registry exists, per-device credentials are mandatory and the legacy shared token is disabled. Device roles (admin/operator/approver/viewer) are enforced server-side; manage them only from the trusted desktop with `python mobile_device_cli.py add --role admin`, `list`, or `set-role DEVICE_ID viewer`. See [MOBILE_SECURITY_SETUP.md](MOBILE_SECURITY_SETUP.md) for the permission matrix and setup guidance. The Flutter client supports direct `wss://` TLS or a TLS-terminating reverse proxy. The server allows five concurrent mobile clients by default; set `VOICEASSISTANT_MOBILE_MAX_CONNECTIONS` to 1–32 to change the process-local cap; non-loopback `ws://` requires explicit user confirmation and is suitable only for a trusted private LAN/VPN. Never expose port 8765 directly to the public internet.
 
 ## Tests
 
 ```powershell
-python -m pytest -q tests/test_security_reliability_regressions.py tests/test_mobile_device_identity.py tests/test_scheduler_reliability.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_privacy_manager.py tests/test_observability.py
+python -m pytest -q tests/test_security_reliability_regressions.py tests/test_mobile_device_identity.py tests/test_mobile_rbac.py tests/test_scheduler_reliability.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_privacy_manager.py tests/test_observability.py
 python tests/phase0_smoke_tests.py
 ```
 
