@@ -18,13 +18,14 @@ from agent.data_protection import (
     DataProtectionError,
     decrypt_bytes,
     encrypt_bytes,
-    is_encrypted_bytes,
 )
 from agent.storage import atomic_write_bytes
 from agent.key_admin_lock import KeyAdminLock, KeyAdminLockError
 
 _V1 = b"VAENC1"
 _V2 = b"VAENC2"
+_V1_HEADER_SIZE = len(_V1) + 1 + 12
+_V2_HEADER_SIZE = len(_V2) + 1 + 16 + 12
 _JOURNAL_NAME = ".voiceassistant_migration_v1.json"
 _LOCK_NAME = KeyAdminLock.NAME
 _MAX_JOURNAL_BYTES = 2 * 1024 * 1024
@@ -141,7 +142,7 @@ def _write_journal(path: Path, value: dict) -> None:
     encoded = json.dumps(value, sort_keys=True, indent=2).encode("utf-8")
     if len(encoded) > _MAX_JOURNAL_BYTES:
         raise MigrationError("Migration journal exceeds its safety limit")
-    atomic_write_bytes(path, encoded + b"\n")
+    atomic_write_bytes(path, encoded + b"\\n")
 
 
 def _load_journal(path: Path, root: Path) -> dict:
@@ -186,10 +187,10 @@ def inspect_migration(
         seen_paths.add(identity)
         raw = path.read_bytes()
         if raw.startswith(_V1):
-            state = "legacy_vaenc1"
+            state = "legacy_vaenc1" if len(raw) > _V1_HEADER_SIZE and raw[len(_V1)] == 1 else "unsupported_envelope"
         elif raw.startswith(_V2):
-            state = "current_vaenc2"
-        elif is_encrypted_bytes(raw):
+            state = "current_vaenc2" if len(raw) > _V2_HEADER_SIZE and raw[len(_V2)] == 2 else "unsupported_envelope"
+        elif raw.startswith(b"VAENC"):
             state = "unsupported_envelope"
         else:
             state = "plaintext_or_unknown"
