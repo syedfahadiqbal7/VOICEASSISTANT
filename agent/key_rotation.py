@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import base64
+import hashlib
 import json
 import os
 import time
@@ -397,6 +398,16 @@ def retire_data_key(
                     "Verified portable backup is missing registered stores: "
                     + ", ".join(sorted(missing))
                 )
+            # Coverage alone is insufficient: prove each backed-up logical
+            # store still matches the live store at retirement time.
+            current_entries = BackupManager(base_dir)._collect_entries()
+            for name in sorted(required_backup_files):
+                current_data = current_entries.get(name)
+                backup_digest = backup.get("file_sha256", {}).get(name)
+                if current_data is None or backup_digest != hashlib.sha256(current_data).hexdigest():
+                    raise KeyRotationError(
+                        f"Portable backup is stale or differs from live store: {name}"
+                    )
 
             for target in discover_runtime_targets(base_dir):
                 payload = target.path.read_bytes()
