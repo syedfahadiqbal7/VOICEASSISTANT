@@ -16,6 +16,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _textController = TextEditingController();
   final TextEditingController _hostController = TextEditingController();
   final TextEditingController _tokenController = TextEditingController();
+  final TextEditingController _deviceIdController = TextEditingController();
   final SpeechService _speech = SpeechService();
   final ScrollController _scrollController = ScrollController();
 
@@ -34,6 +35,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted || saved == null) return;
     _hostController.text = saved["host"] ?? "";
     _tokenController.text = saved["token"] ?? "";
+    _deviceIdController.text = saved["device_id"] ?? "";
     if (saved["auto_connect"] == "true" && _hostController.text.isNotEmpty) {
       await _connectToDesktop(ws);
     }
@@ -76,7 +78,11 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (!mounted || confirmed != true) return;
     }
-    ws.connect(host, token: _tokenController.text.trim());
+    ws.connect(
+      host,
+      token: _tokenController.text.trim(),
+      deviceId: _deviceIdController.text.trim(),
+    );
   }
 
   void _scrollToBottom() {
@@ -135,6 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (!mounted) return;
                 _hostController.clear();
                 _tokenController.clear();
+                _deviceIdController.clear();
               },
             ),
           // Connection status indicator
@@ -201,6 +208,26 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
+                TextField(
+                  controller: _deviceIdController,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  textInputAction: TextInputAction.next,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: "Device ID (leave blank for legacy shared token)",
+                    hintStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    filled: true,
+                    fillColor: const Color(0xFF0F172A),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
@@ -212,7 +239,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         textInputAction: TextInputAction.done,
                         style: const TextStyle(color: Colors.white, fontSize: 14),
                         decoration: InputDecoration(
-                          hintText: "Mobile access token (LAN only)",
+                          hintText: "Device token (or legacy shared token)",
                           hintStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
                           isDense: true,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -660,6 +687,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _textController.dispose();
     _hostController.dispose();
     _tokenController.dispose();
+    _deviceIdController.dispose();
     _scrollController.dispose();
     unawaited(_speech.stopListening());
     super.dispose();
