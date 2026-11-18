@@ -96,3 +96,41 @@ def test_concurrent_security_gates_are_serialized_for_single_prompt_mobile_ui():
     assert second.is_alive() is False
     assert second_entered.is_set() is True
     assert maximum_active == 1
+
+
+def test_mobile_prompt_is_dismissed_when_approval_times_out(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    import mobile_api.bridge as bridge_module
+
+    sent = []
+
+    class TimedOutEvent:
+        def wait(self, timeout=None):
+            assert timeout == 300
+            return False
+
+    async def send_personal(_target, payload):
+        sent.append(payload)
+
+    monkeypatch.setattr(bridge_module.threading, "Event", TimedOutEvent)
+    monkeypatch.setattr(bridge_module.manager, "has_connections", lambda: True)
+    monkeypatch.setattr(
+        bridge_module.manager,
+        "first_connection",
+        lambda allowed_roles=None: (object(), "approver-1"),
+    )
+    monkeypatch.setattr(bridge_module.manager, "send_personal", send_personal)
+
+    bridge = MobileBridge()
+    bridge._run_async = lambda coroutine: asyncio.run(coroutine)
+    bridge._wrapped_security_gate_serialized("Confirm action", lambda: None, "high")
+
+    assert sent == [{
+        "type": "approval_ack",
+        "request_id": sent[0]["request_id"],
+        "accepted": False,
+    }]
+    assert bridge._pending_approvals == {}
+    assert bridge._approval_clients == {}
+    assert bridge._active_approval_id is None
