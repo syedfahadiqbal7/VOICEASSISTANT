@@ -178,6 +178,92 @@ def test_migration_rejects_symlinked_parent_component(tmp_path, monkeypatch):
         )
 
 
+def test_interruption_before_replace_preserves_original_and_cleans_staging(tmp_path, monkeypatch):
+    import agent.key_migration as migration
+
+    root, history, legacy = _setup(tmp_path, monkeypatch)
+    target = history / "conversation_history.json"
+    original = encrypt_bytes(b'{"messages":["private"]}', target.name)
+    target.write_bytes(original)
+    keyring.create_initial_keyring(legacy, source="environment")
+    real_replace = os.replace
+
+    def fail_target_replace(source, destination):
+        if Path(destination) == target:
+            staged = Path(source).read_bytes()
+            assert staged.startswith(b"VAENC2")
+            assert b"private" not in staged
+            raise OSError("simulated crash before atomic replace")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(migration.os, "replace", fail_target_replace)
+    result = migrate_to_vaenc2(
+        root, [MigrationTarget(target, target.name)],
+        confirm=True, backup_verified=True,
+    )
+
+    assert result["complete"] is False
+    assert target.read_bytes() == original
+    assert not list(history.glob(f".{target.name}.migration.*.tmp"))
+
+
+def test_interruption_after_replace_before_journal_resumes_without_plaintext_staging(tmp_path, monkeypatch):
+    import agent.key_migration as migration
+
+    root, history, legacy = _setup(tmp_path, monkeypatch)
+    target = history / "agent_memory.json"
+    clear = b'{"facts":["never stage this plaintext"]}'
+    target.write_bytes(encrypt_bytes(clear, target.name))
+    keyring.create_initial_keyring(legacy, source="environment")
+    real_replace = os.replace
+    observed = {"encrypted_stage": False}
+
+    def inspect_replace(source, destination):
+        if Path(destination) == target:
+            staged = Path(source).read_bytes()
+            assert staged.startswith(b"VAENC2")
+            assert clear not in staged
+            observed["encrypted_stage"] = True
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(migration.os, "replace", inspect_replace)
+    real_journal = migration._write_journal
+    calls = {"count": 0}
+
+    def fail_once_after_replace(path, value):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise OSError("simulated interruption after atomic replace")
+        return real_journal(path, value)
+
+    monkeypatch.setattr(migration, "_write_journal", fail_once_after_replace)
+    first = migrate_to_vaenc2(
+        root, [MigrationTarget(target, target.name)],
+        confirm=True, backup_verified=True,
+    )
+    assert observed["encrypted_stage"] is True
+    assert first["complete"] is False
+    assert target.read_bytes().startswith(b"VAENC2")
+    assert decrypt_bytes(target.read_bytes(), target.name) == clear
+
+    monkeypatch.setattr(migration, "_write_journal", real_journal)
+    resumed = migrate_to_vaenc2(
+        root, [MigrationTarget(target, target.name)],
+        confirm=True, backup_verified=True,
+    )
+    assert resumed["complete"] is True
+    assert resumed["already_current"] == 1
+
+
+def test_duplicate_migration_targets_are_rejected(tmp_path, monkeypatch):
+    root, history, _legacy = _setup(tmp_path, monkeypatch)
+    target = history / "agent_memory.json"
+    target.write_bytes(b"VAENC1")
+    item = MigrationTarget(target, target.name)
+    with pytest.raises(MigrationError, match="Duplicate"):
+        inspect_migration(root, [item, item])
+
+
 def test_discovery_excludes_new_file_undo_markers(tmp_path, monkeypatch):
     root, history, _legacy = _setup(tmp_path, monkeypatch)
     undo = history / "undo_backups"
