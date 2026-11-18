@@ -64,7 +64,7 @@ def test_export_requires_existing_keyring_and_never_overwrites_kit(tmp_path, mon
     kit = tmp_path / "kit.varecovery"
     export_recovery_kit(root, kit, PASSPHRASE)
     original = kit.read_bytes()
-    with pytest.raises(FileExistsError):
+    with pytest.raises(RecoveryKitError, match="refusing to overwrite"):
         export_recovery_kit(root, kit, PASSPHRASE)
     assert kit.read_bytes() == original
 
