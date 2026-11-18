@@ -121,9 +121,14 @@ class UndoManager:
             if backup.read_text(encoding="utf-8") != "NEW_FILE":
                 raise OSError("New-file marker is invalid; refusing to delete the target")
             if target.exists():
-                if not target.is_file():
-                    raise OSError("New-file rollback target is not a regular file")
-                target.unlink()
+                if target.is_file():
+                    target.unlink()
+                elif target.is_dir():
+                    # Folder creation is supported by FileWriterTool. Remove
+                    # only an empty directory; never recursively delete user data.
+                    target.rmdir()
+                else:
+                    raise OSError("New-path rollback target is not a regular file or directory")
         else:
             restored = load_encrypted_bytes(backup)
             atomic_write_bytes(target, restored)
