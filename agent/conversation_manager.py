@@ -1027,13 +1027,18 @@ class ConversationManager:
                 if func_name == "write_developer_code":
                     try:
                         backup = self.undo.snapshot_before_write(args.get("filepath", ""))
-                    except Exception:
-                        backup = None
+                        if not backup:
+                            raise OSError("Undo snapshot returned no backup or new-file marker")
+                    except Exception as error:
+                        result = {
+                            "content": f"File write blocked because undo protection failed: {error}",
+                            "is_error": True,
+                        }
+                        self._log(f"[Undo] {result['content']}")
+                        done.put(result)
+                        return
+
                 result = self.tool_registry.execute(func_name, args)
-                self._log(
-                    f"[{'Error' if result.get('is_error') else 'Success'}] "
-                    f"{result.get('content')}"
-                )
                 if func_name == "write_developer_code" and not result.get("is_error"):
                     try:
                         self.undo.record_write(
@@ -1041,8 +1046,33 @@ class ConversationManager:
                             backup,
                             str(args.get("content", ""))[:200],
                         )
-                    except Exception:
-                        pass
+                    except Exception as error:
+                        try:
+                            rollback = self.undo.rollback_unrecorded_write(
+                                args.get("filepath", ""), backup
+                            )
+                            result = {
+                                "content": (
+                                    "File write was rolled back because the undo entry "
+                                    f"could not be saved: {error}. {rollback.get('message', '')}"
+                                ),
+                                "is_error": True,
+                            }
+                        except Exception as rollback_error:
+                            result = {
+                                "content": (
+                                    "CRITICAL: file write completed but its undo entry could "
+                                    f"not be saved ({error}) and automatic rollback failed "
+                                    f"({rollback_error}). Inspect the target file and recovery "
+                                    "snapshot before continuing."
+                                ),
+                                "is_error": True,
+                                "rollback_failed": True,
+                            }
+                self._log(
+                    f"[{'Error' if result.get('is_error') else 'Success'}] "
+                    f"{result.get('content')}"
+                )
                 done.put(result)
             except Exception as e:
                 done.put({"content": str(e), "is_error": True})
