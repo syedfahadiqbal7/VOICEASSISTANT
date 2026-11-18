@@ -25,7 +25,7 @@ Latest fully green cross-platform CI run [44038035438](https://github.com/syedfa
 | 5 | Desktop UI/UX and lifecycle | Source-level hardening complete | Interactive Windows GUI, audio and Ollama runtime validation remain |
 | 6 | QA and observability | Foundation implemented; broader QA in progress | Performance/load, full E2E and remaining exception-handler cleanup remain |
 | 7 | Deployment and release | Safety guard implemented; production release pending | GitHub tags now publish non-latest development pre-releases only; Windows installer and production Android/iOS signing remain |
-| 8 | Enterprise capabilities | Pending | Plugin sandbox, per-device identity/revocation, roles and key-rotation lifecycle remain |
+| 8 | Enterprise capabilities | In progress | Phase 8.1 per-device identity/revocation is implemented in source; RBAC, plugin sandbox and key-rotation lifecycle remain |
 
 A phase marked complete here means its scoped source changes and automated checks are implemented; it does not imply physical-device or production-environment certification.
 
@@ -241,3 +241,20 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 **Not certified:** Windows desktop GUI/runtime, microphone/STT/TTS, Ollama/cloud-provider integration, real Android device behavior, direct-LAN TLS/WSS deployment and external account integrations.
 
 This is a meaningful engineering hardening release candidate, not a claim that every original feature is production-ready or that all remaining findings have been resolved.
+
+
+## 8.1 Per-device mobile identity — implementation committed, CI verification pending
+
+The mobile API now supports an encrypted device registry and unique per-device credentials:
+
+- `mobile_api/device_registry.py` issues a random 256-bit-equivalent URL-safe secret per enrollment and stores only its SHA-256 digest.
+- The registry is persisted as AES-256-GCM encrypted `history/mobile_devices.json`, using the existing local data-protection key.
+- `mobile_device_cli.py` supports trusted-desktop enrollment, listing and revocation.
+- Once the registry file exists, it becomes authoritative. Legacy shared-token authentication is disabled, including when every enrolled device is revoked; this prevents a revoked device from falling back to the former shared secret.
+- The WebSocket server revalidates device credentials on each incoming message and at 10-second idle intervals, closing revoked sessions.
+- The Flutter client accepts a device ID and device secret and stores both using the existing secure-storage plugin. Blank device ID retains legacy shared-token behavior only before device registry enrollment.
+- Automated tests cover secret-at-rest behavior, wrong/unknown credentials, revocation, legacy compatibility and shared-token fallback prevention.
+
+**Operational boundary:** a registry file must be protected together with the desktop's DPAPI/data-encryption key. The one-time device secret cannot be recovered from the server; lost credentials require revocation and re-enrollment. The current registry lock is process-local; concurrent enrollment/revocation from multiple administrative processes is not yet protected by an OS-level inter-process lock.
+
+**Verification status:** source changes and CI configuration have been committed to `main`; the new GitHub Actions run must complete successfully before this subphase is declared validated. Real Android/iOS secure-storage and LAN/WSS tests remain target-device work.
