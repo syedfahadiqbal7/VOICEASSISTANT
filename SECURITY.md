@@ -2,12 +2,15 @@
 
 ## Supported deployment posture
 
-This application is designed primarily for a single-user Windows desktop. The mobile API defaults to loopback. LAN mode is an explicit opt-in and requires a shared token; it is not intended to be exposed directly to the public internet.
+This application is designed primarily for a single-user Windows desktop. The mobile API defaults to loopback. LAN mode is an explicit opt-in and requires either enrolled per-device credentials or the legacy shared token before device enrollment; it is not intended to be exposed directly to the public internet.
 
 Before enabling LAN access:
 
 - Prefer per-device credentials created with `python mobile_device_cli.py add "Device name"`; revoke lost devices with `python mobile_device_cli.py revoke DEVICE_ID`. The legacy shared token remains available only until a device registry is created. Once enrolled, the encrypted registry is authoritative and shared-token fallback is disabled.
 - Restrict Windows Firewall access to trusted private networks and known devices.
+- Assign the minimum required device role from the trusted desktop: `admin`, `operator`, `approver` or `viewer`. New devices default to `operator`; legacy shared-token clients are also restricted to `operator`.
+- Never rely on a mobile-supplied role claim. The server resolves roles from the encrypted registry and authorizes every WebSocket command. Only admin/approver devices can receive mobile approval challenges.
+- Keep at least one active admin device enrolled. The CLI refuses to demote or revoke the last active admin.
 - Prefer a VPN or TLS-terminating reverse proxy (`wss://`) on networks you do not fully trust.
 - Do not run the application with unnecessary administrator privileges.
 - Review every plugin before enabling it; plugins execute in the desktop process and are not OS-sandboxed.
