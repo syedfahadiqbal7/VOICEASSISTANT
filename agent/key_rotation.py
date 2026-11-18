@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from agent.backup_manager import BackupManager
-from agent.data_protection import DataProtectionError, get_data_key
+from agent.data_protection import DATA_KEY_FILE, DataProtectionError, decrypt_bytes, get_data_key, is_encrypted_bytes
+from agent.key_migration import discover_runtime_targets
 from agent.key_admin_lock import KeyAdminLock, KeyAdminLockError
 from agent.keyring import (
     KeyringError,
@@ -85,6 +86,36 @@ def _verify_backup(
     }
 
 
+def _validate_legacy_store_access(base_dir: Path | str) -> None:
+    """Prove the currently effective legacy key can read every registered VAENC1 store."""
+    targets = discover_runtime_targets(base_dir)
+    if (
+        not os.environ.get("VOICEASSISTANT_DATA_KEY", "").strip()
+        and os.name == "nt"
+        and not Path(DATA_KEY_FILE).is_file()
+        and any(target.path.read_bytes().startswith(b"VAENC1") for target in targets)
+    ):
+        # _windows_dpapi_key() creates a key when none exists. That behavior is
+        # useful for a new install but unsafe during bootstrap over old data.
+        raise KeyRotationError(
+            "The original DPAPI key file is missing while VAENC1 stores exist; "
+            "refusing to generate a replacement key"
+        )
+    for target in targets:
+        payload = target.path.read_bytes()
+        if payload.startswith(b"VAENC1"):
+            try:
+                decrypt_bytes(payload, target.context)
+            except DataProtectionError as error:
+                raise KeyRotationError(
+                    f"Current legacy key cannot authenticate registered store {target.path.name}"
+                ) from error
+        elif is_encrypted_bytes(payload):
+            raise KeyRotationError(
+                f"Unexpected encrypted envelope in {target.path.name}; refusing keyring bootstrap"
+            )
+
+
 def _append_audit(history: Path, event: str, **details: Any) -> None:
     path = history / _AUDIT_FILE
     if path.is_symlink():
@@ -149,6 +180,7 @@ def bootstrap_keyring(
             )
             if path.exists():
                 raise KeyRotationError("A protected keyring already exists; refusing to replace it")
+            _validate_legacy_store_access(base_dir)
             _append_audit(history, "data_key.bootstrap_started", backup_sha256=backup["sha256"])
             legacy_key, source = get_data_key()
             ring = create_initial_keyring(legacy_key, path, source=source)
