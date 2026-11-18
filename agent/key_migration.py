@@ -137,6 +137,24 @@ class _MigrationLock:
             pass
 
 
+def _root_binding(root: Path) -> str:
+    return hashlib.sha256(str(root).encode("utf-8")).hexdigest()
+
+
+def _fsync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
+    try:
+        descriptor = os.open(str(path), os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        # Some filesystems do not support directory fsync.
+        pass
+
+
 def _write_journal(path: Path, value: dict) -> None:
     encoded = json.dumps(value, sort_keys=True, indent=2).encode("utf-8")
     if len(encoded) > _MAX_JOURNAL_BYTES:
@@ -148,7 +166,7 @@ def _load_journal(path: Path, root: Path) -> dict:
     if path.is_symlink():
         raise MigrationError("Migration journal must not be a symbolic link")
     if not path.exists():
-        return {"schema_version": 1, "root": str(root), "files": {}}
+        return {"schema_version": 1, "root_id": _root_binding(root), "files": {}}
     raw = path.read_bytes()
     if len(raw) > _MAX_JOURNAL_BYTES:
         raise MigrationError("Migration journal exceeds its safety limit")
@@ -158,7 +176,7 @@ def _load_journal(path: Path, root: Path) -> dict:
         raise MigrationError("Migration journal is malformed; refusing to overwrite it") from error
     if (
         not isinstance(value, dict) or value.get("schema_version") != 1
-        or value.get("root") != str(root) or not isinstance(value.get("files"), dict)
+        or value.get("root_id") != _root_binding(root) or not isinstance(value.get("files"), dict)
     ):
         raise MigrationError("Migration journal schema or data-root binding is invalid")
     return value
@@ -231,8 +249,12 @@ def migrate_to_vaenc2(
         if normalized in identities:
             raise MigrationError(f"Duplicate migration target: {normalized}")
         identities.add(normalized)
-    journal_path = root / "history" / _JOURNAL_NAME
-    lock_path = root / "history" / _LOCK_NAME
+    history = root / "history"
+    if history.is_symlink():
+        raise MigrationError("Runtime history directory must not be a symbolic link")
+    history.mkdir(parents=True, exist_ok=True)
+    journal_path = history / _JOURNAL_NAME
+    lock_path = history / _LOCK_NAME
     if journal_path.is_symlink() or lock_path.is_symlink():
         raise MigrationError("Migration journal and lock must not be symbolic links")
     journal_path.parent.mkdir(parents=True, exist_ok=True)
@@ -295,6 +317,7 @@ def migrate_to_vaenc2(
                         raise MigrationError("Source changed during migration; refusing atomic replacement")
                     os.replace(temporary, path)
                     temporary = None
+                    _fsync_directory(path.parent)
                     try:
                         persisted = path.read_bytes()
                         persisted_clear = decrypt_bytes(persisted, item.context)
@@ -305,6 +328,7 @@ def migrate_to_vaenc2(
                             raise MigrationError("Persisted VAENC2 digest verification failed")
                     except Exception:
                         atomic_write_bytes(path, original)
+                        _fsync_directory(path.parent)
                         raise
                 finally:
                     if temporary:
