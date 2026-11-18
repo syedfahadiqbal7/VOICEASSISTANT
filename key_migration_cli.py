@@ -30,11 +30,19 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _verify_pre_migration_backup(backup_path: Path, passphrase: str) -> dict:
-    manager = BackupManager(BASE_DIR)
-    verified = manager.verify_backup(backup_path, passphrase)
     inventory = inspect_migration(BASE_DIR)
     if inventory["total"] == 0:
         raise MigrationError("No registered stores were inventoried; refusing migration")
+    if inventory["plaintext_or_unknown"] or inventory["unsupported_envelope"]:
+        raise MigrationError(
+            "Registered stores contain plaintext/unknown or unsupported envelopes; "
+            "resolve these stores explicitly before VAENC2 migration "
+            f"(plaintext_or_unknown={inventory['plaintext_or_unknown']}, "
+            f"unsupported_envelope={inventory['unsupported_envelope']})"
+        )
+
+    manager = BackupManager(BASE_DIR)
+    verified = manager.verify_backup(backup_path, passphrase)
     required = {
         row["path"][len("history/"):] if row["path"].startswith("history/") else row["path"]
         for row in inventory["files"]
