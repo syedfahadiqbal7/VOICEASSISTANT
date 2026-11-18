@@ -96,10 +96,10 @@ def _expected_mobile_token() -> str:
     return os.environ.get("VOICEASSISTANT_MOBILE_TOKEN", "").strip()
 
 
-def _authenticate_mobile_headers(headers) -> bool:
-    """Prefer enrolled per-device credentials; never fall back after enrollment."""
+def _mobile_principal(headers):
+    """Authenticate and resolve the server-owned role for this connection."""
     if mobile_devices.is_configured():
-        return mobile_devices.authenticate(
+        return mobile_devices.authenticate_principal(
             headers.get("x-voiceassistant-device-id", ""),
             headers.get("x-voiceassistant-device-token", ""),
         )
@@ -107,20 +107,32 @@ def _authenticate_mobile_headers(headers) -> bool:
     expected = _expected_mobile_token()
     supplied = headers.get("x-voiceassistant-token", "")
     if expected:
-        return hmac.compare_digest(supplied, expected)
+        if hmac.compare_digest(supplied, expected):
+            return {"device_id": "legacy-shared-token", "name": "Legacy shared-token client", "role": "operator"}
+        return None
+
     # No credentials are accepted only for an explicitly loopback-only listener.
-    return os.environ.get(
-        "VOICEASSISTANT_MOBILE_HOST", "127.0.0.1"
-    ) in ("127.0.0.1", "localhost", "::1")
+    if os.environ.get("VOICEASSISTANT_MOBILE_HOST", "127.0.0.1") in ("127.0.0.1", "localhost", "::1"):
+        return {"device_id": "loopback-local", "name": "Loopback local client", "role": "operator"}
+    return None
+
+
+def _authenticate_mobile_headers(headers) -> bool:
+    """Compatibility helper retained for existing authentication tests."""
+    return _mobile_principal(headers) is not None
+
+
+def _reauthenticate_mobile_principal(websocket):
+    """Re-resolve role and credentials so revocation/role changes take effect."""
+    try:
+        return _mobile_principal(websocket.headers)
+    except Exception:
+        logger.exception("Mobile device revalidation failed", extra={"event": "mobile.device_revalidation_failed"})
+        return None
 
 
 def _reauthenticate_mobile(websocket) -> bool:
-    """Fail closed if a device is revoked while its WebSocket is still open."""
-    try:
-        return _authenticate_mobile_headers(websocket.headers)
-    except Exception:
-        logger.exception("Mobile device revalidation failed", extra={"event": "mobile.device_revalidation_failed"})
-        return False
+    return _reauthenticate_mobile_principal(websocket) is not None
 
 
 def _validate_user_message(data: dict) -> str:
@@ -175,13 +187,13 @@ def _tls_options_from_env() -> dict:
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     try:
-        authenticated = _authenticate_mobile_headers(websocket.headers)
+        principal = _mobile_principal(websocket.headers)
     except Exception:
         # A corrupt/unreadable encrypted registry is a hard authentication failure.
         logger.exception("Mobile device registry could not be read", extra={"event": "mobile.device_registry_failed"})
         await websocket.close(code=1011, reason="Mobile authentication is unavailable")
         return
-    if not authenticated:
+    if principal is None:
         await websocket.close(code=1008, reason="Mobile authentication required")
         return
 
@@ -196,6 +208,7 @@ async def websocket_endpoint(websocket: WebSocket):
     if conn_id is None:
         await websocket.close(code=1013, reason="Mobile connection capacity reached")
         return
+    manager.set_role(websocket, principal["role"])
     limiter = SlidingWindowRateLimiter()
 
     await manager.send_personal(websocket, {
@@ -220,19 +233,38 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 data = await asyncio.wait_for(websocket.receive_json(), timeout=10)
             except asyncio.TimeoutError:
-                if not _reauthenticate_mobile(websocket):
+                refreshed = _reauthenticate_mobile_principal(websocket)
+                if refreshed is None:
                     await websocket.close(code=1008, reason="Mobile device is no longer authorized")
                     manager.disconnect(websocket)
                     break
+                principal = refreshed
+                manager.set_role(websocket, principal["role"])
                 continue
-            if not _reauthenticate_mobile(websocket):
+            refreshed = _reauthenticate_mobile_principal(websocket)
+            if refreshed is None:
                 await websocket.close(code=1008, reason="Mobile device is no longer authorized")
                 manager.disconnect(websocket)
                 break
+            principal = refreshed
+            manager.set_role(websocket, principal["role"])
             if not isinstance(data, dict):
                 await manager.send_personal(websocket, {"type": "error", "message": "Message must be a JSON object"})
                 continue
             msg_type = data.get("type")
+            from mobile_api.authorization import is_allowed
+            if not is_allowed(principal["role"], msg_type):
+                logger.warning(
+                    "Denied mobile command %r for role %s",
+                    msg_type,
+                    principal["role"],
+                    extra={"event": "mobile.authorization_denied"},
+                )
+                await manager.send_personal(websocket, {
+                    "type": "error",
+                    "message": "This device is not authorized to perform that operation.",
+                })
+                continue
             if not limiter.allow(str(msg_type or "")):
                 await manager.send_personal(websocket, {
                     "type": "error",
