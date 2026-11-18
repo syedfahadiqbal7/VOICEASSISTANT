@@ -273,6 +273,7 @@ class BackupManager:
             "bytes": after.st_size,
             "sha256": hashlib.sha256(payload).hexdigest(),
             "file_names": sorted(name for name, _data in entries),
+            "file_sha256": {name: hashlib.sha256(data).hexdigest() for name, data in entries},
         }
 
     def restore_backup(
