@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from mobile_api.device_registry import MobileDeviceRegistry
@@ -17,7 +15,10 @@ def test_device_secret_is_only_returned_once_and_registry_is_encrypted(tmp_path,
     assert enrolled["device_id"]
     assert enrolled["device_token"]
     assert registry.authenticate(enrolled["device_id"], enrolled["device_token"]) is True
-    assert enrolled["device_token"].encode() not in raw
+    from agent.data_protection import decrypt_bytes
+    clear = decrypt_bytes(raw, context="mobile_devices.json")
+    assert enrolled["device_token"].encode() not in clear
+    assert b"token_sha256" in clear
 
 
 def test_device_authentication_rejects_wrong_secret_and_unknown_id(tmp_path, monkeypatch):
