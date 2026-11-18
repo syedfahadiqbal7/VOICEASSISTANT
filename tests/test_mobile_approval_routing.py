@@ -128,11 +128,14 @@ def test_mobile_prompt_is_dismissed_when_approval_times_out(monkeypatch):
     bridge._run_async = lambda coroutine: asyncio.run(coroutine)
     bridge._wrapped_security_gate_serialized("Confirm action", lambda: None, "high")
 
-    assert sent == [{
+    assert len(sent) == 2
+    assert sent[0]["type"] == "security_gate"
+    request_id = sent[0]["request_id"]
+    assert sent[1] == {
         "type": "approval_ack",
-        "request_id": sent[0]["request_id"],
+        "request_id": request_id,
         "accepted": False,
-    }]
+    }
     assert bridge._pending_approvals == {}
     assert bridge._approval_clients == {}
     assert bridge._active_approval_id is None
