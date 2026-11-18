@@ -85,6 +85,7 @@ def test_migration_rewrites_vaenc1_and_verifies_plaintext_digest(tmp_path, monke
     journal = (history / ".voiceassistant_migration_v1.json").read_text(encoding="utf-8")
     assert original_digest in journal
     assert "private" not in journal
+    assert str(root) not in journal
 
 
 def test_migration_is_restartable_and_idempotent_after_completed_replace(tmp_path, monkeypatch):
@@ -262,6 +263,30 @@ def test_duplicate_migration_targets_are_rejected(tmp_path, monkeypatch):
     item = MigrationTarget(target, target.name)
     with pytest.raises(MigrationError, match="Duplicate"):
         inspect_migration(root, [item, item])
+
+
+def test_explicit_migration_rejects_symlinked_history_directory(tmp_path, monkeypatch):
+    root, history, legacy = _setup(tmp_path, monkeypatch)
+    target_dir = root / "data"
+    target_dir.mkdir()
+    target = target_dir / "private.bin"
+    target.write_bytes(encrypt_bytes(b"private", target.name))
+    external_history = tmp_path / "external_history"
+    external_history.mkdir()
+    monkeypatch.setattr(keyring, "KEYRING_FILE", external_history / ".keyring")
+    keyring.create_initial_keyring(legacy, source="environment")
+    history.rmdir()
+    try:
+        history.symlink_to(external_history, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlink creation is unavailable")
+
+    with pytest.raises(MigrationError, match="history directory"):
+        migrate_to_vaenc2(
+            root, [MigrationTarget(target, target.name)],
+            confirm=True, backup_verified=True,
+        )
+    assert target.read_bytes().startswith(b"VAENC1")
 
 
 def test_discovery_excludes_new_file_undo_markers(tmp_path, monkeypatch):
