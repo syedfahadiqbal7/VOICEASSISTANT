@@ -18,6 +18,7 @@ import uvicorn
 from mobile_api.connection_manager import manager
 from mobile_api.bridge import bridge
 from mobile_api.device_registry import registry as mobile_devices
+from mobile_api.authorization import is_allowed
 
 logger = logging.getLogger("voiceassistant.mobile_api")
 _server_lock = threading.Lock()
@@ -252,7 +253,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 await manager.send_personal(websocket, {"type": "error", "message": "Message must be a JSON object"})
                 continue
             msg_type = data.get("type")
-            from mobile_api.authorization import is_allowed
             if not is_allowed(principal["role"], msg_type):
                 logger.warning(
                     "Denied mobile command %r for role %s",
