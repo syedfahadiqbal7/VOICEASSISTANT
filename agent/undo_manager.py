@@ -90,6 +90,63 @@ class UndoManager:
         self.stack = self.stack[-self.max_entries :]
         self._save()
 
+    def rollback_unrecorded_write(self, filepath: str, backup_path: str) -> Dict[str, Any]:
+        """Restore a write when its undo-stack entry could not be persisted.
+
+        The snapshot must be one created by this UndoManager. Existing files are
+        restored from their encrypted snapshot; newly-created files are removed
+        only when the matching NEW_FILE marker is present.
+        """
+        filepath = self._clean_path(filepath)
+        if not filepath or not backup_path:
+            raise ValueError("A target path and undo snapshot are required")
+
+        backup = Path(backup_path)
+        undo_root = UNDO_DIR.resolve()
+        if backup.is_symlink():
+            raise OSError("Undo snapshot must not be a symbolic link")
+        lexical_backup = Path(os.path.abspath(str(backup)))
+        try:
+            lexical_backup.relative_to(undo_root)
+        except ValueError as error:
+            raise OSError("Undo snapshot is outside the configured undo directory") from error
+        if not backup.is_file():
+            raise FileNotFoundError(f"Undo snapshot is missing: {backup}")
+
+        target = Path(filepath)
+        if target.is_symlink():
+            raise OSError("Refusing to roll back through a symbolic-link target")
+
+        if backup.name.endswith(".new"):
+            if backup.read_text(encoding="utf-8") != "NEW_FILE":
+                raise OSError("New-file marker is invalid; refusing to delete the target")
+            if target.exists():
+                if not target.is_file():
+                    raise OSError("New-file rollback target is not a regular file")
+                target.unlink()
+        else:
+            restored = load_encrypted_bytes(backup)
+            atomic_write_bytes(target, restored)
+            if not target.is_file() or target.read_bytes() != restored:
+                raise OSError("Restored file did not pass byte-for-byte verification")
+
+        backup.unlink(missing_ok=True)
+        self.stack = [
+            entry for entry in self.stack
+            if not (
+                entry.get("type") == "file_write"
+                and self._clean_path(entry.get("filepath") or "") == filepath
+                and entry.get("backup_path") == str(backup)
+            )
+        ]
+        try:
+            self._save()
+        except Exception:
+            # The file itself is already restored. A stale persisted undo entry
+            # can only repeat restoration of the same prior state.
+            pass
+        return {"ok": True, "message": f"Restored {filepath} to its pre-write state."}
+
     def undo_last(self) -> Dict[str, Any]:
         if not self.stack:
             return {"ok": False, "message": "Nothing to undo."}
