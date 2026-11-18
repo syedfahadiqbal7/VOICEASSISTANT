@@ -255,7 +255,8 @@ class BackupManager:
         before = source.stat()
         if before.st_size > _MAX_BACKUP_BYTES:
             raise DataProtectionError("Backup exceeds the configured size limit")
-        entries = self._read_archive(source.read_bytes(), passphrase)
+        payload = source.read_bytes()
+        entries = self._read_archive(payload, passphrase)
         after = source.stat()
         if (
             before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns
@@ -268,6 +269,7 @@ class BackupManager:
             "encrypted": True,
             "files": len(entries),
             "bytes": after.st_size,
+            "sha256": __import__("hashlib").sha256(payload).hexdigest(),
         }
 
     def restore_backup(
