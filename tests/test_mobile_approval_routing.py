@@ -100,8 +100,10 @@ def test_concurrent_security_gates_are_serialized_for_single_prompt_mobile_ui():
 
 def test_mobile_prompt_is_dismissed_when_approval_times_out(monkeypatch):
     import asyncio
+    import importlib
     import threading
-    from mobile_api.bridge import MobileBridge
+    bridge_module = importlib.import_module("mobile_api.bridge")
+    MobileBridge = bridge_module.MobileBridge
 
     sent = []
 
@@ -114,14 +116,13 @@ def test_mobile_prompt_is_dismissed_when_approval_times_out(monkeypatch):
         sent.append(payload)
 
     monkeypatch.setattr(threading, "Event", TimedOutEvent)
-    from mobile_api import bridge as bridge_instance
-    monkeypatch.setattr(bridge_instance.manager, "has_connections", lambda: True)
+    monkeypatch.setattr(bridge_module.manager, "has_connections", lambda: True)
     monkeypatch.setattr(
-        bridge_instance.manager,
+        bridge_module.manager,
         "first_connection",
         lambda allowed_roles=None: (object(), "approver-1"),
     )
-    monkeypatch.setattr(bridge_instance.manager, "send_personal", send_personal)
+    monkeypatch.setattr(bridge_module.manager, "send_personal", send_personal)
 
     bridge = MobileBridge()
     bridge._run_async = lambda coroutine: asyncio.run(coroutine)
