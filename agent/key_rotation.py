@@ -17,7 +17,7 @@ from typing import Any
 
 from agent.backup_manager import BackupManager
 from agent.data_protection import DATA_KEY_FILE, DataProtectionError, decrypt_bytes, get_data_key, is_encrypted_bytes
-from agent.key_migration import discover_runtime_targets
+from agent.key_migration import discover_runtime_targets, inspect_migration
 from agent.key_admin_lock import KeyAdminLock, KeyAdminLockError
 from agent.keyring import (
     KeyringError,
@@ -295,3 +295,156 @@ def rotate_data_key(
         raise KeyRotationError(str(error)) from error
     except (KeyringError, DataProtectionError) as error:
         raise KeyRotationError(f"Key rotation failed safely: {error}") from error
+
+
+
+def retire_data_key(
+    base_dir: Path | str,
+    key_id: str,
+    backup_path: Path | str,
+    backup_passphrase: str,
+    recovery_kit_path: Path | str,
+    recovery_passphrase: str,
+    *,
+    confirm: bool = False,
+    max_backup_age_seconds: int = DEFAULT_BACKUP_MAX_AGE_SECONDS,
+    max_recovery_kit_age_seconds: int = 30 * 24 * 60 * 60,
+) -> dict:
+    """Remove one unused retained/legacy key only after independent recovery checks.
+
+    Retirement is deliberately fail-closed: every registered encrypted store
+    must be VAENC2, every store must be present in the verified portable backup,
+    the selected key must not appear in any store envelope, and a separately
+    protected recovery kit must exactly match the current keyring.
+    """
+    if not confirm:
+        raise PermissionError("Data-key retirement requires explicit local confirmation")
+    if not isinstance(key_id, str) or len(key_id) != 32:
+        raise ValueError("A 32-character hexadecimal key ID is required")
+    try:
+        bytes.fromhex(key_id)
+    except ValueError as error:
+        raise ValueError("Key ID must be hexadecimal") from error
+    if type(max_recovery_kit_age_seconds) is not int or max_recovery_kit_age_seconds <= 0:
+        raise ValueError("Recovery-kit maximum age must be a positive integer")
+
+    history = _history_dir(base_dir)
+    keyring_path = _keyring_path(history)
+    try:
+        with KeyAdminLock(history):
+            if not keyring_path.is_file():
+                raise KeyRotationError("No protected keyring exists")
+            current = load_keyring(keyring_path)
+            if key_id not in current["keys"]:
+                raise KeyRotationError("Requested key ID is not present in the keyring")
+            if key_id == current["active_key_id"]:
+                raise KeyRotationError("The active data key can never be retired")
+            state = current["keys"][key_id]["state"]
+            if state not in {"retained", "legacy"}:
+                raise KeyRotationError("Only retained or legacy keys can be retired")
+
+            backup = _verify_backup(
+                base_dir, backup_path, backup_passphrase,
+                max_age_seconds=max_backup_age_seconds,
+            )
+            recovery_path = Path(recovery_kit_path).expanduser()
+            if recovery_path.is_symlink() or not recovery_path.is_file():
+                raise KeyRotationError("A separate regular recovery-kit file is required")
+            backup_source = Path(backup_path).expanduser()
+            if recovery_path.resolve() == backup_source.resolve():
+                raise KeyRotationError("Portable backup and recovery kit must be separate files")
+            kit_info = recovery_path.stat()
+            kit_age = time.time() - kit_info.st_mtime
+            if kit_age < -300 or kit_age > max_recovery_kit_age_seconds:
+                raise KeyRotationError("Recovery kit is too old or has an invalid future timestamp")
+            if kit_info.st_size > 1024 * 1024:
+                raise KeyRotationError("Recovery kit exceeds the 1 MiB safety limit")
+            kit_payload = recovery_path.read_bytes()
+            kit_after = recovery_path.stat()
+            if (kit_info.st_dev, kit_info.st_ino, kit_info.st_size, kit_info.st_mtime_ns) != (
+                kit_after.st_dev, kit_after.st_ino, kit_after.st_size, kit_after.st_mtime_ns
+            ):
+                raise KeyRotationError("Recovery kit changed while being verified")
+            from agent.key_recovery import RecoveryKitError, _decode
+            try:
+                recovered_ring = _decode(kit_payload, recovery_passphrase)
+            except RecoveryKitError as error:
+                raise KeyRotationError(f"Recovery-kit verification failed: {error}") from error
+            if recovered_ring != current:
+                raise KeyRotationError(
+                    "Recovery kit does not contain the exact current keyring; export a fresh kit"
+                )
+
+            inventory = inspect_migration(base_dir)
+            if inventory["total"] == 0:
+                raise KeyRotationError("No registered data stores were inventoried; refusing key retirement")
+            if (
+                inventory["legacy_vaenc1"]
+                or inventory["plaintext_or_unknown"]
+                or inventory["unsupported_envelope"]
+                or inventory["current_vaenc2"] != inventory["total"]
+            ):
+                raise KeyRotationError(
+                    "Every registered data store must be authenticated VAENC2 before key retirement"
+                )
+            required_backup_files = {
+                row["path"][len("history/"):] if row["path"].startswith("history/") else row["path"]
+                for row in inventory["files"]
+            }
+            missing = required_backup_files - set(backup.get("file_names", []))
+            if missing:
+                raise KeyRotationError(
+                    "Verified portable backup is missing registered stores: "
+                    + ", ".join(sorted(missing))
+                )
+
+            for target in discover_runtime_targets(base_dir):
+                payload = target.path.read_bytes()
+                # VAENC2 = six-byte magic + one-byte version + 16-byte key ID.
+                if payload.startswith(b"VAENC2") and len(payload) >= 23:
+                    if payload[7:23].hex() == key_id:
+                        raise KeyRotationError(
+                            f"Key is still referenced by registered store {target.path.name}"
+                        )
+
+            _append_audit(
+                history, "data_key.retirement_started",
+                retired_key_id=key_id, key_state=state,
+                backup_sha256=backup["sha256"],
+                recovery_kit_sha256=__import__("hashlib").sha256(kit_payload).hexdigest(),
+                migrated_store_count=inventory["total"],
+            )
+            updated = copy.deepcopy(current)
+            del updated["keys"][key_id]
+            save_keyring(validate_keyring(updated), keyring_path)
+            reopened = load_keyring(keyring_path)
+            if key_id in reopened["keys"]:
+                raise KeyRotationError("Retired key is still present after keyring persistence")
+
+            audit_warning = None
+            try:
+                _append_audit(
+                    history, "data_key.retirement_completed",
+                    retired_key_id=key_id,
+                    active_key_id=reopened["active_key_id"],
+                    backup_sha256=backup["sha256"],
+                )
+            except Exception as error:
+                audit_warning = str(error)
+            return {
+                "ok": True,
+                "operation": "retire",
+                "retired_key_id": key_id,
+                "previous_state": state,
+                "active_key_id": reopened["active_key_id"],
+                "remaining_keys": len(reopened["keys"]),
+                "migrated_stores_verified": inventory["total"],
+                "backup_files_verified": backup["files"],
+                "recovery_kit_verified": True,
+                "audit_warning": audit_warning,
+                "secure_erasure_guaranteed": False,
+            }
+    except KeyAdminLockError as error:
+        raise KeyRotationError(str(error)) from error
+    except (KeyringError, DataProtectionError) as error:
+        raise KeyRotationError(f"Data-key retirement failed safely: {error}") from error
