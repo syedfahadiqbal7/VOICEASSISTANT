@@ -15,7 +15,7 @@ from agent.key_recovery import (
     RecoveryKitError, export_recovery_kit, import_recovery_kit,
 )
 from agent.key_rotation import (
-    KeyRotationError, bootstrap_keyring, key_status, rotate_data_key,
+    KeyRotationError, bootstrap_keyring, key_status, rotate_data_key, retire_data_key,
 )
 from config import BASE_DIR
 
@@ -32,6 +32,10 @@ def _parser() -> argparse.ArgumentParser:
     export.add_argument("--output", required=True, help="New .varecovery destination; existing files are never overwritten")
     restore = commands.add_parser("recovery-import", help="Restore a recovery kit only when no keyring exists")
     restore.add_argument("--kit", required=True, help="Passphrase-protected .varecovery file")
+    retire = commands.add_parser("retire", help="Retire an unused retained/legacy key after full safety verification")
+    retire.add_argument("--key-id", required=True, help="Exact 32-character key ID to retire")
+    retire.add_argument("--backup", required=True, help="Recent verified .vabackup file")
+    retire.add_argument("--recovery-kit", required=True, help="Recent .varecovery containing the exact current keyring")
     return parser
 
 
@@ -74,12 +78,25 @@ def main(argv=None) -> int:
                 return 2
             phrase = _new_recovery_passphrase()
             result = export_recovery_kit(BASE_DIR, Path(args.output).expanduser(), phrase)
-        else:
+        elif args.command == "recovery-import":
             if not _confirm("IMPORT RECOVERY KIT", "Import is permitted only when no keyring exists. Existing encrypted data depends on these keys."):
                 print("Cancelled; no keyring was changed.")
                 return 2
             phrase = getpass.getpass("Recovery-kit passphrase: ")
             result = import_recovery_kit(BASE_DIR, Path(args.kit).expanduser(), phrase, confirm=True)
+        else:
+            expected = f"RETIRE DATA KEY {args.key_id}"
+            warning = ("This permanently removes the selected key from the live keyring. "
+                       "All registered stores, a recent portable backup and an exact recovery kit must pass verification.")
+            if not _confirm(expected, warning):
+                print("Cancelled; no key was retired.")
+                return 2
+            backup_phrase = getpass.getpass("Portable backup passphrase: ")
+            recovery_phrase = getpass.getpass("Recovery-kit passphrase: ")
+            result = retire_data_key(
+                BASE_DIR, args.key_id, Path(args.backup).expanduser(), backup_phrase,
+                Path(args.recovery_kit).expanduser(), recovery_phrase, confirm=True,
+            )
 
         print(json.dumps(result, indent=2))
         if result.get("audit_warning"):
