@@ -19,6 +19,7 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self.connection_ids: Dict[WebSocket, str] = {}
+        self.connection_roles: Dict[WebSocket, str] = {}
         self._lock = threading.RLock()
         self._pending_connections = 0
         self.on_disconnect: Optional[Callable[[str], None]] = None
@@ -52,6 +53,7 @@ class ConnectionManager:
             if websocket in self.active_connections:
                 self.active_connections.remove(websocket)
             conn_id = self.connection_ids.pop(websocket, "unknown")
+            self.connection_roles.pop(websocket, None)
             remaining = len(self.active_connections)
         logger.info("Mobile client disconnected (%s remaining)", remaining, extra={"event": "mobile.connection_closed"})
         if self.on_disconnect and conn_id != "unknown":
@@ -60,12 +62,18 @@ class ConnectionManager:
             except Exception as error:
                 logger.exception("Mobile disconnect callback failed", extra={"event": "mobile.disconnect_callback_failed"})
 
-    def first_connection(self):
+    def set_role(self, websocket: WebSocket, role: str) -> None:
         with self._lock:
-            if not self.active_connections:
-                return None, None
-            websocket = self.active_connections[0]
-            return websocket, self.connection_ids.get(websocket)
+            if websocket in self.active_connections:
+                self.connection_roles[websocket] = role
+
+    def first_connection(self, allowed_roles=None):
+        with self._lock:
+            for websocket in self.active_connections:
+                role = self.connection_roles.get(websocket)
+                if allowed_roles is None or role in allowed_roles:
+                    return websocket, self.connection_ids.get(websocket)
+            return None, None
 
     def connection_count(self) -> int:
         with self._lock:
