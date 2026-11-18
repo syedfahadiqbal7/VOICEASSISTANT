@@ -7,46 +7,46 @@
 
 ## 1. Executive summary
 
-The repository is a functional prototype / advanced local-agent foundation, not yet a production-certified enterprise application. It contains a Windows desktop assistant, Ollama-compatible LLM integration, planner/executor, tool registry, local history and memory, scheduler, policy/undo mechanisms, 55 plugin source files and a Flutter mobile client.
+Voice Assistant is a local-first Windows AI desktop agent with a Flutter companion, a structured planner/executor, registered tools and plugins, local persistence, scheduling, audio I/O, and a FastAPI/WebSocket bridge. It has undergone multi-phase security, reliability, privacy, mobile and desktop UX hardening. It is a hardened development build, not yet a production-certified enterprise application.
 
-A multi-phase security, reliability, privacy, mobile and desktop UX hardening pass has been committed to GitHub main. The desktop includes safer modal lifecycles, UI-thread dispatch, destructive-action confirmations, scheduler input validation and orderly restart behavior. Mobile includes connection-scoped approval, acknowledgement/retry behavior, message quotas, optional TLS and platform permission/backup declarations. In addition to mobile API/approval binding, policy fail-closed behavior, canonical write paths, plugin ZIP/manifest/permission enforcement, scheduler recovery and concurrency protection, private local stores now use AES-256-GCM at rest with DPAPI-backed Windows key protection. Portable passphrase-encrypted backup/restore and opt-in retention preview/purge CLIs are available.
+The repository now includes mobile per-device identity and revocation, server-enforced mobile RBAC and approval routing, fail-closed policy gates, plugin manifest/permission/archive enforcement, encrypted local runtime stores, DPAPI-backed Windows key protection, portable encrypted backup/restore, protected keyring bootstrap/rotation, explicit resumable VAENC1-to-VAENC2 migration, offline recovery kits, guarded retained-key retirement, structured redacted diagnostics, and opt-in retention controls. The README now has a user-facing feature catalogue.
 
-Latest fully green cross-platform CI run [44038035438](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44038035438) passes 92 Python regression tests, 16 Phase 0 smoke checks, Python compileall, Flutter analysis/tests, Android release APK build and unsigned iOS build. Mobile security includes secure credential storage, bounded reconnect, connection-scoped approval acknowledgements, optional WSS/TLS, per-client message quotas, an atomic connection cap and consent-first microphone permission. Real Windows desktop GUI/audio/Ollama operation and physical Android/iOS device behavior still require testing on target hardware.
+Latest fully green cross-platform CI run [#44326987049](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326987049) validated the Phase 8.3.7 migration safety fixes: 178 Python regression tests, 16 Phase 0 smoke checks, compileall, Flutter analysis/tests, Android release APK build and unsigned iOS build. A further scheduled-write undo hardening change is on `main`; its Python suite reports **183 passed** and 16 smoke checks in run [#44330172880](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44330172880), while Android/iOS validation for that exact commit is still running. Real Windows GUI/audio/Ollama operation and physical Android/iOS behavior still require target-environment validation.
 
 ## Phase completion map
 
 | Phase | Scope | Status | Remaining boundary |
 |---|---|---|---|
-| 0.1–0.3 | Security baseline | Complete | Ongoing threat-model review still applies |
-| 1 | Reliability and recovery | Complete for the implemented scope | Full real-desktop end-to-end validation remains |
-| 2 | Plugin and integration hardening | Core hardening complete | Third-party sandboxing, publisher signatures and full dependency lifecycle remain |
-| 3 | Persistence and privacy | Complete for the implemented scope | Retention is opt-in/manual; secure erasure and in-app privacy dashboard remain |
-| 4 | Mobile companion | Source and CI validation complete | Physical device, real LAN and signed distribution testing remain |
-| 5 | Desktop UI/UX and lifecycle | Source-level hardening complete | Interactive Windows GUI, audio and Ollama runtime validation remain |
-| 6 | QA and observability | Foundation implemented; broader QA in progress | Performance/load, full E2E and remaining exception-handler cleanup remain |
-| 7 | Deployment and release | Safety guard implemented; production release pending | GitHub tags now publish non-latest development pre-releases only; Windows installer and production Android/iOS signing remain |
-| 8 | Enterprise capabilities | In progress | Phase 8.1 per-device identity/revocation is implemented in source; RBAC, plugin sandbox and key-rotation lifecycle remain |
+| 0.1–0.3 | Security baseline | Complete for scoped source controls | Ongoing threat-model review |
+| 1 | Reliability and recovery | Implemented and regression-tested | Full real-desktop end-to-end validation |
+| 2 | Plugin and integration hardening | Core manifest, permissions, installer and registry hardening complete | Plugins remain in-process; no OS sandbox or verified publisher signing |
+| 3 | Persistence and privacy | Encrypted stores, backup/restore and opt-in retention implemented | No secure erasure or in-app privacy dashboard |
+| 4 | Mobile companion | Flutter app, API, identity, RBAC and approval routing implemented; CI builds | Physical-device, real LAN and signed distribution testing |
+| 5 | Desktop UI/UX and lifecycle | Source-level hardening implemented | Interactive Windows GUI, audio and Ollama runtime validation |
+| 6 | QA and observability | Automated regression suite, smoke checks and structured diagnostics implemented | Performance/load testing, full E2E and broader exception-path review |
+| 7 | Deployment and release | CI and guarded development pre-release workflow implemented | Windows installer and production Android/iOS signing |
+| 8.1–8.2 | Mobile device identity and RBAC | Implemented and CI validated | Multi-device physical acceptance testing |
+| 8.3.1–8.3.7 | Protected keyring, VAENC2, migration, rotation, recovery and retirement | Implemented and CI validated | Operational recovery drill and all-writer quiescence controls |
 
-A phase marked complete here means its scoped source changes and automated checks are implemented; it does not imply physical-device or production-environment certification.
+A phase marked complete means its scoped source changes and automated checks are implemented; it does not imply physical-device or production-environment certification.
 
 ## 2. Source inventory
 
-Post-hardening inventory (includes the new helper and regression test files):
+Current tracked source inventory on `main` (362 files):
 
-| Area | Files | Approx. lines |
-|---|---:|---:|
-| `agent/` | 23 | Core orchestration, persistence, scheduler and observability |
-| `audio/` | 3 | Speech capture and output |
-| `mobile_api/` | 4 | FastAPI/WebSocket bridge and connection lifecycle |
-| `plugins/` | 111 total (56 Python + 55 JSON manifests) | Plugin implementations and manifests |
+| Area | Files | Notes |
+|---|---:|---|
+| `agent/` | 28 | Orchestration, persistence, scheduler, security, key management and observability |
+| `audio/` | 3 | Speech capture, STT and TTS |
+| `mobile_api/` | 6 | FastAPI/WebSocket bridge, connection lifecycle, device identity and authorization |
+| `plugins/` | 111 | 56 Python plugin/tool modules and 55 JSON manifests |
 | `tools/` | 4 | Built-in tools |
 | `ui/` | 9 | Desktop UI and operational viewers |
-| `security/` | 1 | Policy/security support |
-| `tests/` | 8 | Regression suites, smoke tests and authoring docs |
+| `security/` | 1 | Command/policy security support |
+| `tests/` | 20 | 19 Python test/support files and plugin authoring documentation |
 | `voice_assistant_mobile/` | 137 | Flutter app, platform projects and tests |
 
-The current tracked tree contains 336 files, including 118 Python files. The plugin folder contains 55 tool/plugin Python files and 55 sidecar manifests; one legacy scheduler plugin remains intentionally disabled.
-
+The tracked tree contains 140 Python files overall. One legacy scheduler plugin remains intentionally disabled.
 ## 3. Existing feature inventory (source-confirmed)
 
 ### Desktop and agent core
