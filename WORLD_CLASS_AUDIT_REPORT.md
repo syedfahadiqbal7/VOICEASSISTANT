@@ -296,11 +296,11 @@ This addendum is authoritative where earlier sections in this report describe ol
 | Phase 8.3.4 | Local key bootstrap/rotation CLI | Explicit confirmation, authenticated backup gate and retained prior keys |
 | Phase 8.3.5 | Recovery kit export/import | Separate passphrase-protected all-key recovery artifact; import refuses overwrite |
 | Phase 8.3.6 | Backup-integrated key retirement | Active/reference checks, authenticated backup and exact recovery-kit checks; ordinary writers must be stopped operationally |
-| Phase 8.3.7 | Threat model, runbook and migration CLI | Operator controls documented; latest migration CLI safety regression is undergoing CI |
+| Phase 8.3.7 | Threat model, runbook and migration CLI | Implemented and cross-platform CI validated; latest inventory/preflight regression fixes are included in the green run below |
 
 ## Latest verified CI
 
-The last fully green cross-platform run before the latest migration-preflight hardening is [#44322117188](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44322117188), commit `094423b33ad384c52fc4df7c6bd21bbff3e4f0ed`. Its Python Windows tests, Flutter analysis/tests + Android APK build, and unsigned iOS build all completed successfully. This confirms the Phase 8.3.7 implementation at that commit, not the later safety fix.
+The latest fully green cross-platform run is [#44326987049](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326987049), commit `a7ca3e242a53cb30149f3b93d91e0aa459f8be2e`. Python Windows regression tests and smoke checks, Flutter analysis/tests, Android release APK build, and unsigned iOS build all completed successfully. The Python suite reported 178 passing regression tests and 16 Phase 0 smoke checks. This run validates the migration inventory/preflight hardening and journal newline correction.
 
 A final audit found a migration CLI edge case: when no VAENC1 files remained, the CLI could report “no migration necessary” even if the inventory also contained plaintext/unknown or unsupported encrypted envelopes. The CLI now performs an inventory preflight and refuses migration if either category is present, before it verifies the backup or attempts any rewrite. New regression tests cover plaintext and unsupported-envelope refusal and assert the original bytes remain unchanged.
 
@@ -308,11 +308,11 @@ The preflight fix is committed in:
 - `3e349030accd7d1a863ebb4ba622cf12175b97a0` — migration preflight guard.
 - `ff82534ff53bce7c840920b66023282686b70697` — regression tests.
 
-Cross-platform CI for these commits is running as [#44326176355](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326176355) and [#44326188667](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326188667). Do not treat the final audit as fully CI-validated until the run for the latest `main` commit completes successfully.
+The intermediate runs [#44326176355](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326176355) and [#44326188667](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326188667) exposed the migration-journal newline regression. The issue was fixed and the complete latest cross-platform run #44326987049 passed.
 
 ## Security and production-readiness decision
 
-**Engineering implementation status:** Phases 0–8.3.7 are implemented in the repository for their documented scope, subject to the migration-preflight CI result above.
+**Engineering implementation status:** Phases 0–8.3.7 are implemented in the repository for their documented scope, and the latest migration-preflight changes are cross-platform CI validated. The README now contains a user-facing application feature catalogue and updated key-management documentation.
 
 **Not production-certified.** Remaining material boundaries:
 1. No real Windows end-to-end certification of desktop GUI, microphone/STT/TTS, Ollama lifecycle, device drivers or external application automation.
@@ -327,3 +327,10 @@ Cross-platform CI for these commits is running as [#44326176355](https://github.
 10. Production packaging/signing, installer upgrade/uninstall behavior, secrets provisioning and deployment rollback still need an environment-specific release process.
 
 **Release recommendation:** continue as a hardened development/beta build. Do not label it enterprise production-ready until the above deployment and verification gates are completed and signed off by the system owner/security reviewer.
+
+
+## README feature catalogue update — 2026-11-18
+
+The repository README previously described the product in one introductory paragraph and did not provide a discoverable, user-facing feature inventory. Commit `04fc286e45dcff2d11ecf16086092ec516c64dbd` adds a structured feature catalogue covering the AI assistant, planning and guarded tool execution, desktop operations UI, plugin/skill system, scheduling, Flutter companion, privacy/key management and explicit limitations. It also corrects the stale statement that retained-key retirement was not implemented and links the security threat model and operator runbook.
+
+The README-only update triggers a fresh full CI run [#44328917878](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44328917878); its result must be checked before declaring the README commit validated.
