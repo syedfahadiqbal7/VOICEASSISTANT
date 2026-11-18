@@ -59,3 +59,53 @@ def test_registry_presence_disables_shared_token_fallback_even_when_all_revoked(
     assert registry.is_configured() is True
     registry.revoke(enrolled["device_id"])
     assert registry.is_configured() is True
+
+
+def test_server_requires_device_credentials_once_registry_exists(tmp_path, monkeypatch):
+    import mobile_api.server as server
+
+    monkeypatch.setenv("VOICEASSISTANT_DATA_KEY", "46" * 32)
+    monkeypatch.setenv("VOICEASSISTANT_MOBILE_TOKEN", "legacy-shared-token-that-is-long-enough-123")
+    monkeypatch.setenv("VOICEASSISTANT_MOBILE_HOST", "0.0.0.0")
+    monkeypatch.setattr(server.mobile_devices, "path", tmp_path / "mobile_devices.json")
+    enrolled = server.mobile_devices.register("Approved phone")
+
+    assert server._authenticate_mobile_headers({
+        "x-voiceassistant-device-id": enrolled["device_id"],
+        "x-voiceassistant-device-token": enrolled["device_token"],
+    }) is True
+    assert server._authenticate_mobile_headers({
+        "x-voiceassistant-token": "legacy-shared-token-that-is-long-enough-123",
+    }) is False
+
+
+def test_server_rejects_revoked_device_and_does_not_fall_back(tmp_path, monkeypatch):
+    import mobile_api.server as server
+
+    monkeypatch.setenv("VOICEASSISTANT_DATA_KEY", "47" * 32)
+    monkeypatch.setenv("VOICEASSISTANT_MOBILE_TOKEN", "legacy-shared-token-that-is-long-enough-123")
+    monkeypatch.setenv("VOICEASSISTANT_MOBILE_HOST", "0.0.0.0")
+    monkeypatch.setattr(server.mobile_devices, "path", tmp_path / "mobile_devices.json")
+    enrolled = server.mobile_devices.register("Revoked phone")
+    assert server.mobile_devices.revoke(enrolled["device_id"]) is True
+
+    assert server._authenticate_mobile_headers({
+        "x-voiceassistant-device-id": enrolled["device_id"],
+        "x-voiceassistant-device-token": enrolled["device_token"],
+    }) is False
+    assert server._authenticate_mobile_headers({
+        "x-voiceassistant-token": "legacy-shared-token-that-is-long-enough-123",
+    }) is False
+
+
+def test_legacy_shared_token_mode_remains_backward_compatible(tmp_path, monkeypatch):
+    import mobile_api.server as server
+
+    monkeypatch.setattr(server.mobile_devices, "path", tmp_path / "not-created.json")
+    monkeypatch.setenv("VOICEASSISTANT_MOBILE_TOKEN", "legacy-shared-token-that-is-long-enough-123")
+    assert server._authenticate_mobile_headers({
+        "x-voiceassistant-token": "legacy-shared-token-that-is-long-enough-123",
+    }) is True
+    assert server._authenticate_mobile_headers({
+        "x-voiceassistant-token": "wrong",
+    }) is False
