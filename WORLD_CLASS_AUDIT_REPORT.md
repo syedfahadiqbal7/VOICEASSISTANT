@@ -11,7 +11,7 @@ Voice Assistant is a local-first Windows AI desktop agent with a Flutter compani
 
 The repository now includes mobile per-device identity and revocation, server-enforced mobile RBAC and approval routing, fail-closed policy gates, plugin manifest/permission/archive enforcement, encrypted local runtime stores, DPAPI-backed Windows key protection, portable encrypted backup/restore, protected keyring bootstrap/rotation, explicit resumable VAENC1-to-VAENC2 migration, offline recovery kits, guarded retained-key retirement, structured redacted diagnostics, and opt-in retention controls. The README now has a user-facing feature catalogue.
 
-Latest fully green cross-platform CI run [#44326987049](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326987049) validated the Phase 8.3.7 migration safety fixes: 178 Python regression tests, 16 Phase 0 smoke checks, compileall, Flutter analysis/tests, Android release APK build and unsigned iOS build. A further scheduled-write undo hardening change is on `main`; its Python suite reports **183 passed** and 16 smoke checks in run [#44330172880](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44330172880), while Android/iOS validation for that exact commit is still running. Real Windows GUI/audio/Ollama operation and physical Android/iOS behavior still require target-environment validation.
+Latest fully green cross-platform CI run [#44326987049](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326987049) validated Phase 8.3.7: 178 Python regression tests, 16 Phase 0 smoke checks, compileall, Flutter analysis/tests, Android release APK build and unsigned iOS build. Subsequent undo/recovery hardening is on `main` at `0d14a38667c3c3e0d9e9bced8f03d48528c4d9e2`; the latest Python job reports **192 passed** and 16 smoke checks in [run #44332948180](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44332948180). Flutter analysis/tests have passed for that run; Android APK build is still running and iOS validation is queued. Real Windows GUI/audio/Ollama operation and physical Android/iOS behavior still require target-environment validation.
 
 ## Phase completion map
 
@@ -333,4 +333,22 @@ The intermediate runs [#44326176355](https://github.com/syedfahadiqbal7/VOICEASS
 
 The repository README previously described the product in one introductory paragraph and did not provide a discoverable, user-facing feature inventory. Commit `04fc286e45dcff2d11ecf16086092ec516c64dbd` adds a structured feature catalogue covering the AI assistant, planning and guarded tool execution, desktop operations UI, plugin/skill system, scheduling, Flutter companion, privacy/key management and explicit limitations. It also corrects the stale statement that retained-key retirement was not implemented and links the security threat model and operator runbook.
 
-The README-only update triggers a fresh full CI run [#44328917878](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44328917878); its result must be checked before declaring the README commit validated.
+The README feature-catalogue update passed full CI in [#44328917878](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44328917878). Follow-up commit `59d5117457e6530b21ce60c732647e41d8b7b41e` adds explicit VAENC1-to-VAENC2 migration instructions and aligns the README test command with the CI suite.
+
+
+## Additional reliability hardening — file writes and undo recovery
+
+A further source review found that the scheduled file-write path could continue after an undo snapshot failed and could silently ignore a failed undo-journal save. The same journal-save failure was also swallowed in the interactive file-write path. Both paths now share failure handling: writes are blocked unless a valid undo snapshot/new-file marker is created; if the undo entry cannot be persisted after a successful write, the pre-write state is restored immediately. If rollback also fails, the result is marked critical and explicitly instructs the operator to inspect the target and recovery snapshot.
+
+`UndoManager` now:
+- retains undo entries when snapshot decryption, restore, or verification fails;
+- verifies restored bytes before consuming the undo entry;
+- refuses snapshots outside the managed undo directory and rejects symbolic links;
+- preserves the snapshot if undo-stack cleanup cannot be persisted;
+- removes only newly-created empty folders, never recursively deleting non-empty user folders.
+
+Regression coverage is included in `tests/test_scheduled_write_undo_safety.py`. The latest Windows Python CI run reports 192 passed and 16 smoke checks. The full cross-platform run for the current `main` commit is [#44332948180](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44332948180); Android build is running and iOS is queued at the time of this report update.
+
+## GitHub Actions runtime modernization
+
+The CI workflow now uses Node 24-compatible major releases for checkout, Python/Java setup, artifact upload/download and GitHub Release publishing. The Python job no longer reports the earlier Node 20 deprecation warning. The current workflow has passed Python compile/tests and Flutter analysis/tests; Android/iOS completion for the latest commit remains pending. The tag-only release-publishing job is intentionally not exercised on branch pushes because doing so would publish a release artifact.
