@@ -110,3 +110,39 @@ def test_legacy_shared_token_mode_remains_backward_compatible(tmp_path, monkeypa
     assert server._authenticate_mobile_headers({
         "x-voiceassistant-token": "wrong",
     }) is False
+
+
+def test_active_websocket_reauthentication_detects_revocation(tmp_path, monkeypatch):
+    import mobile_api.server as server
+
+    monkeypatch.setenv("VOICEASSISTANT_DATA_KEY", "48" * 32)
+    monkeypatch.setattr(server.mobile_devices, "path", tmp_path / "mobile_devices.json")
+    enrolled = server.mobile_devices.register("Active phone")
+
+    class FakeSocket:
+        headers = {
+            "x-voiceassistant-device-id": enrolled["device_id"],
+            "x-voiceassistant-device-token": enrolled["device_token"],
+        }
+
+    socket = FakeSocket()
+    assert server._reauthenticate_mobile(socket) is True
+    assert server.mobile_devices.revoke(enrolled["device_id"]) is True
+    assert server._reauthenticate_mobile(socket) is False
+
+
+def test_corrupt_device_registry_fails_closed(tmp_path, monkeypatch):
+    import mobile_api.server as server
+
+    monkeypatch.setenv("VOICEASSISTANT_DATA_KEY", "49" * 32)
+    path = tmp_path / "mobile_devices.json"
+    path.write_bytes(b"VAENC1-corrupt")
+    monkeypatch.setattr(server.mobile_devices, "path", path)
+
+    class FakeSocket:
+        headers = {
+            "x-voiceassistant-device-id": "a" * 32,
+            "x-voiceassistant-device-token": "some-secret",
+        }
+
+    assert server._reauthenticate_mobile(FakeSocket()) is False
