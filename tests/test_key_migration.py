@@ -130,11 +130,12 @@ def test_migration_rejects_plaintext_unknown_and_out_of_root_paths(tmp_path, mon
     outside.write_bytes(b"VAENC1")
     keyring.create_initial_keyring(legacy, source="environment")
 
-    with pytest.raises(MigrationError, match="Only VAENC1"):
-        migrate_to_vaenc2(
-            root, [MigrationTarget(plain, plain.name)],
-            confirm=True, backup_verified=True,
-        )
+    refused = migrate_to_vaenc2(
+        root, [MigrationTarget(plain, plain.name)],
+        confirm=True, backup_verified=True,
+    )
+    assert refused["complete"] is False
+    assert "Only VAENC1" in refused["failed"][0]["error"]
     with pytest.raises(MigrationError, match="escapes"):
         inspect_migration(root, [MigrationTarget(outside, outside.name)])
 
