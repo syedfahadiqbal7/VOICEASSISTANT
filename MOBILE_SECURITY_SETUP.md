@@ -19,6 +19,42 @@ All clients must authenticate before the server accepts their WebSocket session.
 The token is a shared secret, not per-user identity or device certificate authentication. Rotate it if a device is lost or the token is disclosed.
 
 
+
+## Per-device roles (Phase 8.2)
+
+Once the encrypted device registry is in use, every enrolled device has a server-controlled role. The Flutter client cannot choose or elevate its role. New devices default to `operator`.
+
+Enroll the trusted owner device as an administrator:
+
+```powershell
+python mobile_device_cli.py add "Owner phone" --role admin
+```
+
+Enroll additional devices with the default operator role, or explicitly assign a narrower role:
+
+```powershell
+python mobile_device_cli.py add "Work tablet" --role operator
+python mobile_device_cli.py add "Approval phone" --role approver
+python mobile_device_cli.py add "Status display" --role viewer
+python mobile_device_cli.py list
+python mobile_device_cli.py set-role DEVICE_ID viewer
+python mobile_device_cli.py revoke DEVICE_ID
+```
+
+Roles:
+
+- `admin`: all mobile commands, including approval responses.
+- `operator`: submit assistant requests, cancel schedules and use undo; cannot approve security gates.
+- `approver`: read session/schedule state and respond to approval challenges; cannot submit assistant requests.
+- `viewer`: read-only session/schedule access.
+
+The server checks permissions for every WebSocket message. Unknown commands and roles are denied. Legacy shared-token and unauthenticated loopback clients are treated as `operator`, never as administrators or approvers. Approval challenges are sent only to an active `admin` or `approver` connection; if none is available, the desktop approval UI remains the fallback. Device role changes and revocations are rechecked on each message and approximately every 10 seconds while idle.
+
+For safety, the CLI refuses to demote or revoke the last active admin device. Enroll a second admin before replacing the owner device. A missing role in an older encrypted registry is migrated to `operator` (least privilege) on its next registry access. An unsupported role or corrupt registry fails closed.
+
+The CLI is intended to run locally on the trusted desktop. Do not expose device administration as a remote mobile API operation.
+
+
 ## Phase 4 mobile connection hardening
 
 ### Token and saved connection
