@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from config import BASE_DIR
-from agent.storage import atomic_write_json, load_json, atomic_write_encrypted_bytes, load_encrypted_bytes
+from agent.storage import atomic_write_json, atomic_write_bytes, load_json, atomic_write_encrypted_bytes, load_encrypted_bytes
 from agent.data_protection import DataProtectionError
 
 UNDO_DIR = BASE_DIR / "history" / "undo_backups"
