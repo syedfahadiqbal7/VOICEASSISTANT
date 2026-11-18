@@ -1,7 +1,7 @@
-"""Encrypted, revocable per-device credentials for the mobile companion.
+"""Encrypted, revocable per-device credentials and roles for mobile clients.
 
-A device secret is generated once and shown only to the operator. Only its
-SHA-256 digest is persisted; the registry itself is encrypted at rest.
+Device secrets are returned only during enrollment. Only SHA-256 digests are
+persisted, and the complete registry is encrypted at rest.
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from typing import Any
 
 from agent.storage import atomic_write_json, load_json
 from config import HISTORY_DIR
+from mobile_api.authorization import DEFAULT_ROLE, VALID_ROLES
 
 _DEVICE_ID = re.compile(r"^[0-9a-f]{32}$")
 _lock = threading.RLock()
@@ -34,15 +35,31 @@ class MobileDeviceRegistry:
         value = load_json(self.path, default={"version": 1, "devices": []}, encrypt=True)
         if not isinstance(value, dict) or value.get("version") != 1 or not isinstance(value.get("devices"), list):
             raise ValueError("Mobile device registry has an unsupported or invalid shape")
+
+        # Phase 8.2 migration: pre-RBAC entries are least-privilege operators.
+        # Unknown role values are corruption/security errors, never elevated.
+        changed = False
+        for device in value["devices"]:
+            if not isinstance(device, dict):
+                raise ValueError("Mobile device registry contains an invalid device entry")
+            if "role" not in device:
+                device["role"] = DEFAULT_ROLE
+                changed = True
+            elif device["role"] not in VALID_ROLES:
+                raise ValueError("Mobile device registry contains an unsupported role")
+        if changed:
+            self._save(value)
         return value
 
     def _save(self, value: dict[str, Any]) -> None:
         atomic_write_json(self.path, value, encrypt=True)
 
-    def register(self, name: str) -> dict[str, str]:
+    def register(self, name: str, role: str = DEFAULT_ROLE) -> dict[str, str]:
         label = str(name or "").strip()
         if not label or len(label) > 80 or any(ord(ch) < 32 for ch in label):
             raise ValueError("Device name must contain 1–80 printable characters")
+        if role not in VALID_ROLES:
+            raise ValueError("Unsupported device role")
         device_id = uuid.uuid4().hex
         secret = secrets.token_urlsafe(32)
         now = datetime.now(timezone.utc).isoformat()
@@ -52,30 +69,67 @@ class MobileDeviceRegistry:
                 "device_id": device_id,
                 "name": label,
                 "token_sha256": hashlib.sha256(secret.encode("utf-8")).hexdigest(),
+                "role": role,
                 "created_at": now,
                 "revoked_at": None,
             })
             self._save(data)
-        # The raw secret is returned only at enrollment time and is never persisted.
-        return {"device_id": device_id, "device_token": secret, "name": label}
+        return {"device_id": device_id, "device_token": secret, "name": label, "role": role}
 
-    def authenticate(self, device_id: str, device_token: str) -> bool:
+    def authenticate_principal(self, device_id: str, device_token: str) -> dict[str, str] | None:
+        """Return a minimal authenticated principal; None means denied."""
         identifier = str(device_id or "").strip().lower()
         secret = str(device_token or "")
         if not _DEVICE_ID.fullmatch(identifier) or not secret or len(secret) > 256:
-            return False
+            return None
         supplied_hash = hashlib.sha256(secret.encode("utf-8")).hexdigest()
         with _lock:
             data = self._load()
             for device in data["devices"]:
-                if not isinstance(device, dict) or device.get("device_id") != identifier:
+                if device.get("device_id") != identifier:
                     continue
                 expected = str(device.get("token_sha256") or "")
                 matched = hmac.compare_digest(supplied_hash, expected)
-                return matched and device.get("revoked_at") is None
-        # Do a constant-time comparison on misses to reduce obvious timing differences.
+                if not matched or device.get("revoked_at") is not None:
+                    return None
+                role = device.get("role")
+                if role not in VALID_ROLES:
+                    return None
+                return {
+                    "device_id": identifier,
+                    "name": str(device.get("name", "")),
+                    "role": role,
+                }
         hmac.compare_digest(supplied_hash, "0" * 64)
-        return False
+        return None
+
+    def authenticate(self, device_id: str, device_token: str) -> bool:
+        return self.authenticate_principal(device_id, device_token) is not None
+
+    def set_role(self, device_id: str, role: str) -> bool:
+        identifier = str(device_id or "").strip().lower()
+        if not _DEVICE_ID.fullmatch(identifier):
+            raise ValueError("Invalid device ID")
+        if role not in VALID_ROLES:
+            raise ValueError("Unsupported device role")
+        with _lock:
+            data = self._load()
+            target = next((item for item in data["devices"] if item["device_id"] == identifier), None)
+            if target is None or target.get("revoked_at") is not None:
+                return False
+            if target.get("role") == role:
+                return False
+            if target.get("role") == "admin" and role != "admin":
+                active_admins = [
+                    item for item in data["devices"]
+                    if item.get("role") == "admin" and item.get("revoked_at") is None
+                ]
+                if len(active_admins) <= 1:
+                    raise ValueError("Cannot demote the last active admin device")
+            target["role"] = role
+            target["role_updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._save(data)
+            return True
 
     def revoke(self, device_id: str) -> bool:
         identifier = str(device_id or "").strip().lower()
@@ -84,9 +138,16 @@ class MobileDeviceRegistry:
         with _lock:
             data = self._load()
             for device in data["devices"]:
-                if isinstance(device, dict) and device.get("device_id") == identifier:
+                if device.get("device_id") == identifier:
                     if device.get("revoked_at") is not None:
                         return False
+                    if device.get("role") == "admin":
+                        active_admins = [
+                            item for item in data["devices"]
+                            if item.get("role") == "admin" and item.get("revoked_at") is None
+                        ]
+                        if len(active_admins) <= 1:
+                            raise ValueError("Cannot revoke the last active admin device")
                     device["revoked_at"] = datetime.now(timezone.utc).isoformat()
                     self._save(data)
                     return True
@@ -98,10 +159,12 @@ class MobileDeviceRegistry:
             return [{
                 "device_id": str(item.get("device_id", "")),
                 "name": str(item.get("name", "")),
+                "role": item["role"],
                 "created_at": item.get("created_at"),
+                "role_updated_at": item.get("role_updated_at"),
                 "revoked_at": item.get("revoked_at"),
                 "status": "revoked" if item.get("revoked_at") else "active",
-            } for item in data["devices"] if isinstance(item, dict)]
-
+            } for item in data["devices"]]
+            
 
 registry = MobileDeviceRegistry()
