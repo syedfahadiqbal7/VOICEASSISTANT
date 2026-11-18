@@ -161,6 +161,15 @@ class UndoManager:
         backup = entry.get("backup_path") or ""
         backup_file = Path(backup) if backup else None
         try:
+            if backup_file is not None:
+                if backup_file.is_symlink():
+                    return {"ok": False, "message": "Undo snapshot is a symbolic link; entry retained."}
+                undo_root = UNDO_DIR.resolve()
+                lexical_backup = Path(os.path.abspath(str(backup_file)))
+                try:
+                    lexical_backup.relative_to(undo_root)
+                except ValueError:
+                    return {"ok": False, "message": "Undo snapshot is outside the configured undo directory; entry retained."}
             is_new = bool(backup and backup_file.name.endswith(".new"))
             target = Path(filepath) if filepath else None
 
