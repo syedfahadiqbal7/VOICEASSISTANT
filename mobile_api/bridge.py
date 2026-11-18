@@ -145,7 +145,7 @@ class MobileBridge:
             self._approval_results[request_id] = False
             self._active_approval_id = request_id
         # Only one authenticated mobile client receives this approval challenge.
-        target, target_id = manager.first_connection()
+        target, target_id = manager.first_connection(allowed_roles={"admin", "approver"})
         with self._approval_lock:
             self._approval_clients[request_id] = target_id or ""
         if target is not None:
