@@ -19,6 +19,7 @@ class WebSocketService extends ChangeNotifier {
   bool _manualDisconnect = true;
   String? _lastHost;
   String _lastToken = "";
+  String _lastDeviceId = "";
   int _lastPort = 8765;
 
   bool isConnected = false;
@@ -61,12 +62,14 @@ class WebSocketService extends ChangeNotifier {
         return null;
       }
       final token = await _secureStorage.read(key: "mobile_token") ?? "";
+      final deviceId = await _secureStorage.read(key: "mobile_device_id") ?? "";
       final autoConnect = await _secureStorage.read(key: "auto_connect") ?? "true";
       hasSavedConnection = true;
       notifyListeners();
       return {
         "host": host,
         "token": token,
+        "device_id": deviceId,
         "auto_connect": autoConnect,
       };
     } catch (error) {
@@ -89,6 +92,8 @@ class WebSocketService extends ChangeNotifier {
       await _secureStorage.write(key: "desktop_host", value: host);
       if (generation != _connectionGeneration || _manualDisconnect) return;
       await _secureStorage.write(key: "mobile_token", value: _lastToken);
+      if (generation != _connectionGeneration || _manualDisconnect) return;
+      await _secureStorage.write(key: "mobile_device_id", value: _lastDeviceId);
       if (generation != _connectionGeneration || _manualDisconnect) return;
       await _secureStorage.write(key: "auto_connect", value: "true");
       if (generation != _connectionGeneration || _manualDisconnect) return;
@@ -142,11 +147,13 @@ class WebSocketService extends ChangeNotifier {
     statusColor = "#E74C3C";
     _lastHost = null;
     _lastToken = "";
+    _lastDeviceId = "";
     _lastPort = 8765;
 
     try {
       await _secureStorage.delete(key: "desktop_host");
       await _secureStorage.delete(key: "mobile_token");
+      await _secureStorage.delete(key: "mobile_device_id");
       await _secureStorage.delete(key: "auto_connect");
       hasSavedConnection = false;
       lastError = null;
@@ -157,10 +164,11 @@ class WebSocketService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void connect(String host, {int port = 8765, String token = ""}) {
+  void connect(String host, {int port = 8765, String token = "", String deviceId = ""}) {
     _manualDisconnect = false;
     _lastHost = host.trim();
     _lastToken = token.trim();
+    _lastDeviceId = deviceId.trim();
     _lastPort = port;
     _reconnectAttempts = 0;
     _reconnectTimer?.cancel();
@@ -242,7 +250,12 @@ class WebSocketService extends ChangeNotifier {
         Uri.parse(url),
         headers: _lastToken.isEmpty
             ? null
-            : {"x-voiceassistant-token": _lastToken},
+            : (_lastDeviceId.isNotEmpty
+                ? {
+                    "x-voiceassistant-device-id": _lastDeviceId,
+                    "x-voiceassistant-device-token": _lastToken,
+                  }
+                : {"x-voiceassistant-token": _lastToken}),
         connectTimeout: const Duration(seconds: 5),
         pingInterval: const Duration(seconds: 20),
       );
