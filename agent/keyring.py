@@ -1,7 +1,7 @@
-"""Versioned protected keyring primitives for Phase 8.3.
+"""Versioned protected keyring primitives used by VAENC2 data protection.
 
-This module is deliberately not wired into data_protection.py yet. It establishes
-and tests the keyring format before any production ciphertext format is changed.
+Key administration is local-only. Normal data writes may read an existing
+keyring but never create or replace one implicitly.
 """
 from __future__ import annotations
 
