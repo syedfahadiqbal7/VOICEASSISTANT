@@ -158,7 +158,7 @@ python privacy_cli.py purge
 
 Use `0` for any setting to disable that rule. Conversation history and memory are removed as whole files based on their last-modified age; audit entries are filtered by timestamp; only old completed/failed/cancelled jobs are eligible. Pending/running jobs and entries with unknown timestamps are retained. Close VoiceAssistant and create a portable backup before purging. Deletion is not secure erasure.
 
-Key rotation and a guided secure-erasure workflow are not yet implemented.
+Local data-key bootstrap, rotation and offline recovery-kit export/import are implemented. A guided secure-erasure workflow and legacy-key retirement are not yet implemented.
 
 Scheduled jobs use persisted execution states and retry failed handlers up to three times. Delivery is at-least-once: a crash after an external side effect but before its completion checkpoint can replay the handler, so side-effecting scheduled operations must be idempotent.
 
