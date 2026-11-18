@@ -78,6 +78,8 @@ def discover_runtime_targets(base_dir: Path | str) -> list[MigrationTarget]:
 
 def _safe_target(root: Path, target: MigrationTarget) -> Path:
     path = Path(target.path)
+    if not path.is_absolute():
+        path = root / path
     if not target.context or not isinstance(target.context, str):
         raise MigrationError("Every migration target requires an explicit encryption context")
     lexical = Path(os.path.abspath(str(path)))
@@ -175,8 +177,13 @@ def inspect_migration(
     root = Path(base_dir).resolve(strict=True)
     selected = list(targets if targets is not None else discover_runtime_targets(root))
     rows = []
+    seen_paths = set()
     for item in selected:
         path = _safe_target(root, item)
+        identity = os.path.normcase(str(path))
+        if identity in seen_paths:
+            raise MigrationError(f"Duplicate migration target: {path}")
+        seen_paths.add(identity)
         raw = path.read_bytes()
         if raw.startswith(_V1):
             state = "legacy_vaenc1"
@@ -218,6 +225,12 @@ def migrate_to_vaenc2(
         )
     root = Path(base_dir).resolve(strict=True)
     selected = list(targets if targets is not None else discover_runtime_targets(root))
+    identities = set()
+    for item in selected:
+        normalized = os.path.normcase(str(_safe_target(root, item)))
+        if normalized in identities:
+            raise MigrationError(f"Duplicate migration target: {normalized}")
+        identities.add(normalized)
     journal_path = root / "history" / _JOURNAL_NAME
     lock_path = root / "history" / _LOCK_NAME
     if journal_path.is_symlink() or lock_path.is_symlink():
