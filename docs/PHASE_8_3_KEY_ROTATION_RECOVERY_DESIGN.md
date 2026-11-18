@@ -244,3 +244,28 @@ python data_key_cli.py rotate --backup .\history\before-next-rotation.vabackup
 ```
 
 The CLI prompts for the backup passphrase and typed confirmation. Keep the backup and passphrase separate. Do not delete or retire old keys; that is reserved for a later independently verified phase.
+
+
+## 16. Phase 8.3.5 — Offline recovery kit export/import
+
+Implementation added in `agent/key_recovery.py` and exposed only through the local `data_key_cli.py`:
+
+- `recovery-export --output <new-file>` exports the complete validated keyring: active, retained, and legacy key generations. It does not export application data or the DPAPI master key.
+- `recovery-import --kit <file>` is allowed only when the destination keyring is absent. It never silently replaces an existing keyring.
+- The artifact has a versioned `VARECOV` envelope. PBKDF2-HMAC-SHA-256 (600,000 iterations), a fresh 16-byte salt, and AES-256-GCM protect the serialized keyring. The versioned header is authenticated as AES-GCM associated data.
+- KDF work factors are bounded (600,000–1,000,000) before derivation; the artifact is limited to 1 MiB. Authentication, JSON decoding, and strict keyring schema validation must all succeed before any import write.
+- Export uses an atomic same-directory temporary file, restrictive POSIX permissions, fsync, and an atomic no-overwrite hard-link creation. Existing recovery-kit destinations are never replaced.
+- Import checks for a regular non-symlink source, size and file identity stability, requires explicit confirmation, takes the shared cross-process key-admin lock, protects the imported keyring with the destination's current DPAPI/environment protection source, and reads it back before reporting success.
+- Passphrases are entered through `getpass`; they are not command-line arguments, printed, or logged. The kit digest and key metadata may be reported; key bytes and passphrases never are.
+- Recovery-kit export/import is distinct from portable data backup. It does not restore application stores and does not retire keys. Keep the recovery kit offline and its passphrase in a separate secure location.
+- If both the original protected keyring and every valid recovery kit/passphrase are lost, ciphertext encrypted under those keys cannot be recovered. Never reset the keyring and treat unreadable encrypted stores as empty.
+- Recovery operations are local CLI-only; no mobile API, WebSocket, plugin, or remote tool route is added.
+
+Commands:
+
+```powershell
+python data_key_cli.py recovery-export --output "D:/Offline/voiceassistant.varecovery"
+python data_key_cli.py recovery-import --kit "D:/Offline/voiceassistant.varecovery"
+```
+
+The import command deliberately refuses to overwrite an existing keyring. To recover, first use an installation whose keyring is genuinely absent; do not delete a functioning keyring merely to test the command. Full Phase 8.3.5 acceptance remains subject to Windows CI and the regression suite in `tests/test_key_recovery.py`.
