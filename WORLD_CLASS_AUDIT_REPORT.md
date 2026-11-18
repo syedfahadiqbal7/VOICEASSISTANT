@@ -275,3 +275,55 @@ Phase 8.2 implementation now includes:
 - RBAC regression tests cover the permission matrix, least-privilege defaults, role updates, last-admin protection, revocation, legacy identity and approver selection. CI includes `tests/test_mobile_rbac.py`.
 
 **Current verification status:** all Phase 8.2.2–8.2.5 source changes, tests, CI integration and security documentation have been committed to `main`. CI for the latest commit and local execution of the new test suite have not yet been verified. Phase 8.2 remains open until the exact latest commit passes CI and any failures are resolved. Real multi-device approval behavior still requires target-device integration testing.
+
+
+---
+
+# Current engineering status addendum — 2026-11-18
+
+This addendum is authoritative where earlier sections in this report describe older phase states, test counts, or CI runs. The historical audit text is retained for traceability; it must not be used as the current completion summary.
+
+## Current phase status
+
+| Area | Current status | Evidence / remaining boundary |
+|---|---|---|
+| Phases 0–5 | Implemented for scoped requirements | Source-level hardening is present; target Windows GUI/audio/Ollama and physical-device tests remain |
+| Phases 6–7 | Implemented foundation; production release not certified | Regression CI, diagnostics and guarded development pre-release workflow; no signed production installer/mobile artifacts |
+| Phase 8.1 | Device identity, enrollment, revocation | Server-side registry and CLI; process-local registry locking remains |
+| Phase 8.2 | Mobile RBAC and approval routing | Server-owned roles, fail-closed command matrix and approval routing |
+| Phase 8.3.1–8.3.2 | Protected keyring and VAENC2 envelope | DPAPI/environment keyring protection, key IDs, authenticated encryption and VAENC1 compatibility |
+| Phase 8.3.3 | Explicit resumable migration engine | Registered-store inventory, per-file atomic replacement, digest verification and journal |
+| Phase 8.3.4 | Local key bootstrap/rotation CLI | Explicit confirmation, authenticated backup gate and retained prior keys |
+| Phase 8.3.5 | Recovery kit export/import | Separate passphrase-protected all-key recovery artifact; import refuses overwrite |
+| Phase 8.3.6 | Backup-integrated key retirement | Active/reference checks, authenticated backup and exact recovery-kit checks; ordinary writers must be stopped operationally |
+| Phase 8.3.7 | Threat model, runbook and migration CLI | Operator controls documented; latest migration CLI safety regression is undergoing CI |
+
+## Latest verified CI
+
+The last fully green cross-platform run before the latest migration-preflight hardening is [#44322117188](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44322117188), commit `094423b33ad384c52fc4df7c6bd21bbff3e4f0ed`. Its Python Windows tests, Flutter analysis/tests + Android APK build, and unsigned iOS build all completed successfully. This confirms the Phase 8.3.7 implementation at that commit, not the later safety fix.
+
+A final audit found a migration CLI edge case: when no VAENC1 files remained, the CLI could report “no migration necessary” even if the inventory also contained plaintext/unknown or unsupported encrypted envelopes. The CLI now performs an inventory preflight and refuses migration if either category is present, before it verifies the backup or attempts any rewrite. New regression tests cover plaintext and unsupported-envelope refusal and assert the original bytes remain unchanged.
+
+The preflight fix is committed in:
+- `3e349030accd7d1a863ebb4ba622cf12175b97a0` — migration preflight guard.
+- `ff82534ff53bce7c840920b66023282686b70697` — regression tests.
+
+Cross-platform CI for these commits is running as [#44326176355](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326176355) and [#44326188667](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326188667). Do not treat the final audit as fully CI-validated until the run for the latest `main` commit completes successfully.
+
+## Security and production-readiness decision
+
+**Engineering implementation status:** Phases 0–8.3.7 are implemented in the repository for their documented scope, subject to the migration-preflight CI result above.
+
+**Not production-certified.** Remaining material boundaries:
+1. No real Windows end-to-end certification of desktop GUI, microphone/STT/TTS, Ollama lifecycle, device drivers or external application automation.
+2. No physical Android/iOS LAN pairing, secure-storage, reconnect and approval acceptance test; CI builds/tests are not device certification.
+3. No independent penetration test or formal cryptographic review. CI is regression evidence only.
+4. Plugin code executes in-process and is not OS-sandboxed; manifest checksums are integrity controls, not signed publisher identity.
+5. Direct remote `ws://` traffic is unencrypted; production remote access must use VPN or correctly configured TLS/WSS and firewall restrictions.
+6. Runtime key-store inventory is allow-list based. Every future encrypted store must be added to migration discovery, backup/restore allow-list, tests and the threat model.
+7. Ordinary runtime writers do not acquire the key-administration lock. Stop the application and all writer processes before migration or key retirement; if quiescence cannot be guaranteed, do not retire keys.
+8. Multi-file migration and restore are not whole-directory transactions. Maintain independently verified backups and test recovery before operational use.
+9. Key retirement removes a key from the live keyring but is not secure erasure from historical backups, recovery kits, snapshots or storage media.
+10. Production packaging/signing, installer upgrade/uninstall behavior, secrets provisioning and deployment rollback still need an environment-specific release process.
+
+**Release recommendation:** continue as a hardened development/beta build. Do not label it enterprise production-ready until the above deployment and verification gates are completed and signed off by the system owner/security reviewer.
