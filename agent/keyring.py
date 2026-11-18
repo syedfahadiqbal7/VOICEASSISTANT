@@ -316,3 +316,17 @@ def get_active_key(keyring: dict) -> tuple[str, bytes]:
     validated = validate_keyring(keyring)
     key_id = validated["active_key_id"]
     return key_id, get_key(validated, key_id)
+
+def get_legacy_key(keyring: dict) -> bytes:
+    """Return the single preserved VAENC1 key; ambiguity fails closed."""
+    validated = validate_keyring(keyring)
+    legacy_ids = [
+        key_id for key_id, entry in validated["keys"].items()
+        if entry["state"] == "legacy"
+    ]
+    if len(legacy_ids) != 1:
+        raise KeyringError(
+            "Keyring must contain exactly one preserved legacy key for VAENC1 data"
+        )
+    return get_key(validated, legacy_ids[0])
+
