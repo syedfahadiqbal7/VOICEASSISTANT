@@ -166,6 +166,8 @@ def bootstrap_keyring(
             }
     except KeyAdminLockError as error:
         raise KeyRotationError(str(error)) from error
+    except (KeyringError, DataProtectionError) as error:
+        raise KeyRotationError(f"Keyring bootstrap failed safely: {error}") from error
 
 
 def rotate_data_key(
@@ -248,3 +250,5 @@ def rotate_data_key(
             }
     except KeyAdminLockError as error:
         raise KeyRotationError(str(error)) from error
+    except (KeyringError, DataProtectionError) as error:
+        raise KeyRotationError(f"Key rotation failed safely: {error}") from error
