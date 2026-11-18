@@ -81,7 +81,6 @@ def _verify_backup(
         raise KeyRotationError(f"Portable backup verification failed: {error}") from error
     return {
         **verified,
-        "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
         "age_seconds": max(0, int(age)),
     }
 
