@@ -142,7 +142,7 @@ def _write_journal(path: Path, value: dict) -> None:
     encoded = json.dumps(value, sort_keys=True, indent=2).encode("utf-8")
     if len(encoded) > _MAX_JOURNAL_BYTES:
         raise MigrationError("Migration journal exceeds its safety limit")
-    atomic_write_bytes(path, encoded + b"\\n")
+    atomic_write_bytes(path, encoded + b"\n")
 
 
 def _load_journal(path: Path, root: Path) -> dict:
