@@ -179,3 +179,21 @@ def test_malformed_unhashable_registry_roles_fail_closed(tmp_path, monkeypatch):
         registry.register("Bad role", role=["admin"])
     with pytest.raises(ValueError, match="Unsupported device role"):
         registry.set_role("a" * 32, role=["admin"])
+
+
+
+def test_connection_manager_uses_full_random_connection_ids():
+    import asyncio
+    from mobile_api.connection_manager import ConnectionManager
+
+    class FakeSocket:
+        async def accept(self):
+            return None
+
+    manager = ConnectionManager()
+    socket = FakeSocket()
+    connection_id = asyncio.run(manager.connect(socket))
+    assert isinstance(connection_id, str)
+    assert len(connection_id) == 36
+    assert connection_id.count("-") == 4
+    manager.disconnect(socket)
