@@ -23,6 +23,7 @@ A Windows-oriented local AI assistant with a CustomTkinter desktop UI, Ollama-co
 - For speech: a working microphone/speaker. Faster-Whisper may download its model on first use.
 - For OCR: install the Tesseract OCR desktop application separately; the Python `pytesseract` package alone is not sufficient.
 - For the mobile app: Flutter stable (Dart SDK version constrained by `voice_assistant_mobile/pubspec.yaml`) and Android SDK for Android builds.
+- For individual mobile device identity, enroll devices from the trusted desktop with `python mobile_device_cli.py add "Device name"`; see [MOBILE_SECURITY_SETUP.md](MOBILE_SECURITY_SETUP.md).
 
 ## Quick start — Windows
 
