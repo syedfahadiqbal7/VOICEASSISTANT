@@ -88,6 +88,13 @@ def test_registry_prevents_removing_last_active_admin(tmp_path, monkeypatch):
 
     second_admin = registry.register("Backup admin", role=ROLE_ADMIN)
     assert registry.set_role(admin["device_id"], ROLE_OPERATOR) is True
+
+    # The backup admin is now the only active admin and must be protected.
+    with pytest.raises(ValueError, match="last active admin"):
+        registry.revoke(second_admin["device_id"])
+
+    # Restore the first device's admin role, then revoke the backup safely.
+    assert registry.set_role(admin["device_id"], ROLE_ADMIN) is True
     assert registry.revoke(second_admin["device_id"]) is True
 
 
