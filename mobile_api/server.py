@@ -114,6 +114,15 @@ def _authenticate_mobile_headers(headers) -> bool:
     ) in ("127.0.0.1", "localhost", "::1")
 
 
+def _reauthenticate_mobile(websocket) -> bool:
+    """Fail closed if a device is revoked while its WebSocket is still open."""
+    try:
+        return _authenticate_mobile_headers(websocket.headers)
+    except Exception:
+        logger.exception("Mobile device revalidation failed", extra={"event": "mobile.device_revalidation_failed"})
+        return False
+
+
 def _validate_user_message(data: dict) -> str:
     text = data.get("text", "")
     if not isinstance(text, str):
@@ -208,7 +217,18 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         while True:
-            data = await websocket.receive_json()
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=10)
+            except asyncio.TimeoutError:
+                if not _reauthenticate_mobile(websocket):
+                    await websocket.close(code=1008, reason="Mobile device is no longer authorized")
+                    manager.disconnect(websocket)
+                    break
+                continue
+            if not _reauthenticate_mobile(websocket):
+                await websocket.close(code=1008, reason="Mobile device is no longer authorized")
+                manager.disconnect(websocket)
+                break
             if not isinstance(data, dict):
                 await manager.send_personal(websocket, {"type": "error", "message": "Message must be a JSON object"})
                 continue
