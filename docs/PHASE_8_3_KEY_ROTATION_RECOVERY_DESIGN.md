@@ -1,6 +1,6 @@
 # Phase 8.3 — Data Encryption Key Rotation & Recovery Design
 
-**Status:** Design approved for implementation planning; no production key format or runtime behavior changes in this phase.  
+**Status:** Implementation subphases 8.3.1–8.3.6 are implemented; 8.3.7 threat-model and operational documentation are added. Automated CI is green for the current implementation. This is engineering validation, not a formal security certification or penetration test.  
 **Scope:** Local encrypted application stores managed by `agent/data_protection.py`, plus portable backup/restore integration.  
 **Security boundary:** Key administration is local to the trusted desktop host. Mobile devices and remote WebSocket commands must never rotate, export, unwrap, replace, or recover data-encryption keys.
 
@@ -269,3 +269,16 @@ python data_key_cli.py recovery-import --kit "D:/Offline/voiceassistant.varecove
 ```
 
 The import command deliberately refuses to overwrite an existing keyring. To recover, first use an installation whose keyring is genuinely absent; do not delete a functioning keyring merely to test the command. Full Phase 8.3.5 acceptance remains subject to Windows CI and the regression suite in `tests/test_key_recovery.py`.
+
+
+## 15. Phase 8.3.7 — Threat model and operational runbook
+
+Added:
+- `docs/PHASE_8_3_SECURITY_THREAT_MODEL.md`: assets, trust boundaries, threat cases, residual risks, validation limits and deployment gates.
+- `docs/KEY_MANAGEMENT_RUNBOOK.md`: operator procedures for status, backup, bootstrap, rotation, migration, recovery-kit export, exceptional retirement, recovery and incident handling.
+- `SECURITY.md` now links to the threat model and runbook.
+- Corrected the historical keyring module docstring to reflect its current VAENC2 integration.
+
+Important residual limitation documented: ordinary runtime writers do not acquire the key-administration lock. Therefore key retirement requires the desktop application and every writer process to be stopped before the final backup and retirement sequence. This is an operational prerequisite, not a process-wide quiescence guarantee. If it cannot be assured, do not retire keys.
+
+Phase 8.3.7 documentation is complete. Final engineering validation is the green multi-platform CI run and a production-operator recovery/restore drill. CI alone is not a penetration test or formal cryptographic review.
