@@ -91,6 +91,25 @@ python tests/phase0_smoke_tests.py
 
 GitHub Actions runs the Windows Python regression suite, Flutter analysis/tests, Android release APK build and unsigned iOS build on pushes, pull requests and version tags. Version tags (`v*`, e.g. `v1.0.0`) create a GitHub **pre-release** with source and Android APK artifacts after all validation jobs pass. The workflow deliberately marks releases as pre-release and never latest because the Android APK currently uses debug signing and the iOS build is unsigned. Do not distribute these artifacts as production builds. A production release requires a protected Android signing keystore, an Apple signing identity/provisioning profile, and a signed iOS IPA workflow.
 
+## Local data-key administration
+
+Create and verify a recent portable backup before key administration:
+
+```powershell
+python backup_cli.py create .\history\before-key-change.vabackup
+python data_key_cli.py status
+python data_key_cli.py bootstrap --backup .\history\before-key-change.vabackup
+```
+
+After bootstrap, a new verified backup is required before each active-key rotation:
+
+```powershell
+python backup_cli.py create .\history\before-rotation.vabackup
+python data_key_cli.py rotate --backup .\history\before-rotation.vabackup
+```
+
+The CLI prompts for the backup passphrase and a typed confirmation; passphrases are never accepted as command-line arguments. Rotation is local-only, changes the active key for future writes, retains all previous keys, and does not rewrite existing files. Never delete the keyring, legacy key, or retained keys as a cleanup shortcut. See [Phase 8.3 key rotation and recovery](docs/PHASE_8_3_KEY_ROTATION_RECOVERY_DESIGN.md).
+
 ## Diagnostics and observability
 
 The desktop launcher writes structured, secret-redacted JSONL diagnostics to `history/logs/voiceassistant.jsonl`. Files rotate at approximately 2 MiB with up to five backups. Logs are local runtime data, excluded from Git, and may contain operational metadata and file paths; protect the history directory with Windows account ACLs. See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md). Diagnostic logs are not the authoritative audit trail.
