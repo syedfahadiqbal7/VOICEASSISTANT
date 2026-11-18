@@ -22,6 +22,9 @@ class MobileBridge:
         self._approval_results: Dict[str, bool] = {}
         self._approval_clients: Dict[str, str] = {}
         self._approval_lock = threading.RLock()
+        # The mobile UI supports one active approval prompt at a time.
+        # Serialize gate callbacks so concurrent prompts cannot overwrite it.
+        self._gate_serial_lock = threading.Lock()
         self._active_approval_id: Optional[str] = None
         self._original_on_status = None
         self._original_on_transcript = None
@@ -129,6 +132,11 @@ class MobileBridge:
         }))
 
     def _wrapped_security_gate(self, display_text: str, callback: Callable, risk_level: str = "low"):
+        """Serialize approval prompts because the mobile UI has one active gate."""
+        with self._gate_serial_lock:
+            return self._wrapped_security_gate_serialized(display_text, callback, risk_level)
+
+    def _wrapped_security_gate_serialized(self, display_text: str, callback: Callable, risk_level: str = "low"):
         """
         Agar koi mobile connected hai to pehle mobile se approval lo.
         Warna normal desktop security gate dikhao.
