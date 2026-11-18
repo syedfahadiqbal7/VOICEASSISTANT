@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agent.conversation_manager import ConversationManager
 from agent import undo_manager as undo_module
 
@@ -277,3 +279,33 @@ def test_undo_last_rejects_snapshot_outside_managed_directory(tmp_path, monkeypa
     assert len(manager.stack) == 1
     assert target.read_text(encoding="utf-8") == "after"
     assert external.exists()
+
+
+def test_rollback_unrecorded_write_removes_only_empty_new_folder(tmp_path, monkeypatch):
+    manager, undo_root = _undo_manager_for_test(tmp_path, monkeypatch)
+    target = tmp_path / "created-folder"
+    target.mkdir()
+    marker = undo_root / "folder.new"
+    marker.write_text("NEW_FILE", encoding="utf-8")
+
+    result = manager.rollback_unrecorded_write(str(target), str(marker))
+
+    assert result["ok"] is True
+    assert not target.exists()
+    assert not marker.exists()
+
+
+def test_rollback_unrecorded_write_preserves_nonempty_new_folder(tmp_path, monkeypatch):
+    manager, undo_root = _undo_manager_for_test(tmp_path, monkeypatch)
+    target = tmp_path / "created-folder"
+    target.mkdir()
+    child = target / "user-data.txt"
+    child.write_text("keep", encoding="utf-8")
+    marker = undo_root / "folder.new"
+    marker.write_text("NEW_FILE", encoding="utf-8")
+
+    with pytest.raises(OSError, match="Directory not empty|not empty"):
+        manager.rollback_unrecorded_write(str(target), str(marker))
+
+    assert child.read_text(encoding="utf-8") == "keep"
+    assert marker.exists()
