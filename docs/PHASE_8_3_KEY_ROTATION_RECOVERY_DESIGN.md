@@ -175,7 +175,7 @@ The first keyring foundation is now present in `agent/keyring.py`:
 - Strict validation of schema version, key IDs, key lengths, timestamps, states, and active-key invariants.
 - Missing, malformed, tampered, or incorrectly unlocked keyrings fail closed.
 
-**Important boundary:** These primitives are not yet wired into `agent/data_protection.py`; the live application continues using the existing `VAENC1` behavior. No existing encrypted files are migrated or rewritten by this subphase.
+**Historical 8.3.1 boundary:** At the 8.3.1 checkpoint, these primitives had not yet been wired into `agent/data_protection.py`. Phase 8.3.2 subsequently integrated the keyring for VAENC2 writes and VAENC1 compatibility reads. No existing encrypted files were migrated or rewritten by 8.3.1 or 8.3.2.
 
 Automated tests are in `tests/test_keyring.py` and are included in the Windows Python CI regression command. Phase 8.3.1 is not complete until the latest CI run passes and the protection/persistence tests have been reviewed. Cross-process locking, recovery export/import, and runtime integration remain subsequent work.
 
@@ -210,3 +210,8 @@ Implementation status: **engine and regression tests committed; CI validation pe
 - Regression coverage includes read-only discovery, explicit confirmation, digest preservation, restart/idempotency, tampering, plaintext refusal, root confinement, symlinks, lock conflicts, and undo marker exclusion.
 
 **Remaining before production operation:** run the full CI suite; perform a final review of every persistent store path against the allow-list; add an operator-facing dry-run/backup/confirmation CLI only after the engine is green; test Windows crash/restart and file-permission behavior; keep the legacy key until a separate full verification and explicit retirement phase.
+
+
+### Phase 8.3.3 additional crash-boundary hardening
+
+Follow-up regression tests now simulate interruption immediately before atomic replacement and immediately after replacement but before the journal checkpoint. They assert that pre-replace interruption preserves the original VAENC1 bytes and removes the staging file; post-replace interruption is recognized as already-current on the next invocation. Tests also inspect the staged payload to ensure only VAENC2 ciphertext—not plaintext—is written to the temporary file. Duplicate target paths are rejected.
