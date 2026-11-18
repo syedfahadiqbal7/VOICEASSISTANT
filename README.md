@@ -150,7 +150,7 @@ By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. 
 ## Tests
 
 ```powershell
-python -m pytest -q tests/test_security_reliability_regressions.py tests/test_mobile_device_identity.py tests/test_mobile_rbac.py tests/test_scheduler_reliability.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_privacy_manager.py tests/test_observability.py
+python -m pytest -q tests/test_security_reliability_regressions.py tests/test_mobile_device_identity.py tests/test_mobile_rbac.py tests/test_mobile_approval_routing.py tests/test_scheduler_reliability.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_keyring.py tests/test_data_protection_v2.py tests/test_key_migration.py tests/test_key_migration_cli.py tests/test_key_rotation.py tests/test_key_recovery.py tests/test_key_retirement.py tests/test_scheduled_write_undo_safety.py tests/test_backup_manager.py tests/test_privacy_manager.py tests/test_observability.py
 python tests/phase0_smoke_tests.py
 ```
 
@@ -174,6 +174,18 @@ python data_key_cli.py rotate --backup .\history\before-rotation.vabackup
 ```
 
 The CLI prompts for the backup passphrase and a typed confirmation; passphrases are never accepted as command-line arguments. Rotation is local-only, changes the active key for future writes, retains all previous keys, and does not rewrite existing files.
+
+### Explicit legacy-store migration
+
+Migration is a separate, operator-triggered operation; it does not run automatically at startup. Close VoiceAssistant and stop every process that can write runtime stores before proceeding. First inspect the registered inventory, create a portable backup, then run the migration CLI:
+
+```powershell
+python key_migration_cli.py inspect
+python backup_cli.py create "D:/Offline/voiceassistant-pre-migration.vabackup"
+python key_migration_cli.py migrate --backup "D:/Offline/voiceassistant-pre-migration.vabackup"
+```
+
+The CLI authenticates the backup, checks that it contains every registered store and that its logical contents match the current stores, then requires the exact typed confirmation. It migrates eligible VAENC1 stores to VAENC2 and verifies each rewritten file. Plaintext/unknown or unsupported envelopes cause a refusal; resolve them explicitly rather than bypassing the preflight. Migration is atomic per file, not across the entire store set. Keep the independently verified backup until the application has been validated after migration.
 
 Create a separate offline recovery kit after bootstrap and after meaningful key rotations. The kit contains every active, retained and legacy key, encrypted with AES-256-GCM and a passphrase-derived key (PBKDF2-HMAC-SHA-256, 600,000 iterations). Use a unique passphrase of at least 16 characters and store the kit and passphrase separately:
 
