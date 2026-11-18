@@ -161,3 +161,20 @@ A rotation failure must never cause the active key to be discarded or make older
 6. Define Windows recovery behavior when DPAPI is unavailable but a valid recovery kit exists.
 
 **Recommendation:** Implement 8.3.1 and 8.3.2 first, with no automatic migration. Prove backward-compatible reads and protected keyring durability before adding any operation that rewrites production data.
+
+
+## 12. Implementation progress — Phase 8.3.1 foundation
+
+The first keyring foundation is now present in `agent/keyring.py`:
+
+- Versioned schema with 128-bit random key IDs and exactly one active key.
+- Explicit bootstrap retains the supplied legacy 256-bit key and creates a separate random active DEK.
+- Windows keyring protection uses current-user DPAPI with domain-separated entropy.
+- Environment-key protection derives a wrapping key with HKDF-SHA-256 and encrypts the keyring with AES-256-GCM.
+- Atomic same-directory persistence, restrictive POSIX file permissions, best-effort directory fsync, read-after-write verification, and rollback to the previous keyring bytes on verification failure.
+- Strict validation of schema version, key IDs, key lengths, timestamps, states, and active-key invariants.
+- Missing, malformed, tampered, or incorrectly unlocked keyrings fail closed.
+
+**Important boundary:** These primitives are not yet wired into `agent/data_protection.py`; the live application continues using the existing `VAENC1` behavior. No existing encrypted files are migrated or rewritten by this subphase.
+
+Automated tests are in `tests/test_keyring.py` and are included in the Windows Python CI regression command. Phase 8.3.1 is not complete until the latest CI run passes and the protection/persistence tests have been reviewed. Cross-process locking, recovery export/import, and runtime integration remain subsequent work.
