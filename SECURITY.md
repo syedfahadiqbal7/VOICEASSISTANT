@@ -23,3 +23,8 @@ Please use GitHub's **Report a vulnerability** feature (Security tab) if private
 ## Important limitations
 
 Plugin manifests and checksums provide integrity checks, not cryptographic publisher signatures or sandbox isolation. Command analysis is heuristic and is not a PowerShell sandbox. Direct `ws://` LAN mode does not encrypt traffic. Review the engineering audit for additional limitations before production deployment.
+
+
+## Data encryption, backup and key recovery
+
+Review [the Phase 8.3 threat model](docs/PHASE_8_3_SECURITY_THREAT_MODEL.md) and [the local key-management runbook](docs/KEY_MANAGEMENT_RUNBOOK.md) before bootstrap, migration, recovery or key retirement. In particular, retirement requires the desktop application and all runtime writers to be stopped; the key-administration lock does not quiesce ordinary application writes.
