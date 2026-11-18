@@ -243,7 +243,7 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 This is a meaningful engineering hardening release candidate, not a claim that every original feature is production-ready or that all remaining findings have been resolved.
 
 
-## 8.1 Per-device mobile identity — implementation committed, CI verification pending
+## 8.1 Per-device mobile identity — implementation and CI validation complete
 
 The mobile API now supports an encrypted device registry and unique per-device credentials:
 
@@ -257,10 +257,10 @@ The mobile API now supports an encrypted device registry and unique per-device c
 
 **Operational boundary:** a registry file must be protected together with the desktop's DPAPI/data-encryption key. The one-time device secret cannot be recovered from the server; lost credentials require revocation and re-enrollment. The current registry lock is process-local; concurrent enrollment/revocation from multiple administrative processes is not yet protected by an OS-level inter-process lock.
 
-**Verification status:** source changes and CI configuration have been committed to `main`; the new GitHub Actions run must complete successfully before this subphase is declared validated. Real Android/iOS secure-storage and LAN/WSS tests remain target-device work.
+**Verification status:** source changes and regression tests are cross-platform CI validated in [run #44326987049](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326987049). Real Android/iOS secure-storage and LAN/WSS tests remain target-device work.
 
 
-## 8.2 Mobile device RBAC — implementation committed, CI verification pending
+## 8.2 Mobile device RBAC — implementation and CI validation complete
 
 Phase 8.2 implementation now includes:
 
@@ -274,7 +274,7 @@ Phase 8.2 implementation now includes:
 - Legacy shared-token and unauthenticated loopback compatibility clients are assigned only `operator` permissions; they cannot approve security challenges.
 - RBAC regression tests cover the permission matrix, least-privilege defaults, role updates, last-admin protection, revocation, legacy identity and approver selection. CI includes `tests/test_mobile_rbac.py`.
 
-**Current verification status:** all Phase 8.2.2–8.2.5 source changes, tests, CI integration and security documentation have been committed to `main`. CI for the latest commit and local execution of the new test suite have not yet been verified. Phase 8.2 remains open until the exact latest commit passes CI and any failures are resolved. Real multi-device approval behavior still requires target-device integration testing.
+**Current verification status:** Phase 8.2 source changes, regression tests, CI integration and security documentation are cross-platform CI validated in [run #44326987049](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326987049). Real multi-device approval behavior still requires target-device integration testing.
 
 
 ---
