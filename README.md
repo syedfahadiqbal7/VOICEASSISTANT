@@ -108,7 +108,17 @@ python backup_cli.py create .\history\before-rotation.vabackup
 python data_key_cli.py rotate --backup .\history\before-rotation.vabackup
 ```
 
-The CLI prompts for the backup passphrase and a typed confirmation; passphrases are never accepted as command-line arguments. Rotation is local-only, changes the active key for future writes, retains all previous keys, and does not rewrite existing files. Never delete the keyring, legacy key, or retained keys as a cleanup shortcut. See [Phase 8.3 key rotation and recovery](docs/PHASE_8_3_KEY_ROTATION_RECOVERY_DESIGN.md).
+The CLI prompts for the backup passphrase and a typed confirmation; passphrases are never accepted as command-line arguments. Rotation is local-only, changes the active key for future writes, retains all previous keys, and does not rewrite existing files.
+
+Create a separate offline recovery kit after bootstrap and after meaningful key rotations. The kit contains every active, retained and legacy key, encrypted with AES-256-GCM and a passphrase-derived key (PBKDF2-HMAC-SHA-256, 600,000 iterations). Use a unique passphrase of at least 16 characters and store the kit and passphrase separately:
+
+```powershell
+python data_key_cli.py recovery-export --output "D:/Offline/voiceassistant.varecovery"
+# On a replacement/recovered installation where the keyring is absent:
+python data_key_cli.py recovery-import --kit "D:/Offline/voiceassistant.varecovery"
+```
+
+Import requires a typed confirmation, authenticates the complete kit, and refuses to overwrite any existing keyring. The imported keyring is protected using the destination's current Windows DPAPI profile or configured environment-key mode. This is not a portable data backup: it restores encryption keys, not application data. Losing both the original keyring and all valid recovery kits/passphrases makes the encrypted data unrecoverable. Never send kits to mobile clients, cloud logs, telemetry, or source control. Never delete the legacy key or retained keys as a cleanup shortcut. See [Phase 8.3 key rotation and recovery](docs/PHASE_8_3_KEY_ROTATION_RECOVERY_DESIGN.md).
 
 ## Diagnostics and observability
 
