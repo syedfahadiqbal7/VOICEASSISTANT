@@ -289,6 +289,29 @@ def test_explicit_migration_rejects_symlinked_history_directory(tmp_path, monkey
     assert target.read_bytes().startswith(b"VAENC1")
 
 
+def test_malformed_or_wrong_root_journal_fails_closed(tmp_path, monkeypatch):
+    import json
+
+    root, history, legacy = _setup(tmp_path, monkeypatch)
+    target = history / "agent_memory.json"
+    original = encrypt_bytes(b"{}", target.name)
+    target.write_bytes(original)
+    keyring.create_initial_keyring(legacy, source="environment")
+    journal = history / ".voiceassistant_migration_v1.json"
+
+    for content in ("{malformed", json.dumps({
+        "schema_version": 1, "root_id": "0" * 64, "files": {},
+    })):
+        journal.write_text(content, encoding="utf-8")
+        with pytest.raises(MigrationError, match="journal"):
+            migrate_to_vaenc2(
+                root, [MigrationTarget(target, target.name)],
+                confirm=True, backup_verified=True,
+            )
+        assert target.read_bytes() == original
+        journal.unlink()
+
+
 def test_discovery_excludes_new_file_undo_markers(tmp_path, monkeypatch):
     root, history, _legacy = _setup(tmp_path, monkeypatch)
     undo = history / "undo_backups"
