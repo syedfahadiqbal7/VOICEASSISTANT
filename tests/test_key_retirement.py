@@ -27,7 +27,7 @@ def _prepare(tmp_path, monkeypatch, *, include_legacy=False):
         base64.urlsafe_b64encode(legacy_key).decode("ascii"),
     )
     if include_legacy:
-        legacy_file = history / "legacy_store.json"
+        legacy_file = history / "conversation_history.json"
         legacy_file.write_bytes(encrypt_bytes(b'{"legacy":true}', legacy_file.name))
     ring_path = history / ".voiceassistant_keyring.v1"
     monkeypatch.setattr(keyring, "KEYRING_FILE", ring_path)
