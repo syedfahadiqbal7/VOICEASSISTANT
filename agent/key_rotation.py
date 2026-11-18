@@ -52,7 +52,11 @@ def _keyring_path(history: Path) -> Path:
 
     path = Path(keyring_module.KEYRING_FILE)
     if not path.is_absolute():
-        path = history / path
+        root_relative = history.parent / path
+        if root_relative.parent.resolve(strict=False) == history.resolve(strict=True):
+            path = root_relative
+        else:
+            path = history / path
     if path.is_symlink() or path.parent.resolve(strict=True) != history.resolve(strict=True):
         raise KeyRotationError("Protected keyring must be a regular file inside the runtime history directory")
     return path
