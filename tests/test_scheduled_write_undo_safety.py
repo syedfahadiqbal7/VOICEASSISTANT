@@ -177,3 +177,86 @@ def test_undo_manager_removes_new_file_only_with_valid_marker(tmp_path, monkeypa
     assert result["ok"] is True
     assert not target.exists()
     assert not marker.exists()
+
+
+
+def _undo_manager_for_test(tmp_path, monkeypatch):
+    undo_root = tmp_path / "undo_backups"
+    undo_root.mkdir()
+    monkeypatch.setattr(undo_module, "UNDO_DIR", undo_root)
+    monkeypatch.setattr(undo_module, "UNDO_LOG", tmp_path / "undo_stack.json")
+    manager = undo_module.UndoManager()
+    manager._save = lambda: None
+    return manager, undo_root
+
+
+def test_undo_last_retains_entry_when_snapshot_decryption_fails(tmp_path, monkeypatch):
+    manager, undo_root = _undo_manager_for_test(tmp_path, monkeypatch)
+    target = tmp_path / "target.txt"
+    target.write_text("after", encoding="utf-8")
+    backup = undo_root / "snapshot.bin"
+    backup.write_bytes(b"encrypted")
+    manager.stack = [{"type": "file_write", "filepath": str(target), "backup_path": str(backup)}]
+    monkeypatch.setattr(
+        undo_module,
+        "load_encrypted_bytes",
+        lambda _path: (_ for _ in ()).throw(ValueError("authentication failed")),
+    )
+
+    result = manager.undo_last()
+
+    assert result["ok"] is False
+    assert len(manager.stack) == 1
+    assert target.read_text(encoding="utf-8") == "after"
+    assert backup.exists()
+
+
+def test_undo_last_verifies_restore_before_consuming_entry(tmp_path, monkeypatch):
+    manager, undo_root = _undo_manager_for_test(tmp_path, monkeypatch)
+    target = tmp_path / "target.txt"
+    target.write_text("after", encoding="utf-8")
+    backup = undo_root / "snapshot.bin"
+    backup.write_bytes(b"encrypted")
+    manager.stack = [{"type": "file_write", "filepath": str(target), "backup_path": str(backup)}]
+    monkeypatch.setattr(undo_module, "load_encrypted_bytes", lambda _path: b"before")
+
+    result = manager.undo_last()
+
+    assert result["ok"] is True
+    assert target.read_bytes() == b"before"
+    assert manager.stack == []
+    assert not backup.exists()
+
+
+def test_undo_last_preserves_nonempty_new_folder_and_entry(tmp_path, monkeypatch):
+    manager, undo_root = _undo_manager_for_test(tmp_path, monkeypatch)
+    target = tmp_path / "created-folder"
+    target.mkdir()
+    child = target / "keep.txt"
+    child.write_text("keep", encoding="utf-8")
+    marker = undo_root / "snapshot.new"
+    marker.write_text("NEW_FILE", encoding="utf-8")
+    manager.stack = [{"type": "file_write", "filepath": str(target), "backup_path": str(marker)}]
+
+    result = manager.undo_last()
+
+    assert result["ok"] is False
+    assert len(manager.stack) == 1
+    assert child.read_text(encoding="utf-8") == "keep"
+    assert marker.exists()
+
+
+def test_undo_last_removes_new_file_and_consumes_entry(tmp_path, monkeypatch):
+    manager, undo_root = _undo_manager_for_test(tmp_path, monkeypatch)
+    target = tmp_path / "created.txt"
+    target.write_text("new", encoding="utf-8")
+    marker = undo_root / "snapshot.new"
+    marker.write_text("NEW_FILE", encoding="utf-8")
+    manager.stack = [{"type": "file_write", "filepath": str(target), "backup_path": str(marker)}]
+
+    result = manager.undo_last()
+
+    assert result["ok"] is True
+    assert not target.exists()
+    assert manager.stack == []
+    assert not marker.exists()
