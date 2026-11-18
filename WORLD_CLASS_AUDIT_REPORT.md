@@ -258,3 +258,20 @@ The mobile API now supports an encrypted device registry and unique per-device c
 **Operational boundary:** a registry file must be protected together with the desktop's DPAPI/data-encryption key. The one-time device secret cannot be recovered from the server; lost credentials require revocation and re-enrollment. The current registry lock is process-local; concurrent enrollment/revocation from multiple administrative processes is not yet protected by an OS-level inter-process lock.
 
 **Verification status:** source changes and CI configuration have been committed to `main`; the new GitHub Actions run must complete successfully before this subphase is declared validated. Real Android/iOS secure-storage and LAN/WSS tests remain target-device work.
+
+
+## 8.2 Mobile device RBAC — implementation committed, CI verification pending
+
+Phase 8.2 implementation now includes:
+
+- A server-owned role policy in `mobile_api/authorization.py` with explicit `admin`, `operator`, `approver` and `viewer` permissions. Unknown roles, malformed commands and unmapped commands fail closed.
+- The encrypted device registry stores roles and returns a minimal authenticated principal. Existing registry entries without a role are migrated to `operator`; unsupported role values fail closed.
+- The trusted desktop CLI supports `add --role`, `list` and `set-role`. Device listing never returns credentials. New devices default to `operator`.
+- The registry prevents demotion or revocation of the last active admin device. A second admin must be enrolled before replacing the owner device.
+- The WebSocket server resolves roles from server-side credentials, ignores any client-supplied role claim, and enforces the permission matrix before dispatching every message.
+- Connection manager tracks server-resolved roles. Mobile approval challenges are routed only to active `admin` or `approver` connections. The existing desktop approval UI remains the fallback.
+- Role changes and revocations are re-resolved on every message and on the existing approximately 10-second idle revalidation cycle.
+- Legacy shared-token and unauthenticated loopback compatibility clients are assigned only `operator` permissions; they cannot approve security challenges.
+- RBAC regression tests cover the permission matrix, least-privilege defaults, role updates, last-admin protection, revocation, legacy identity and approver selection. CI includes `tests/test_mobile_rbac.py`.
+
+**Current verification status:** all Phase 8.2.2–8.2.5 source changes, tests, CI integration and security documentation have been committed to `main`. CI for the latest commit and local execution of the new test suite have not yet been verified. Phase 8.2 remains open until the exact latest commit passes CI and any failures are resolved. Real multi-device approval behavior still requires target-device integration testing.
