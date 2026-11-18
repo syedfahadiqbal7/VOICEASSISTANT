@@ -67,6 +67,25 @@ def test_bootstrap_requires_confirmation_and_verified_recent_backup(tmp_path, mo
     assert key_status(root)["keyring_present"] is True
 
 
+def test_bootstrap_completion_audit_warning_reports_committed_keyring(tmp_path, monkeypatch):
+    import agent.key_rotation as rotation
+
+    root, _history, _store, backup, _legacy = _setup(tmp_path, monkeypatch)
+    original = rotation._append_audit
+
+    def fail_completion(history, event, **details):
+        if event == "data_key.bootstrap_completed":
+            raise OSError("completion audit unavailable")
+        return original(history, event, **details)
+
+    monkeypatch.setattr(rotation, "_append_audit", fail_completion)
+    result = bootstrap_keyring(root, backup, PASSPHRASE, confirm=True)
+
+    assert result["ok"] is True
+    assert "completion audit unavailable" in result["audit_warning"]
+    assert key_status(root)["keyring_present"] is True
+
+
 def test_bootstrap_rejects_stale_backup(tmp_path, monkeypatch):
     root, _history, _store, backup, _legacy = _setup(tmp_path, monkeypatch)
     os.utime(backup, (1, 1))
