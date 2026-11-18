@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from mobile_api.connection_manager import manager
 from mobile_api.bridge import bridge
+from mobile_api.device_registry import registry as mobile_devices
 
 logger = logging.getLogger("voiceassistant.mobile_api")
 _server_lock = threading.Lock()
@@ -95,6 +96,24 @@ def _expected_mobile_token() -> str:
     return os.environ.get("VOICEASSISTANT_MOBILE_TOKEN", "").strip()
 
 
+def _authenticate_mobile_headers(headers) -> bool:
+    """Prefer enrolled per-device credentials; never fall back after enrollment."""
+    if mobile_devices.is_configured():
+        return mobile_devices.authenticate(
+            headers.get("x-voiceassistant-device-id", ""),
+            headers.get("x-voiceassistant-device-token", ""),
+        )
+
+    expected = _expected_mobile_token()
+    supplied = headers.get("x-voiceassistant-token", "")
+    if expected:
+        return hmac.compare_digest(supplied, expected)
+    # No credentials are accepted only for an explicitly loopback-only listener.
+    return os.environ.get(
+        "VOICEASSISTANT_MOBILE_HOST", "127.0.0.1"
+    ) in ("127.0.0.1", "localhost", "::1")
+
+
 def _validate_user_message(data: dict) -> str:
     text = data.get("text", "")
     if not isinstance(text, str):
@@ -146,13 +165,15 @@ def _tls_options_from_env() -> dict:
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    expected = _expected_mobile_token()
-    supplied = websocket.headers.get("x-voiceassistant-token", "")
-    if expected and not hmac.compare_digest(supplied, expected):
-        await websocket.close(code=1008, reason="Mobile authentication required")
+    try:
+        authenticated = _authenticate_mobile_headers(websocket.headers)
+    except Exception:
+        # A corrupt/unreadable encrypted registry is a hard authentication failure.
+        logger.exception("Mobile device registry could not be read", extra={"event": "mobile.device_registry_failed"})
+        await websocket.close(code=1011, reason="Mobile authentication is unavailable")
         return
-    if not expected and os.environ.get("VOICEASSISTANT_MOBILE_HOST", "127.0.0.1") not in ("127.0.0.1", "localhost", "::1"):
-        await websocket.close(code=1011, reason="Remote mobile access requires VOICEASSISTANT_MOBILE_TOKEN")
+    if not authenticated:
+        await websocket.close(code=1008, reason="Mobile authentication required")
         return
 
     try:
@@ -303,10 +324,15 @@ def start_server(host: str = "127.0.0.1", port: int = 8765):
         return
     token = _expected_mobile_token()
     _max_mobile_connections()  # Fail fast on invalid connection-cap configuration.
-    if host not in ("127.0.0.1", "localhost", "::1") and len(token) < 32:
+    if (
+        host not in ("127.0.0.1", "localhost", "::1")
+        and not mobile_devices.is_configured()
+        and len(token) < 32
+    ):
         raise RuntimeError(
-            "Remote mobile access refused: set VOICEASSISTANT_MOBILE_TOKEN to a random secret "
-            "of at least 32 characters before binding beyond localhost."
+            "Remote mobile access refused: enroll at least one device with "
+            "mobile_device_cli.py or configure VOICEASSISTANT_MOBILE_TOKEN "
+            "with a random secret of at least 32 characters."
         )
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -339,7 +365,7 @@ def start_server(host: str = "127.0.0.1", port: int = 8765):
     logger.info("Starting mobile API on %s://%s:%s", http_scheme, host, port, extra={"event": "mobile.server_starting"})
     logger.info("Mobile WebSocket endpoint: %s://%s:%s/ws", scheme, host, port, extra={"event": "mobile.websocket_endpoint"})
     if host not in ("127.0.0.1", "localhost", "::1"):
-        logger.info("Remote access enabled with token authentication", extra={"event": "mobile.remote_access_enabled"})
+        logger.info("Remote access enabled with per-device or legacy token authentication", extra={"event": "mobile.remote_access_enabled"})
     try:
         loop.run_until_complete(server.serve())
     finally:
