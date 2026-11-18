@@ -86,6 +86,20 @@ def test_bootstrap_completion_audit_warning_reports_committed_keyring(tmp_path, 
     assert key_status(root)["keyring_present"] is True
 
 
+def test_bootstrap_refuses_wrong_legacy_unlock_key_without_creating_keyring(tmp_path, monkeypatch):
+    root, history, store, backup, _legacy = _setup(tmp_path, monkeypatch)
+    monkeypatch.setenv(
+        "VOICEASSISTANT_DATA_KEY",
+        base64.urlsafe_b64encode(b"X" * 32).decode("ascii"),
+    )
+
+    with pytest.raises(KeyRotationError, match="cannot authenticate"):
+        bootstrap_keyring(root, backup, PASSPHRASE, confirm=True)
+
+    assert not (history / ".voiceassistant_keyring.v1").exists()
+    assert store.read_bytes().startswith(b"VAENC1")
+
+
 def test_bootstrap_rejects_stale_backup(tmp_path, monkeypatch):
     root, _history, _store, backup, _legacy = _setup(tmp_path, monkeypatch)
     os.utime(backup, (1, 1))
