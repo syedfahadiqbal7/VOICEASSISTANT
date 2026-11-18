@@ -8,6 +8,7 @@ data-encryption key.
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import os
 import re
@@ -269,7 +270,7 @@ class BackupManager:
             "encrypted": True,
             "files": len(entries),
             "bytes": after.st_size,
-            "sha256": __import__("hashlib").sha256(payload).hexdigest(),
+            "sha256": hashlib.sha256(payload).hexdigest(),
         }
 
     def restore_backup(
