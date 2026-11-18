@@ -18,9 +18,9 @@ Record the active key ID and retained/legacy key counts. This command must never
 
 ## 2. Create and verify a portable backup
 
-    python backup_cli.py --help
+    python backup_cli.py create "D:/Offline/voiceassistant-pre-maintenance.vabackup"
 
-Use the exact create and verify subcommands/options shown by the installed CLI. Enter a strong unique passphrase interactively. Store the backup and passphrase separately.
+Enter a strong unique passphrase interactively. To authenticate and verify the backup before maintenance, run the verification API from a local Python shell/script using BackupManager(BASE_DIR).verify_backup(path, getpass.getpass("Backup passphrase: ")). Store the backup and passphrase separately.
 
 The portable backup contains logical application data and restores it under the destination installation's key hierarchy. It is not a keyring recovery kit.
 
@@ -38,9 +38,12 @@ Rotation creates a new active DEK and retains the prior key. It does not rewrite
 
 ## 5. Migrate registered VAENC1 stores
 
-Migration is an explicit maintenance operation. Use the migration interface documented by the installed version; do not invent target paths or pass backup_verified=True without a freshly authenticated portable backup.
+Migration is an explicit maintenance operation. The local CLI provides a read-only inventory and a backup-verified migration command:
 
-Review the read-only inventory first. Stop all runtime writers. Migrate only registered targets. Confirm the result reports complete and zero failures, then run the read-only inventory again. Every registered store must be VAENC2 and decryptable before retirement is considered.
+    python key_migration_cli.py inspect
+    python key_migration_cli.py migrate --backup "D:/Offline/voiceassistant-pre-migration.vabackup"
+
+Stop all runtime writers before migration. The CLI authenticates the portable backup, checks that every registered store is present and that its logical contents match the live stores, then requires the exact typed confirmation. It migrates only the registered targets. Confirm the result reports complete and zero failures, then run inspect again. Every registered store must be VAENC2 and decryptable before retirement is considered.
 
 The migration journal is progress evidence, not a substitute for inspecting actual envelopes.
 
