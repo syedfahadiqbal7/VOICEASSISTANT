@@ -5,6 +5,7 @@ import base64
 
 from agent import keyring
 from agent.backup_manager import BackupManager
+from agent.key_migration import inspect_migration
 from agent.storage import atomic_write_json
 import key_migration_cli
 
@@ -64,17 +65,30 @@ def test_cli_refuses_plaintext_registered_store_before_any_migration(tmp_path, m
     assert result == 1
     assert store.read_bytes() == before
     assert "plaintext/unknown or unsupported envelopes" in capsys.readouterr().err
+    inventory = inspect_migration(_root)
+    assert inventory["plaintext_or_unknown"] == 1
 
 
 def test_cli_refuses_unsupported_envelope_before_any_migration(tmp_path, monkeypatch, capsys):
     _root, store, backup = _install(tmp_path, monkeypatch)
     store.write_bytes(b"VAENC3" + b"unsupported")
     before = store.read_bytes()
+    inventory = inspect_migration(_root)
+    assert inventory["unsupported_envelope"] == 1
+    assert inventory["plaintext_or_unknown"] == 0
     monkeypatch.setattr("builtins.input", lambda _prompt: "MIGRATE ALL REGISTERED DATA STORES")
     result = key_migration_cli.main(["migrate", "--backup", str(backup)])
     assert result == 1
     assert store.read_bytes() == before
     assert "plaintext/unknown or unsupported envelopes" in capsys.readouterr().err
+
+
+def test_cli_refuses_malformed_known_envelope_version(tmp_path, monkeypatch, capsys):
+    root, store, _backup = _install(tmp_path, monkeypatch)
+    store.write_bytes(b"VAENC1" + b"\x02" + (b"X" * 64))
+    inventory = inspect_migration(root)
+    assert inventory["unsupported_envelope"] == 1
+    assert inventory["legacy_vaenc1"] == 0
 
 
 def test_cli_inspect_is_read_only(tmp_path, monkeypatch, capsys):
