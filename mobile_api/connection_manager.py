@@ -39,7 +39,7 @@ class ConnectionManager:
             with self._lock:
                 self._pending_connections = max(0, self._pending_connections - 1)
             raise
-        conn_id = str(uuid.uuid4())[:8]
+        conn_id = str(uuid.uuid4())
         with self._lock:
             self._pending_connections = max(0, self._pending_connections - 1)
             self.active_connections.append(websocket)
