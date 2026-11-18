@@ -247,6 +247,29 @@ class BackupManager:
             raise DataProtectionError(f"Backup archive is invalid: {error}") from error
         return result
 
+    def verify_backup(self, source: Path | str, passphrase: str) -> Dict[str, Any]:
+        """Authenticate and fully validate a portable backup without restoring it."""
+        source = Path(source)
+        if not source.is_file() or source.is_symlink():
+            raise DataProtectionError("Backup source must be an existing regular file")
+        before = source.stat()
+        if before.st_size > _MAX_BACKUP_BYTES:
+            raise DataProtectionError("Backup exceeds the configured size limit")
+        entries = self._read_archive(source.read_bytes(), passphrase)
+        after = source.stat()
+        if (
+            before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns
+        ) != (
+            after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns
+        ):
+            raise DataProtectionError("Backup changed while it was being verified")
+        return {
+            "ok": True,
+            "encrypted": True,
+            "files": len(entries),
+            "bytes": after.st_size,
+        }
+
     def restore_backup(
         self,
         source: Path | str,
