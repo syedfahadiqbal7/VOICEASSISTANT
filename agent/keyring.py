@@ -135,7 +135,7 @@ def _unprotect(payload: bytes, source: str) -> bytes:
 
 
 def validate_keyring(value: Any) -> dict:
-    if not isinstance(value, dict) or value.get("schema_version") != _SCHEMA_VERSION:
+    if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value.get("schema_version") != _SCHEMA_VERSION:
         raise KeyringError("Unsupported or malformed keyring schema")
     active_id = value.get("active_key_id")
     keys = value.get("keys")
@@ -162,7 +162,7 @@ def validate_keyring(value: Any) -> dict:
         if not isinstance(created_at, str) or not created_at:
             raise KeyringError("Keyring key creation timestamp is missing")
         state = entry.get("state")
-        if state not in {"active", "retained", "legacy"}:
+        if not isinstance(state, str) or state not in {"active", "retained", "legacy"}:
             raise KeyringError("Keyring key state is invalid")
         normalized[key_id] = {
             "key": encoded,
