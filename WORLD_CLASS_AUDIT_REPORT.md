@@ -190,8 +190,8 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 
 ### P1 — complete before exposing to a wider network
 
-- **TLS certificate lifecycle and device identity.** Direct `wss://` can be configured with a certificate/key or TLS reverse proxy, and the Flutter client relies on the operating-system trust store. Certificate provisioning/rotation, certificate pinning, per-device client certificates and token rotation UI are not implemented. Plain `ws://` remains available after explicit confirmation and must be restricted to a trusted private LAN/VPN.
-- **Shared-token identity model.** Authentication is one shared secret, not per-device credentials, certificate identity, revocation or user roles. Rotate it if a phone is lost. A device-specific enrollment/revocation flow is still required for wider deployment.
+- **TLS certificate lifecycle.** Direct `wss://` can be configured with a certificate/key or TLS reverse proxy, and the Flutter client relies on the operating-system trust store. Certificate provisioning/rotation, certificate pinning, per-device client certificates and an in-app token rotation workflow are not implemented. Per-device credentials, revocation and server-side device roles are implemented through the trusted desktop CLI. Plain `ws://` remains available after explicit confirmation and must be restricted to a trusted private LAN/VPN.
+- **Legacy shared-token compatibility.** The shared-token mode remains available only before a device registry is created and provides operator-level permissions without per-device attribution. Once the encrypted registry exists, per-device credentials and roles are mandatory. There is not yet a per-human identity provider, device certificate identity or in-app token rotation.
 - **Mobile release signing.** Android's release build currently uses the debug signing configuration and iOS CI uses `--no-codesign`. Configure protected Android signing material and Apple signing/provisioning before public distribution.
 - **Plugin sandboxing is absent.** Plugins execute in the desktop Python process with the user's OS permissions. Checksums are integrity checks, not cryptographic publisher signatures; the author field is unverified metadata.
 - **Permission declarations are not a sandbox.** Read-only policy blocks declared mutating permissions and missing permissions fail closed to `system:admin`, but a malicious plugin can understate its capabilities. Require code review and explicit trust before adding third-party plugins.
@@ -206,11 +206,11 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 - **Broad exception handling remains.** Static scan previously found 337 exception handlers, including 310 `except Exception` handlers and 75 handlers whose only statement is `pass`. These are not all defects. Structured, rotating, secret-redacting JSONL diagnostics are now configured for the desktop entry point and mobile API; broad handler cleanup and typed recovery remain incomplete.
 - **No comprehensive end-to-end suite.** Real Windows desktop GUI/audio/Ollama workflows, Android device-level behavior, concurrent cancellation and external account/plugin integrations still need target-environment validation. Unit/regression coverage already exercises scheduler restart recovery and undo snapshot failure paths.
 - **Malformed legacy data recovery.** Encrypted authentication failures fail closed. Malformed legacy plaintext JSON is not quarantined uniformly across every store; some stores raise a typed or validation error and require restore from a portable backup or manual repair.
-- **Mobile connection quotas.** Per-connection sliding-window quotas limit total WebSocket messages and user prompts, and an atomic process-local concurrent-connection cap defaults to five (configurable 1–32). Per-device identity/revocation and cross-process limits are not implemented.
+- **Mobile connection quotas.** Per-connection sliding-window quotas limit total WebSocket messages and user prompts, and an atomic process-local concurrent-connection cap defaults to five (configurable 1–32). Per-device identity, revocation and server-side roles are implemented, but registry file locking and connection quotas remain process-local; cross-process limits are not implemented.
 
 ### P2 — product and UX
 
-- Add per-device pairing/revocation UI and token rotation workflow.
+- Add an in-app per-device pairing/revocation UI and secure token rotation workflow; trusted desktop CLI enrollment, role management and revocation are implemented.
 - Add visible provider status and actionable missing-dependency diagnostics to the desktop UI.
 - Add structured task progress and cancellation-state visibility across desktop and mobile.
 - Add explicit time-zone handling for schedules and a user-controlled retry-now action for failed jobs.
