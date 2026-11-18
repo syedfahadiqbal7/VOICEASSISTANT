@@ -6,7 +6,7 @@ This application is designed primarily for a single-user Windows desktop. The mo
 
 Before enabling LAN access:
 
-- Use a random token of at least 32 characters and keep it private.
+- Prefer per-device credentials created with `python mobile_device_cli.py add "Device name"`; revoke lost devices with `python mobile_device_cli.py revoke DEVICE_ID`. The legacy shared token remains available only until a device registry is created. Once enrolled, the encrypted registry is authoritative and shared-token fallback is disabled.
 - Restrict Windows Firewall access to trusted private networks and known devices.
 - Prefer a VPN or TLS-terminating reverse proxy (`wss://`) on networks you do not fully trust.
 - Do not run the application with unnecessary administrator privileges.
