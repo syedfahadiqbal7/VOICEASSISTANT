@@ -172,7 +172,15 @@ class MobileBridge:
 
             self._original_on_security_gate(display_text, desktop_approve, risk_level)
 
-        event.wait(timeout=300)
+        completed = event.wait(timeout=300)
+        if not completed and target is not None:
+            # The mobile UI owns a pending prompt until it receives an ack.
+            # Close it on timeout so a stale approval cannot remain actionable.
+            self._run_async(manager.send_personal(target, {
+                "type": "approval_ack",
+                "request_id": request_id,
+                "accepted": False,
+            }))
 
         with self._approval_lock:
             result = self._approval_results.pop(request_id, False)
