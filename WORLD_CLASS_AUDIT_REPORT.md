@@ -449,9 +449,9 @@ The desktop scheduler list previously inferred status only from the legacy enabl
 The UI now uses a pure, independently testable presentation helper:
 - Distinguishes Pending, Running, Completed, Failed and Cancelled from the persisted scheduler status.
 - Shows next-run time for pending jobs, start time for running jobs, last-run time for terminal completed/failed jobs, retry attempts and a whitespace-normalized, bounded last-error excerpt.
-- Offers the Cancel action only for pending jobs. Running work is not represented as cancellable; terminal and unknown states do not expose a misleading action.
+- Offers the Cancel action only for pending jobs in both desktop and Flutter mobile schedule views. Running work is not represented as cancellable; terminal and unknown states do not expose a misleading action.
 - Preserves enabled-based status inference only for legacy records that have no explicit status. Unknown explicit states display as Unknown and fail closed for cancellation.
-- Adds focused regression tests and includes them explicitly in the Windows CI command.
+- Adds focused pure-helper regression tests for desktop and Flutter mobile cancellation visibility; the desktop tests are included explicitly in the Windows CI command and the mobile tests run under Flutter CI.
 
 This is a presentation correction; it does not change scheduler execution, retry, persistence, or cancellation semantics. The desktop UI still requires Windows runtime acceptance.
 
