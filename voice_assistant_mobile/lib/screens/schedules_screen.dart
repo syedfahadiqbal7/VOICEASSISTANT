@@ -2,6 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/websocket_service.dart';
 
+bool canCancelScheduledJob(Map<String, dynamic> job) {
+  final rawStatus = job["status"]?.toString();
+  final status = rawStatus == null || rawStatus.isEmpty
+      ? ((job["enabled"] == false) ? "completed" : "pending")
+      : rawStatus.toLowerCase();
+  // Running jobs cannot be cancelled by the scheduler; terminal and unknown
+  // states must not present an action that the server will reject.
+  return status == "pending";
+}
+
 class SchedulesScreen extends StatefulWidget {
   const SchedulesScreen({super.key});
 
@@ -136,44 +146,46 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                                   ],
                                 ),
                               ),
-                              trailing: TextButton(
-                                onPressed: id.isEmpty
-                                    ? null
-                                    : () async {
-                                        final ok = await showDialog<bool>(
-                                          context: context,
-                                          builder: (ctx) => AlertDialog(
-                                            backgroundColor: const Color(0xFF1E293B),
-                                            title: const Text("Cancel job?",
-                                                style: TextStyle(color: Colors.white)),
-                                            content: Text(
-                                              label,
-                                              style: const TextStyle(color: Colors.white70),
-                                            ),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () => Navigator.pop(ctx, false),
-                                                child: const Text("Keep"),
-                                              ),
-                                              TextButton(
-                                                onPressed: () => Navigator.pop(ctx, true),
-                                                child: const Text(
-                                                  "Cancel job",
-                                                  style: TextStyle(color: Colors.redAccent),
+                              trailing: canCancelScheduledJob(job)
+                                  ? TextButton(
+                                      onPressed: id.isEmpty
+                                          ? null
+                                          : () async {
+                                              final ok = await showDialog<bool>(
+                                                context: context,
+                                                builder: (ctx) => AlertDialog(
+                                                  backgroundColor: const Color(0xFF1E293B),
+                                                  title: const Text("Cancel job?",
+                                                      style: TextStyle(color: Colors.white)),
+                                                  content: Text(
+                                                    label,
+                                                    style: const TextStyle(color: Colors.white70),
+                                                  ),
+                                                  actions: [
+                                                    TextButton(
+                                                      onPressed: () => Navigator.pop(ctx, false),
+                                                      child: const Text("Keep"),
+                                                    ),
+                                                    TextButton(
+                                                      onPressed: () => Navigator.pop(ctx, true),
+                                                      child: const Text(
+                                                        "Cancel job",
+                                                        style: TextStyle(color: Colors.redAccent),
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                        if (ok == true) {
-                                          ws.cancelSchedule(id);
-                                        }
-                                      },
-                                child: const Text(
-                                  "Cancel",
-                                  style: TextStyle(color: Colors.redAccent),
-                                ),
-                              ),
+                                              );
+                                              if (ok == true) {
+                                                ws.cancelSchedule(id);
+                                              }
+                                            },
+                                      child: const Text(
+                                        "Cancel",
+                                        style: TextStyle(color: Colors.redAccent),
+                                      ),
+                                    )
+                                  : null,
                             ),
                           );
                         },
