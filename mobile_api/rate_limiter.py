@@ -85,11 +85,15 @@ class DeviceRateLimiter:
 
             if len(bucket.messages) >= self.max_messages:
                 return RateLimitDecision(False, True, "device_message_quota_exceeded")
-            if message_type == "user_message" and len(bucket.user_messages) >= self.max_user_messages:
-                return RateLimitDecision(False, False, "device_user_message_quota_exceeded")
 
+            # Count every authenticated request attempt against the total quota,
+            # including user messages rejected by the narrower user-message cap.
+            # Otherwise a client could spam unlimited rejected requests and force
+            # an unbounded stream of error responses.
             bucket.messages.append(current)
             if message_type == "user_message":
+                if len(bucket.user_messages) >= self.max_user_messages:
+                    return RateLimitDecision(False, False, "device_user_message_quota_exceeded")
                 bucket.user_messages.append(current)
             return RateLimitDecision(True)
 
