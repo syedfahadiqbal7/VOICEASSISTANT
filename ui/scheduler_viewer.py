@@ -9,6 +9,8 @@ Phase 2 — Production-grade Scheduled Jobs UI
 from __future__ import annotations
 
 import customtkinter as ctk
+
+from agent.scheduler_ui_state import job_display_state
 from datetime import datetime, timedelta
 from typing import Callable, Optional
 
@@ -317,24 +319,33 @@ class SchedulerViewer(ctk.CTkToplevel):
         for job in jobs:
             row = ctk.CTkFrame(self.list_frame, fg_color=("gray92", "gray20"), corner_radius=8)
             row.pack(fill="x", padx=4, pady=4)
-            enabled = job.get("enabled", True)
-            status = "ON" if enabled else "DONE"
+            status, diagnostics, can_cancel = job_display_state(job)
+            timing = ""
+            if status == "Pending":
+                timing = f"next: {job.get('run_at', '')}"
+            elif status == "Running":
+                timing = f"started: {job.get('started_at', 'in progress')}"
+            elif status in {"Completed", "Failed"}:
+                timing = f"last run: {job.get('last_run') or 'not recorded'}"
+            details = [part for part in (timing, diagnostics) if part]
             text = (
-                f"[{job.get('id')}] {status}  |  next: {job.get('run_at', '')}\n"
-                f"{job.get('label') or job.get('prompt', '')}"
+                f"[{job.get('id')}] {status}"
+                + (f"  |  {' | '.join(details)}" if details else "")
+                + f"\n{job.get('label') or job.get('prompt', '')}"
             )
             ctk.CTkLabel(row, text=text, justify="left", anchor="w").pack(
                 side="left", fill="x", expand=True, padx=10, pady=8
             )
-            jid = job.get("id")
-            ctk.CTkButton(
-                row,
-                text="Cancel",
-                width=80,
-                fg_color="#C0392B",
-                hover_color="#922B21",
-                command=lambda i=jid: self._cancel(i),
-            ).pack(side="right", padx=10, pady=8)
+            if can_cancel:
+                jid = job.get("id")
+                ctk.CTkButton(
+                    row,
+                    text="Cancel",
+                    width=80,
+                    fg_color="#C0392B",
+                    hover_color="#922B21",
+                    command=lambda i=jid: self._cancel(i),
+                ).pack(side="right", padx=10, pady=8)
 
     def _cancel(self, job_id: str):
         try:
