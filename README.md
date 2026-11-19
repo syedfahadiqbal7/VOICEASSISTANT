@@ -37,7 +37,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 ### 5. Scheduling and automation
 - Create and inspect scheduled jobs from the desktop assistant.
 - Persist job state and recover eligible work after restart.
-- Retry failed handlers with bounded attempts and expose status/error/attempt information in the desktop and mobile schedules view.
+- Retry failed handlers with bounded attempts; the desktop scheduler viewer distinguishes Pending, Running, Completed, Failed and Cancelled jobs, shows retry/error diagnostics, and offers cancellation only for pending work. The mobile schedule view exposes the job state.
 - Assign a stable `execution_id` to each logical occurrence, persist it before invoking the handler, preserve it across retries/recovery/checkpoint failures, and rotate it after a successful recurring occurrence. Integrations can use it as a durable idempotency key.
 - Shutdown waits for a bounded scheduler grace period and reports if a synchronous handler is still running; handlers cannot be force-killed safely.
 - Delivery is at-least-once, not exactly-once. A crash after an external side effect but before its completion checkpoint can replay the handler; downstream integrations must persist/enforce `execution_id` to deduplicate side effects.
