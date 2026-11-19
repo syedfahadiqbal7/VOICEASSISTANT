@@ -63,6 +63,9 @@ class JobScheduler:
                     recovered = True
                 if job["status"] not in {"pending", "running", "completed", "failed", "cancelled"}:
                     job["status"] = "pending" if job.get("enabled", True) else "completed"
+                # Stable across retries and crash recovery; a new interval occurrence gets a new ID.
+                if job.get("status") in {"pending", "running"} and not job.get("execution_id"):
+                    job["execution_id"] = str(uuid.uuid4())
                 normalized.append(job)
         except DataProtectionError:
             # Authentication failures must not be treated as an empty schedule.
@@ -99,6 +102,7 @@ class JobScheduler:
             "label": label or prompt[:60], "run_at": run_at.isoformat(),
             "repeat": None, "enabled": True, "status": "pending",
             "attempts": 0, "last_run": None, "last_error": None,
+            "execution_id": str(uuid.uuid4()),
         }
         with self._lock:
             self.jobs.append(job)
@@ -118,6 +122,7 @@ class JobScheduler:
             "run_at": (_now() + timedelta(minutes=every_minutes)).isoformat(),
             "repeat": {"every_minutes": every_minutes}, "enabled": True,
             "status": "pending", "attempts": 0, "last_run": None, "last_error": None,
+            "execution_id": str(uuid.uuid4()),
         }
         with self._lock:
             self.jobs.append(job)
@@ -219,6 +224,7 @@ class JobScheduler:
                 interval = (live.get("repeat") or {}).get("every_minutes")
                 if interval:
                     live["run_at"] = (_now() + timedelta(minutes=max(1, int(interval)))).isoformat()
+                    live["execution_id"] = str(uuid.uuid4())
                     live["status"] = "pending"
                     live["enabled"] = True
                 else:
