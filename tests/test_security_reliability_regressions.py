@@ -331,15 +331,19 @@ def test_policy_fails_closed_when_allowed_roots_are_empty(tmp_path):
 
 
 def test_mobile_rate_limiter_applies_global_and_user_message_quotas():
-    from mobile_api.server import SlidingWindowRateLimiter
+    from mobile_api.rate_limiter import DeviceRateLimiter
 
-    limiter = SlidingWindowRateLimiter(window_seconds=60, max_messages=3, max_user_messages=1)
-    assert limiter.allow("user_message", now=0.0) is True
-    assert limiter.allow("user_message", now=1.0) is False
-    assert limiter.allow("ping", now=2.0) is True
-    assert limiter.allow("get_session_state", now=3.0) is True
-    assert limiter.allow("ping", now=4.0) is False
-    assert limiter.allow("user_message", now=61.0) is True
+    limiter = DeviceRateLimiter(window_seconds=60, max_messages=3, max_user_messages=1)
+    assert limiter.consume("legacy-device", "user_message", now=0.0).allowed is True
+    user_limited = limiter.consume("legacy-device", "user_message", now=1.0)
+    assert user_limited.allowed is False
+    assert user_limited.close_connection is False
+    assert limiter.consume("legacy-device", "ping", now=2.0).allowed is True
+    total_limited = limiter.consume("legacy-device", "get_session_state", now=3.0)
+    assert total_limited.allowed is False
+    assert total_limited.close_connection is True
+    assert limiter.consume("legacy-device", "ping", now=4.0).allowed is False
+    assert limiter.consume("legacy-device", "user_message", now=61.0).allowed is True
 
 
 def test_mobile_schedule_cancel_requires_bounded_string_id():
