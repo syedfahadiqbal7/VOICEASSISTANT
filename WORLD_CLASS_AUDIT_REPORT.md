@@ -394,8 +394,9 @@ The new test module is included explicitly in the Windows CI regression command.
 
 ### Verification status
 
-- Source change and regression tests committed on the dedicated branch.
-- Automated result is pending the pull-request CI run; no pass is claimed until GitHub Actions reports success.
+- Merged to `main` via [PR #16](https://github.com/syedfahadiqbal7/VOICEASSISTANT/pull/16), merge commit `bb9d13dab3b137fc7173248e1a2d6182a6b571b6`.
+- Pull-request CI [#44471469317](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44471469317) passed: Windows compile + 194 Python regression tests + 16 Phase 0 smoke checks; Flutter analysis/tests + Android release APK build; unsigned iOS build.
+- The Android artifact is a CI build, not physical-device acceptance; iOS remains unsigned.
 
 
 ## Continuation checkpoint — mobile rate limiting across connections (2026-11-19)
