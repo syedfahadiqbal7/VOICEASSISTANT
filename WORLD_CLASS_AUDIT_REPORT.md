@@ -419,3 +419,23 @@ Regression coverage includes multi-socket quota sharing, device isolation, user-
 
 - Source changes and tests are committed to `hardening/mobile-per-device-rate-limits`.
 - Pull-request CI is pending; no pass is claimed until the workflow completes.
+
+
+## Continuation checkpoint — scheduler shutdown lifecycle (2026-11-19)
+
+A scheduler worker executes handlers synchronously on its daemon thread. The prior shutdown method joined for two seconds but returned no indication whether the worker had actually stopped. The desktop close path could therefore proceed to shut down TTS and destroy the UI while a scheduled handler was still executing, without recording that the grace period had expired.
+
+Changes on `reliability/scheduler-shutdown-lifecycle`:
+- `JobScheduler.stop(timeout=2.0)` now returns a boolean: true only when the worker is no longer alive; false when the timeout expires or the caller is the active worker thread.
+- The scheduler does not create a competing worker when `start()` is called while an earlier handler is still running. A later restart is allowed after that worker exits.
+- Desktop shutdown now requests scheduler stop before shutting down TTS, allowing the scheduler its grace period while speech output is still available.
+- If a handler outlives the grace period, the desktop emits a structured `shutdown.scheduler_timeout` warning. It does not claim the handler was cancelled or that external side effects stopped.
+- Regression tests cover stop with no worker, a blocked handler exceeding the grace period, no competing worker on premature restart, and restart after the original worker exits.
+
+This remains cooperative/bounded shutdown, not forced cancellation. Synchronous tool handlers cannot safely be terminated by Python; integrations with long-running external effects need their own cancellation/timeouts and idempotency controls.
+
+### Verification status
+
+- PR #18 merged to `main` as `1753a5251996e0f95d9f4f05cef42e0b4fdbb318`.
+- PR CI [#44535538127](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44535538127) passed Windows compile/regressions/Phase 0 smoke tests, Flutter analysis/tests + Android APK build, and unsigned iOS build.
+- Shutdown lifecycle changes are submitted for CI in the next PR; no validation pass is claimed yet.

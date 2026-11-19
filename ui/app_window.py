@@ -332,13 +332,19 @@ class AgenticVoiceAssistant(ctk.CTk):
         except Exception as e:
             logger.exception("Conversation shutdown failed", extra={"event": "shutdown.conversation_failed"})
         try:
+            scheduler_stopped = self.conversation.scheduler.stop(timeout=2.0)
+            if not scheduler_stopped:
+                logger.warning(
+                    "Scheduler handler is still running after the shutdown grace period; "
+                    "its external side effects cannot be assumed cancelled",
+                    extra={"event": "shutdown.scheduler_timeout"},
+                )
+        except Exception as e:
+            logger.exception("Scheduler shutdown failed", extra={"event": "shutdown.scheduler_failed"})
+        try:
             self.tts.shutdown()
         except Exception as e:
             logger.exception("Speech output shutdown failed", extra={"event": "shutdown.tts_failed"})
-        try:
-            self.conversation.scheduler.stop()
-        except Exception as e:
-            logger.exception("Scheduler shutdown failed", extra={"event": "shutdown.scheduler_failed"})
         mobile_thread = getattr(self, "_mobile_server_thread", None)
         if mobile_thread and mobile_thread.is_alive():
             mobile_thread.join(timeout=2.5)

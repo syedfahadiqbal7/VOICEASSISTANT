@@ -209,3 +209,36 @@ def test_interval_completion_checkpoint_failure_keeps_current_execution_id(tmp_p
     stored = scheduler.list_jobs()[0]
     assert stored["status"] == "pending"
     assert stored["execution_id"] == execution_id
+
+
+
+def test_stop_reports_when_handler_exceeds_shutdown_grace_period(tmp_path, monkeypatch):
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+    def handler(job):
+        calls.append(job["id"])
+        entered.set()
+        release.wait(timeout=3)
+        return True
+    scheduler, _ = _scheduler(tmp_path, monkeypatch, handler)
+    job = scheduler.add_once("slow scheduled handler", datetime.now() - timedelta(seconds=1))
+    scheduler.start()
+    assert entered.wait(timeout=1)
+    assert scheduler.stop(timeout=0.01) is False
+    # A second start must not create a competing worker while the old handler runs.
+    scheduler.start()
+    assert calls == [job["id"]]
+    release.set()
+    worker = scheduler._thread
+    assert worker is not None
+    worker.join(timeout=1)
+    assert not worker.is_alive()
+    # Once the old worker has exited, the scheduler can be started and stopped again.
+    scheduler.start()
+    assert scheduler.stop(timeout=1) is True
+
+
+def test_stop_without_started_worker_returns_true(tmp_path, monkeypatch):
+    scheduler, _ = _scheduler(tmp_path, monkeypatch)
+    assert scheduler.stop() is True
