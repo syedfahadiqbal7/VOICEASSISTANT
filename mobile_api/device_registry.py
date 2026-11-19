@@ -2,18 +2,24 @@
 
 Device secrets are returned only during enrollment. Only SHA-256 digests are
 persisted, and the complete registry is encrypted at rest.
+
+The registry uses both a process-local mutex and an OS-backed sidecar lock.
+This makes read/modify/write operations and the last-admin invariant safe when
+multiple VoiceAssistant processes are accidentally started against one profile.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import re
 import secrets
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from agent.storage import atomic_write_json, load_json
 from config import HISTORY_DIR
@@ -23,9 +29,59 @@ _DEVICE_ID = re.compile(r"^[0-9a-f]{32}$")
 _lock = threading.RLock()
 
 
+@contextmanager
+def _interprocess_file_lock(lock_path: Path) -> Iterator[None]:
+    """Acquire an exclusive advisory lock on a stable sidecar file.
+
+    The lock file is intentionally not removed on release: deleting a lock file
+    can let two processes lock different inodes/handles and enter concurrently.
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as handle:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\\0")
+            handle.flush()
+        handle.seek(0)
+        acquired = False
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            elif os.name == "posix":
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            else:
+                raise RuntimeError("Mobile registry requires a supported OS file-locking implementation")
+            acquired = True
+            yield
+        finally:
+            if acquired:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 class MobileDeviceRegistry:
     def __init__(self, path: Path | str | None = None):
         self.path = Path(path) if path is not None else Path(HISTORY_DIR) / "mobile_devices.json"
+        self._lock_path = self.path.with_name(self.path.name + ".lock")
+
+    @contextmanager
+    def _registry_lock(self) -> Iterator[None]:
+        # Keep the in-process lock as well: it protects threads and avoids
+        # needless OS lock contention between registry instances in one process.
+        with _lock:
+            with _interprocess_file_lock(self._lock_path):
+                yield
 
     def is_configured(self) -> bool:
         """A present registry is authoritative, even when all devices are revoked."""
@@ -63,7 +119,7 @@ class MobileDeviceRegistry:
         device_id = uuid.uuid4().hex
         secret = secrets.token_urlsafe(32)
         now = datetime.now(timezone.utc).isoformat()
-        with _lock:
+        with self._registry_lock():
             data = self._load()
             data["devices"].append({
                 "device_id": device_id,
@@ -83,7 +139,7 @@ class MobileDeviceRegistry:
         if not _DEVICE_ID.fullmatch(identifier) or not secret or len(secret) > 256:
             return None
         supplied_hash = hashlib.sha256(secret.encode("utf-8")).hexdigest()
-        with _lock:
+        with self._registry_lock():
             data = self._load()
             for device in data["devices"]:
                 if device.get("device_id") != identifier:
@@ -112,7 +168,7 @@ class MobileDeviceRegistry:
             raise ValueError("Invalid device ID")
         if not is_valid_role(role):
             raise ValueError("Unsupported device role")
-        with _lock:
+        with self._registry_lock():
             data = self._load()
             target = next((item for item in data["devices"] if item["device_id"] == identifier), None)
             if target is None or target.get("revoked_at") is not None:
@@ -135,7 +191,7 @@ class MobileDeviceRegistry:
         identifier = str(device_id or "").strip().lower()
         if not _DEVICE_ID.fullmatch(identifier):
             raise ValueError("Invalid device ID")
-        with _lock:
+        with self._registry_lock():
             data = self._load()
             for device in data["devices"]:
                 if device.get("device_id") == identifier:
@@ -154,7 +210,7 @@ class MobileDeviceRegistry:
         return False
 
     def list_devices(self) -> list[dict[str, Any]]:
-        with _lock:
+        with self._registry_lock():
             data = self._load()
             return [{
                 "device_id": str(item.get("device_id", "")),
