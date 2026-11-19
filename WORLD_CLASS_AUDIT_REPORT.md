@@ -11,7 +11,7 @@ Voice Assistant is a local-first Windows AI desktop agent with a Flutter compani
 
 The repository now includes mobile per-device identity and revocation, server-enforced mobile RBAC and approval routing, fail-closed policy gates, plugin manifest/permission/archive enforcement, encrypted local runtime stores, DPAPI-backed Windows key protection, portable encrypted backup/restore, protected keyring bootstrap/rotation, explicit resumable VAENC1-to-VAENC2 migration, offline recovery kits, guarded retained-key retirement, structured redacted diagnostics, and opt-in retention controls. The README now has a user-facing feature catalogue.
 
-Latest fully green cross-platform CI run [#44326987049](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44326987049) validated Phase 8.3.7: 178 Python regression tests, 16 Phase 0 smoke checks, compileall, Flutter analysis/tests, Android release APK build and unsigned iOS build. Subsequent undo/recovery hardening is on `main` at `0d14a38667c3c3e0d9e9bced8f03d48528c4d9e2`; the latest Python job reports **192 passed** and 16 smoke checks in [run #44332948180](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44332948180). Flutter analysis/tests have passed for that run; Android APK build is still running and iOS validation is queued. Real Windows GUI/audio/Ollama operation and physical Android/iOS behavior still require target-environment validation.
+Latest fully green cross-platform CI run is [#44333839694](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44333839694) for commit `3505b58b4db3a53fe2408411d85783667f070fb8`. Python Windows compile/regression/smoke checks, Flutter analysis/tests/Android release APK build, and unsigned iOS build all completed successfully. The current Python suite reports **192 passed** plus **16 Phase 0 smoke checks**. This supersedes the historical #44332948180 status below. Real Windows GUI/audio/Ollama operation and physical Android/iOS behavior still require target-environment validation.
 
 ## Phase completion map
 
@@ -352,3 +352,28 @@ Regression coverage is included in `tests/test_scheduled_write_undo_safety.py`. 
 ## GitHub Actions runtime modernization
 
 The CI workflow now uses Node 24-compatible major releases for checkout, Python/Java setup, artifact upload/download and GitHub Release publishing. The Python job no longer reports the earlier Node 20 deprecation warning. The current workflow has passed Python compile/tests and Flutter analysis/tests; Android/iOS completion for the latest commit remains pending. The tag-only release-publishing job is intentionally not exercised on branch pushes because doing so would publish a release artifact.
+
+
+## Continuation checkpoint — 2026-11-19
+
+This section supersedes earlier statements in this report that the Android build or iOS validation for the current main branch were still pending.
+
+- **Source of truth:** `main` at `3505b58b4db3a53fe2408411d85783667f070fb8`.
+- **Latest CI:** [run #44333839694](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44333839694) — overall conclusion `success`.
+- **Python Windows:** passed; compileall, security/reliability regression suite and Phase 0 smoke checks all succeeded.
+- **Flutter/Android:** dependency resolution, analysis, Flutter tests and release APK build all succeeded.
+- **iOS:** unsigned iOS build succeeded.
+- **Release publishing:** correctly skipped on a branch push; no release was published.
+
+### Remaining work — do not confuse CI with runtime certification
+
+1. **Windows desktop acceptance:** install from a clean checkout using supported Python 3.11, validate setup/upgrade, UI startup/shutdown, text chat, Ollama unavailable/restart/model states, microphone/STT, TTS, and representative tool/undo workflows.
+2. **Physical mobile acceptance:** install on real Android and iOS devices; verify secure credential storage, pairing, revocation, reconnect, WSS/TLS, role restrictions, approval routing, schedule state and disconnect cleanup.
+3. **Recovery exercise:** in an isolated test profile, verify portable backup authentication, restore to a clean destination, recovery-kit import, interrupted migration recovery, and keyring-loss handling. Never experiment on the user's live runtime data.
+4. **Security review:** independent review/penetration test remains outstanding. Plugin code is still in-process (no OS sandbox or signed publisher trust); direct remote WS is not encrypted; ordinary runtime writers do not participate in the key-administration lock.
+5. **Reliability/product backlog:** add operation-level idempotency for side-effecting scheduled handlers; continue typed-exception cleanup and malformed legacy-store recovery; add process-wide mobile registry/quota coordination; improve desktop/mobile progress, diagnostics, accessibility and release packaging/signing.
+6. **Release controls:** retain development/beta status until Windows and physical-device acceptance, recovery drill, security sign-off, and production signing/installer rollback are complete.
+
+### Current recommendation
+
+All repository CI gates are green at this checkpoint. Continue with a source-level security/reliability audit and targeted regression tests, while treating Windows hardware/runtime checks, physical-device checks, recovery drills and independent security review as external acceptance gates requiring the user's environment or an authorized test environment. No claim of production certification is made.
