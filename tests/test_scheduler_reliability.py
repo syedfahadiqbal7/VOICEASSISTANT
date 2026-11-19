@@ -190,3 +190,22 @@ def test_interval_success_rotates_execution_id_for_next_occurrence(tmp_path, mon
     stored = scheduler.list_jobs()[0]
     assert stored["execution_id"] != first_id
     assert stored["status"] == "pending"
+
+
+
+def test_interval_completion_checkpoint_failure_keeps_current_execution_id(tmp_path, monkeypatch):
+    scheduler, _ = _scheduler(tmp_path, monkeypatch, lambda _job: True)
+    job = scheduler.add_interval("interval checkpoint task", 10)
+    execution_id = job["execution_id"]
+    original_save = scheduler.save
+    calls = {"count": 0}
+    def fail_completion_save():
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise OSError("simulated completion write failure")
+        original_save()
+    monkeypatch.setattr(scheduler, "save", fail_completion_save)
+    scheduler._fire(job)
+    stored = scheduler.list_jobs()[0]
+    assert stored["status"] == "pending"
+    assert stored["execution_id"] == execution_id
