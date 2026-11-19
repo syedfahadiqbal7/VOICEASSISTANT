@@ -144,3 +144,68 @@ def test_completion_checkpoint_failure_requeues_job(tmp_path, monkeypatch):
     assert stored["status"] == "pending"
     assert stored["enabled"] is True
     assert "checkpoint failed" in stored["last_error"].lower()
+
+
+
+def test_execution_id_is_persisted_before_handler_and_exposed_to_callback(tmp_path, monkeypatch):
+    observed = []
+    scheduler, _ = _scheduler(tmp_path, monkeypatch, lambda job: observed.append(job["execution_id"]) or True)
+    job = scheduler.add_once("idempotent task", datetime.now() - timedelta(seconds=1))
+    execution_id = job["execution_id"]
+    scheduler._fire(job)
+    assert observed == [execution_id]
+    assert scheduler.list_jobs()[0]["execution_id"] == execution_id
+
+
+def test_retry_reuses_same_execution_id(tmp_path, monkeypatch):
+    observed = []
+    scheduler, _ = _scheduler(tmp_path, monkeypatch, lambda job: observed.append(job["execution_id"]) or False)
+    job = scheduler.add_once("retry task", datetime.now() - timedelta(seconds=1))
+    first_id = job["execution_id"]
+    scheduler._fire(job)
+    scheduler.jobs[0]["run_at"] = (datetime.now() - timedelta(seconds=1)).isoformat()
+    scheduler._fire(job)
+    assert observed == [first_id, first_id]
+    assert scheduler.list_jobs()[0]["execution_id"] == first_id
+
+
+def test_crash_recovery_preserves_running_execution_id(tmp_path, monkeypatch):
+    scheduler, path = _scheduler(tmp_path, monkeypatch)
+    job = scheduler.add_once("crash during handler", datetime.now() - timedelta(seconds=1))
+    execution_id = job["execution_id"]
+    scheduler.jobs[0]["status"] = "running"
+    scheduler.save()
+    restarted = JobScheduler()
+    recovered = restarted.list_jobs()[0]
+    assert recovered["status"] == "pending"
+    assert recovered["execution_id"] == execution_id
+
+
+def test_interval_success_rotates_execution_id_for_next_occurrence(tmp_path, monkeypatch):
+    scheduler, _ = _scheduler(tmp_path, monkeypatch, lambda _job: True)
+    job = scheduler.add_interval("interval id task", 10)
+    first_id = job["execution_id"]
+    scheduler.jobs[0]["run_at"] = (datetime.now() - timedelta(seconds=1)).isoformat()
+    scheduler._fire(job)
+    stored = scheduler.list_jobs()[0]
+    assert stored["execution_id"] != first_id
+    assert stored["status"] == "pending"
+
+
+
+def test_interval_completion_checkpoint_failure_keeps_current_execution_id(tmp_path, monkeypatch):
+    scheduler, _ = _scheduler(tmp_path, monkeypatch, lambda _job: True)
+    job = scheduler.add_interval("interval checkpoint task", 10)
+    execution_id = job["execution_id"]
+    original_save = scheduler.save
+    calls = {"count": 0}
+    def fail_completion_save():
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise OSError("simulated completion write failure")
+        original_save()
+    monkeypatch.setattr(scheduler, "save", fail_completion_save)
+    scheduler._fire(job)
+    stored = scheduler.list_jobs()[0]
+    assert stored["status"] == "pending"
+    assert stored["execution_id"] == execution_id
