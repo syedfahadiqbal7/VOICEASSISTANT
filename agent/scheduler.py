@@ -216,6 +216,7 @@ class JobScheduler:
             live = next((item for item in self.jobs if item.get("id") == job_id), None)
             if not live:
                 return
+            execution_id_before_completion = live.get("execution_id")
             live["last_run"] = _now().isoformat()
             live.pop("started_at", None)
             if succeeded:
@@ -248,4 +249,7 @@ class JobScheduler:
                 live["enabled"] = True
                 live["run_at"] = (_now() + timedelta(minutes=1)).isoformat()
                 live["last_error"] = f"Completion checkpoint failed: {error}"[:1000]
+                # The occurrence is still pending; retain its idempotency key on replay.
+                if execution_id_before_completion:
+                    live["execution_id"] = execution_id_before_completion
                 logger.exception("Scheduler completion checkpoint failed for job %s", job_id, extra={"event": "scheduler.completion_checkpoint_failed"})
