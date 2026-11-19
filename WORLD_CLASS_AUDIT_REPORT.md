@@ -394,5 +394,28 @@ The new test module is included explicitly in the Windows CI regression command.
 
 ### Verification status
 
-- Source change and regression tests committed on the dedicated branch.
-- Automated result is pending the pull-request CI run; no pass is claimed until GitHub Actions reports success.
+- Merged to `main` via [PR #16](https://github.com/syedfahadiqbal7/VOICEASSISTANT/pull/16), merge commit `bb9d13dab3b137fc7173248e1a2d6182a6b571b6`.
+- Pull-request CI [#44471469317](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44471469317) passed: Windows compile + 194 Python regression tests + 16 Phase 0 smoke checks; Flutter analysis/tests + Android release APK build; unsigned iOS build.
+- The Android artifact is a CI build, not physical-device acceptance; iOS remains unsigned.
+
+
+## Continuation checkpoint — mobile rate limiting across connections (2026-11-19)
+
+The previous WebSocket limiter instantiated a separate sliding-window bucket for every accepted connection. A single authenticated device could therefore multiply its effective quota by opening additional sockets. The limiter is now process-wide and keyed by the authenticated server-side device identity, so all WebSocket connections for one device share the same total-message and user-message quotas. Different enrolled devices retain independent quotas.
+
+The new `mobile_api/rate_limiter.py` provides:
+- monotonic-clock sliding windows with a shared per-device total-message quota and a separate user-message quota;
+- thread-safe quota consumption so simultaneous socket handlers cannot race past the limit;
+- independent buckets per device identity;
+- bounded bucket storage (4,096 identities by default); expired identities are reclaimed, while new identities are denied closed if the table remains full rather than evicting an active quota and resetting an attacker's allowance;
+- distinct handling for user-message throttling (reject message, retain socket) versus total-device flooding (reject and close the offending socket);
+- every authenticated request attempt, including a user message rejected by the narrower user-message quota, consumes the total-message budget. This prevents unlimited rejected requests from producing an unbounded stream of error responses.
+
+The WebSocket endpoint now uses this shared limiter after authentication and role authorization. The existing default quotas remain 120 messages and 20 user messages per 60-second window. The desktop mobile API is a single-process service; this change coordinates sockets and threads in that process, not multiple server machines or independently deployed worker processes. Legacy shared-token and loopback clients intentionally share the quota associated with their common server identity.
+
+Regression coverage includes multi-socket quota sharing, device isolation, user-message limits, window expiry, concurrent message attempts, bounded identity capacity, stale bucket reclamation, invalid configuration and malformed identities. The new test module is included in the Windows CI command.
+
+### Verification status
+
+- Source changes and tests are committed to `hardening/mobile-per-device-rate-limits`.
+- Pull-request CI is pending; no pass is claimed until the workflow completes.
