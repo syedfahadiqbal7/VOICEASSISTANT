@@ -408,7 +408,8 @@ The new `mobile_api/rate_limiter.py` provides:
 - thread-safe quota consumption so simultaneous socket handlers cannot race past the limit;
 - independent buckets per device identity;
 - bounded bucket storage (4,096 identities by default); expired identities are reclaimed, while new identities are denied closed if the table remains full rather than evicting an active quota and resetting an attacker's allowance;
-- distinct handling for user-message throttling (reject message, retain socket) versus total-device flooding (reject and close the offending socket).
+- distinct handling for user-message throttling (reject message, retain socket) versus total-device flooding (reject and close the offending socket);
+- every authenticated request attempt, including a user message rejected by the narrower user-message quota, consumes the total-message budget. This prevents unlimited rejected requests from producing an unbounded stream of error responses.
 
 The WebSocket endpoint now uses this shared limiter after authentication and role authorization. The existing default quotas remain 120 messages and 20 user messages per 60-second window. The desktop mobile API is a single-process service; this change coordinates sockets and threads in that process, not multiple server machines or independently deployed worker processes. Legacy shared-token and loopback clients intentionally share the quota associated with their common server identity.
 
