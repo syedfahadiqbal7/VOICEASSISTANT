@@ -8,9 +8,7 @@ import asyncio
 import hmac
 import logging
 import os
-import time
 import threading
-from collections import deque
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +17,7 @@ from mobile_api.connection_manager import manager
 from mobile_api.bridge import bridge
 from mobile_api.device_registry import registry as mobile_devices
 from mobile_api.authorization import is_allowed
+from mobile_api.rate_limiter import DeviceRateLimiter
 
 logger = logging.getLogger("voiceassistant.mobile_api")
 _server_lock = threading.Lock()
@@ -26,6 +25,7 @@ _server_stop_requested = threading.Event()
 _active_server = None
 _active_server_loop = None
 manager.on_disconnect = bridge.client_disconnected
+mobile_rate_limiter = DeviceRateLimiter()
 
 app = FastAPI(title="VoiceAssistant Mobile API", version="1.1")
 
@@ -50,36 +50,6 @@ async def root():
 @app.get("/health")
 async def health():
     return {"ok": True, "clients": manager.connection_count()}
-
-
-
-class SlidingWindowRateLimiter:
-    """Per-WebSocket message quotas; timestamps use monotonic time."""
-
-    def __init__(self, window_seconds: int = 60, max_messages: int = 120, max_user_messages: int = 20):
-        self.window_seconds = window_seconds
-        self.max_messages = max_messages
-        self.max_user_messages = max_user_messages
-        self._messages = deque()
-        self._user_messages = deque()
-
-    @staticmethod
-    def _prune(queue, now: float, window: int) -> None:
-        while queue and now - queue[0] >= window:
-            queue.popleft()
-
-    def allow(self, message_type: str, now: float | None = None) -> bool:
-        now = time.monotonic() if now is None else now
-        self._prune(self._messages, now, self.window_seconds)
-        self._prune(self._user_messages, now, self.window_seconds)
-        if len(self._messages) >= self.max_messages:
-            return False
-        if message_type == "user_message" and len(self._user_messages) >= self.max_user_messages:
-            return False
-        self._messages.append(now)
-        if message_type == "user_message":
-            self._user_messages.append(now)
-        return True
 
 
 def _max_mobile_connections() -> int:
@@ -210,7 +180,6 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=1013, reason="Mobile connection capacity reached")
         return
     manager.set_role(websocket, principal["role"])
-    limiter = SlidingWindowRateLimiter()
 
     await manager.send_personal(websocket, {
         "type": "connected",
@@ -265,13 +234,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     "message": "This device is not authorized to perform that operation.",
                 })
                 continue
-            if not limiter.allow(str(msg_type or "")):
+            rate_decision = mobile_rate_limiter.consume(principal["device_id"], str(msg_type or ""))
+            if not rate_decision.allowed:
                 await manager.send_personal(websocket, {
                     "type": "error",
                     "message": "Rate limit exceeded; slow down and retry."
                 })
-                if len(limiter._messages) >= limiter.max_messages:
-                    await websocket.close(code=1013, reason="Message rate limit exceeded")
+                if rate_decision.close_connection:
+                    await websocket.close(code=1013, reason="Device message rate limit exceeded")
                     manager.disconnect(websocket)
                     break
                 continue
