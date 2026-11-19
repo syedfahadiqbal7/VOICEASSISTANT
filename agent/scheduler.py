@@ -156,11 +156,22 @@ class JobScheduler:
         self._thread = threading.Thread(target=self._loop, daemon=True, name="VoiceAssistantScheduler")
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self, timeout: float = 2.0) -> bool:
+        """Request shutdown and wait up to ``timeout`` seconds.
+
+        Returns True only when the worker has actually stopped. A running
+        handler is synchronous and cannot be force-killed safely; False means
+        shutdown is still waiting on that handler and callers must not assume
+        its side effects have been cancelled.
+        """
+        timeout = max(0.0, float(timeout))
         self._stop.set()
         thread = self._thread
-        if thread and thread.is_alive() and thread is not threading.current_thread():
-            thread.join(timeout=2.0)
+        if thread is None:
+            return True
+        if thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=timeout)
+        return not thread.is_alive()
 
     def _loop(self) -> None:
         while not self._stop.is_set():
