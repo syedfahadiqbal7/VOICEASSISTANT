@@ -107,3 +107,16 @@ def test_invalid_identity_is_denied(identity):
     result = limiter.consume(identity, "ping", now=1)
     assert result.allowed is False
     assert result.close_connection is True
+
+
+def test_rejected_user_messages_still_consume_total_request_quota():
+    limiter = DeviceRateLimiter(window_seconds=60, max_messages=3, max_user_messages=1)
+    assert limiter.consume("device-A", "user_message", now=1).allowed
+    throttled = limiter.consume("device-A", "user_message", now=2)
+    assert throttled.allowed is False
+    assert throttled.close_connection is False
+    assert limiter.consume("device-A", "ping", now=3).allowed
+    # Rejected user-message attempts count toward the total quota too.
+    flooded = limiter.consume("device-A", "ping", now=4)
+    assert flooded.allowed is False
+    assert flooded.close_connection is True
