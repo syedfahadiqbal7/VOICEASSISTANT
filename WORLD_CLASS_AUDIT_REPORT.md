@@ -377,3 +377,22 @@ This section supersedes earlier statements in this report that the Android build
 ### Current recommendation
 
 All repository CI gates are green at this checkpoint. Continue with a source-level security/reliability audit and targeted regression tests, while treating Windows hardware/runtime checks, physical-device checks, recovery drills and independent security review as external acceptance gates requiring the user's environment or an authorized test environment. No claim of production certification is made.
+
+
+## Continuation checkpoint — mobile registry concurrency hardening (2026-11-19)
+
+A source-level review identified that the encrypted per-device registry used only a process-local thread lock. Two independently started desktop processes sharing the same Windows profile could therefore race while enrolling/revoking devices or changing roles. In particular, concurrent administrator revocations could both observe two active administrators and both remove one, violating the last-active-admin safeguard.
+
+The registry now combines its existing in-process re-entrant mutex with an OS-backed exclusive lock on a stable sidecar file. Registry read/modify/write operations, authentication reads, role changes, revocation and device listing are serialized across processes. The sidecar lock file is deliberately retained after release; deleting it would risk different processes locking different file objects. Windows uses the standard-library `msvcrt` locking API and POSIX uses `fcntl.flock`. Unsupported platforms fail closed instead of silently reverting to a thread-only lock.
+
+New Windows CI regressions use separate spawned Python processes to verify:
+- simultaneous device enrollment preserves both records (no lost update);
+- simultaneous revocation of two administrator devices cannot remove the last active administrator;
+- the stable lock sidecar is created.
+
+The new test module is included explicitly in the Windows CI regression command. This hardening does not coordinate multiple machines or network filesystems, and it does not turn the desktop application into a supported multi-instance service. The intended deployment remains one trusted desktop instance per user profile.
+
+### Verification status
+
+- Source change and regression tests committed on the dedicated branch.
+- Automated result is pending the pull-request CI run; no pass is claimed until GitHub Actions reports success.
