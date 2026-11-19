@@ -7,7 +7,7 @@ from mobile_api.rate_limiter import DeviceRateLimiter
 
 
 def test_multiple_websockets_share_the_same_device_quota():
-    limiter = DeviceRateLimiter(window_seconds=60, max_messages=3, max_user_messages=2)
+    limiter = DeviceRateLimiter(window_seconds=60, max_messages=2, max_user_messages=2)
     # Each call represents a message arriving on any socket for this identity.
     assert limiter.consume("device-A", "ping", now=10).allowed
     assert limiter.consume("device-A", "ping", now=11).allowed
