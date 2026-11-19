@@ -38,7 +38,9 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Create and inspect scheduled jobs from the desktop assistant.
 - Persist job state and recover eligible work after restart.
 - Retry failed handlers with bounded attempts and expose status/error/attempt information in the desktop and mobile schedules view.
-- Delivery is at-least-once, so integrations that perform external side effects should be idempotent.
+- Assign a stable `execution_id` to each logical occurrence, persist it before invoking the handler, preserve it across retries/recovery/checkpoint failures, and rotate it after a successful recurring occurrence. Integrations can use it as a durable idempotency key.
+- Shutdown waits for a bounded scheduler grace period and reports if a synchronous handler is still running; handlers cannot be force-killed safely.
+- Delivery is at-least-once, not exactly-once. A crash after an external side effect but before its completion checkpoint can replay the handler; downstream integrations must persist/enforce `execution_id` to deduplicate side effects.
 
 ### 6. Flutter mobile companion
 - Connect to the running desktop over the local WebSocket API.
@@ -237,7 +239,7 @@ Use `0` for any setting to disable that rule. Conversation history and memory ar
 
 Local data-key bootstrap, rotation, backup-verified VAENC1-to-VAENC2 migration, offline recovery-kit export/import, and guarded retained-key retirement are implemented. Secure erasure is not provided; removing a key from the live keyring does not erase copies from historical backups, recovery kits, snapshots or storage media.
 
-Scheduled jobs use persisted execution states and retry failed handlers up to three times. Delivery is at-least-once: a crash after an external side effect but before its completion checkpoint can replay the handler, so side-effecting scheduled operations must be idempotent.
+Scheduled jobs use persisted execution states and retry failed handlers up to three times. Each logical occurrence has a stable `execution_id` persisted before handler invocation and reused across retries and crash recovery; recurring jobs rotate the key only after a successful completion checkpoint. Delivery remains at-least-once, not exactly-once: a crash after an external side effect but before its completion checkpoint can replay the handler. Integrations must durably deduplicate using `execution_id` at their side-effect boundary. Shutdown waits up to a bounded grace period and logs when a synchronous handler remains active, because Python cannot safely force-kill that handler.
 
 ## Documentation
 
