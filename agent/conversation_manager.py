@@ -996,7 +996,7 @@ class ConversationManager:
         low = t.lower()
 
         m = re.search(
-            r"^open\\s+(notepad|calculator|calc|chrome|edge|explorer|cmd|powershell)\\s*$",
+            r"^open\s+(notepad|calculator|calc|chrome|edge|explorer|cmd|powershell)\s*$",
             low,
         )
         if m:
