@@ -46,3 +46,10 @@ def test_error_detail_is_whitespace_normalized_and_bounded():
     assert len(detail) == len("last error: ") + 180
     assert detail.endswith("...")
     assert can_cancel is True
+
+
+def test_deferred_pending_execution_is_shown_as_waiting_and_not_cancellable():
+    assert job_display_state({
+        "status": "pending", "enabled": True, "execution_waiting": True,
+        "last_error": "action still running",
+    }) == ("Waiting", "last error: action still running", False)
