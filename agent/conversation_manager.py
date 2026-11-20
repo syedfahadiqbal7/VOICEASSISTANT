@@ -15,7 +15,8 @@ from agent.planner import Planner
 from agent.plan_executor import PlanExecutor
 from agent.memory_store import MemoryStore
 from agent.undo_manager import UndoManager
-from agent.scheduler import JobScheduler
+from agent.scheduler import JobScheduler, JobExecutionResult
+from agent.scheduled_execution_ledger import ScheduledExecutionLedger
 from agent.session_sync import SessionSync
 from agent.policy import PolicyEngine
 from agent.outcome_compiler import OutcomeCompiler
@@ -94,6 +95,17 @@ class ConversationManager:
         self.plan_executor.policy = self.policy
         self.outcome_compiler = OutcomeCompiler()
         self.skill_packs = SkillPackManager()
+        # Scheduled tool side effects are guarded by a separate encrypted
+        # execution ledger. If it cannot be loaded, scheduled tools fail closed;
+        # ordinary conversation and reminder behavior remain available.
+        self.scheduled_execution_ledger = None
+        self._scheduled_execution_ledger_error = None
+        try:
+            self.scheduled_execution_ledger = ScheduledExecutionLedger()
+        except Exception as error:
+            self._scheduled_execution_ledger_error = str(error)
+            print(f"[Scheduler] Durable execution ledger unavailable; scheduled tools blocked: {error}")
+
         self.scheduler = JobScheduler(on_job=None)
         self.scheduler.on_job = self._on_scheduled_job
         try:
@@ -929,21 +941,22 @@ class ConversationManager:
         return False
 
     def _on_scheduled_job(self, job: dict):
-        """Run scheduled work reliably — prefer direct tools over slow LLM.
+        """Run scheduled work without handing tool selection to the LLM.
 
-        Open-app / create-file → fast-path tools.
-        Everything else (reminders, custom text) → speak + log only.
-        Never fall into full process_user_input with tools: that lets the LLM
-        invent voice_note / random Desktop files (calc_note.txt etc.).
+        Side-effecting fast-path tools use the persisted execution_id ledger.
+        Reminders remain at-least-once notifications.
         """
         prompt = (job.get("prompt") or "").strip()
         jid = job.get("id")
+        execution_id = job.get("execution_id")
         self._log(f"[Scheduler] Running job {jid}: {prompt}")
         if not prompt:
             return False
         try:
-            if self._execute_scheduled_prompt_fast(prompt):
-                return True
+            fast_result = self._execute_scheduled_prompt_fast(prompt, execution_id)
+            if fast_result is not None:
+                return fast_result
+
             self._log(f"[Scheduler] Reminder (no tools): {prompt}")
             spoken = False
             try:
@@ -977,13 +990,13 @@ class ConversationManager:
             base = t.split("/")[-1]
             return base in {"notepad", "notepad.exe", "calc", "calc.exe", "calculator"}
 
-    def _execute_scheduled_prompt_fast(self, prompt: str) -> bool:
-        """Common scheduled actions without LLM. Returns True if handled."""
+    def _execute_scheduled_prompt_fast(self, prompt: str, execution_id: str | None = None):
+        """Execute known scheduled actions; None means the prompt was not handled."""
         t = prompt.strip()
         low = t.lower()
 
         m = re.search(
-            r"^open\s+(notepad|calculator|calc|chrome|edge|explorer|cmd|powershell)\s*$",
+            r"^open\\s+(notepad|calculator|calc|chrome|edge|explorer|cmd|powershell)\\s*$",
             low,
         )
         if m:
@@ -999,9 +1012,9 @@ class ConversationManager:
                 {"target": target},
                 display=f"Scheduled: Open {target}",
                 auto_approve=trusted,
+                execution_id=execution_id,
             )
 
-        # Broader create-file fast-path (same patterns as Planner)
         # File writes always require the security gate — never auto-approve.
         try:
             fast_plan = self.planner._try_fast_file_plan(prompt)
@@ -1019,8 +1032,9 @@ class ConversationManager:
                     {"filepath": path, "content": content},
                     display=f"Scheduled: Create {path.split('/')[-1]}",
                     auto_approve=False,
+                    execution_id=execution_id,
                 )
-        return False
+        return None
 
     def _run_tool_direct(
         self,
@@ -1028,9 +1042,21 @@ class ConversationManager:
         args: dict,
         display: str,
         auto_approve: bool = False,
-    ) -> bool:
-        """Execute one tool. Optional auto_approve skips gate (trusted scheduled opens only)."""
+        execution_id: str | None = None,
+    ):
+        """Run an approved scheduled tool under a durable execution ID guard."""
         done = queue.Queue()
+        ledger = self.scheduled_execution_ledger
+        if not execution_id:
+            return JobExecutionResult(
+                success=False, retryable=False,
+                message="Scheduled tool blocked: execution_id is missing",
+            )
+        if ledger is None:
+            return JobExecutionResult(
+                success=False, retryable=False,
+                message="Scheduled tool blocked: durable execution ledger is unavailable",
+            )
 
         try:
             decision = self.policy.evaluate_tool_call(
@@ -1049,8 +1075,19 @@ class ConversationManager:
             self._log(f"[Policy] Scheduled action blocked because policy evaluation failed: {error}")
             return False
 
+        callback_lock = threading.Lock()
+        callback_state = {"started": False, "expired": False}
+
         def execute_callback():
+            # A delayed approval callback must not start after the scheduler
+            # has timed out. A duplicate callback in this same request is ignored.
+            with callback_lock:
+                if callback_state["expired"] or callback_state["started"]:
+                    return
+                callback_state["started"] = True
+
             backup = None
+            claimed = False
             try:
                 if func_name == "write_developer_code":
                     try:
@@ -1066,7 +1103,34 @@ class ConversationManager:
                         done.put(result)
                         return
 
+                claim = ledger.claim(execution_id, func_name)
+                if claim == "succeeded":
+                    done.put({
+                        "content": "This scheduled execution was already completed; duplicate invocation skipped.",
+                        "is_error": False,
+                        "_already_completed": True,
+                    })
+                    return
+                if claim == "in_progress":
+                    done.put({
+                        "content": "The same scheduled execution is still active; duplicate invocation skipped.",
+                        "is_error": True,
+                        "_defer": True,
+                    })
+                    return
+                if claim == "uncertain":
+                    done.put({
+                        "content": "The previous process may have performed this action before stopping. Automatic replay is blocked; inspect the outcome and create a new scheduled occurrence if appropriate.",
+                        "is_error": True,
+                        "_terminal": True,
+                    })
+                    return
+
+                claimed = True
                 result = self.tool_registry.execute(func_name, args)
+                if not isinstance(result, dict):
+                    result = {"content": "Tool returned an invalid result", "is_error": True}
+
                 if func_name == "write_developer_code" and not result.get("is_error"):
                     undo_failure = self._record_write_or_rollback(
                         args.get("filepath", ""),
@@ -1075,16 +1139,35 @@ class ConversationManager:
                     )
                     if undo_failure:
                         result = undo_failure
+
+                if result.get("is_error"):
+                    detail = str(result.get("content") or "Tool reported an error")
+                    ledger.complete(execution_id, success=False, detail=detail)
+                    claimed = False
+                    result["_terminal"] = True
+                else:
+                    ledger.complete(execution_id, success=True)
+                    claimed = False
                 self._log(
                     f"[{'Error' if result.get('is_error') else 'Success'}] "
                     f"{result.get('content')}"
                 )
                 done.put(result)
-            except Exception as e:
-                done.put({"content": str(e), "is_error": True})
+            except Exception as error:
+                terminal = claimed
+                if claimed:
+                    try:
+                        ledger.complete(execution_id, success=False, detail=str(error))
+                    except Exception as ledger_error:
+                        self._log(f"[Scheduler] Execution outcome checkpoint failed: {ledger_error}")
+                done.put({
+                    "content": f"{type(error).__name__}: {error}",
+                    "is_error": True,
+                    "_terminal": terminal,
+                })
 
         try:
-            # Hard safety: never auto-approve file writes even if caller asks
+            # Hard safety: never auto-approve file writes even if caller asks.
             if auto_approve and func_name == "write_developer_code":
                 auto_approve = False
 
@@ -1100,6 +1183,16 @@ class ConversationManager:
                 self.on_speak("Scheduled action needs your approval.")
 
             result = done.get(timeout=300)
+            if result.get("_defer"):
+                return JobExecutionResult(
+                    success=False, retryable=True, defer=True,
+                    message=str(result.get("content") or "Scheduled execution is still active"),
+                )
+            if result.get("_terminal"):
+                return JobExecutionResult(
+                    success=False, retryable=False,
+                    message=str(result.get("content") or "Scheduled execution outcome is uncertain"),
+                )
             ok = not result.get("is_error")
             if ok:
                 try:
@@ -1108,7 +1201,16 @@ class ConversationManager:
                     pass
             return ok
         except queue.Empty:
-            self._log("[Scheduler] Timed out waiting for approval.")
+            with callback_lock:
+                if callback_state["started"]:
+                    # The callback may still be executing. Keep the same key and
+                    # let the scheduler poll the durable ledger rather than replay.
+                    return JobExecutionResult(
+                        success=False, retryable=True, defer=True,
+                        message="Scheduled action is still running; waiting for its durable outcome",
+                    )
+                callback_state["expired"] = True
+            self._log("[Scheduler] Approval timed out before execution; delayed approval callbacks are now disabled.")
             return False
 
     def clear_history(self):
