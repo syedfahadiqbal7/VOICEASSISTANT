@@ -18,6 +18,8 @@ from agent.storage import atomic_write_json, load_json
 
 LEDGER_FILE = BASE_DIR / "history" / "scheduled_execution_ledger.json"
 MAX_ENTRIES = 20000
+_ACTIVE_EXECUTIONS: set[str] = set()
+_ACTIVE_EXECUTIONS_LOCK = threading.RLock()
 
 
 class ScheduledExecutionLedgerError(RuntimeError):
@@ -87,7 +89,6 @@ class ScheduledExecutionLedger:
         self.lock_path = self.path.with_name(self.path.name + ".lock")
         self.max_entries = max(1, int(max_entries))
         self._lock = threading.RLock()
-        self._active: set[str] = set()
         try:
             with self._guard():
                 self._entries = self._read_entries()
@@ -163,7 +164,10 @@ class ScheduledExecutionLedger:
                 if status == "succeeded":
                     return "succeeded"
                 if status == "started":
-                    if key in self._active or self._owner_is_alive(existing):
+                    with _ACTIVE_EXECUTIONS_LOCK:
+                        active_here = key in _ACTIVE_EXECUTIONS
+                    owner_pid = int(existing.get("owner_pid", -1))
+                    if active_here or (owner_pid != _CURRENT_PID and self._owner_is_alive(existing)):
                         return "in_progress"
                     previous = dict(existing)
                     existing["status"] = "uncertain"
@@ -202,7 +206,8 @@ class ScheduledExecutionLedger:
                 raise ScheduledExecutionLedgerError(
                     f"Could not persist scheduled execution claim: {error}"
                 ) from error
-            self._active.add(key)
+            with _ACTIVE_EXECUTIONS_LOCK:
+                _ACTIVE_EXECUTIONS.add(key)
             return "claimed"
 
     def complete(self, execution_id: str, *, success: bool, detail: str = "") -> None:
@@ -214,7 +219,7 @@ class ScheduledExecutionLedger:
             if (
                 not entry
                 or entry.get("status") != "started"
-                or key not in self._active
+                or key not in _ACTIVE_EXECUTIONS
                 or int(entry.get("owner_pid", -1)) != _CURRENT_PID
             ):
                 raise ScheduledExecutionLedgerError(
@@ -236,7 +241,8 @@ class ScheduledExecutionLedger:
                     f"Could not persist scheduled execution outcome: {error}"
                 ) from error
             finally:
-                self._active.discard(key)
+                with _ACTIVE_EXECUTIONS_LOCK:
+                    _ACTIVE_EXECUTIONS.discard(key)
 
     def get(self, execution_id: str) -> Optional[Dict[str, Any]]:
         with self._guard():
