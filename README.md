@@ -38,7 +38,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Create and inspect scheduled jobs from the desktop assistant.
 - Persist job state and recover eligible work after restart.
 - Retry failed handlers with bounded attempts; desktop and mobile schedule views distinguish Pending, Running, Completed, Failed and Cancelled jobs and show retry/error diagnostics. Both expose cancellation only for pending work.
-- Assign a stable `execution_id` to each logical occurrence and preserve it across retries/recovery. Built-in scheduled tool actions claim it in an encrypted local ledger before invocation, skip already successful repeats, defer same-process in-flight work, and fail closed when a crash leaves the outcome uncertain.
+- Assign a stable `execution_id` to each logical occurrence and preserve it across retries/recovery. Built-in scheduled tool actions claim it in an encrypted local ledger protected by an OS sidecar lock before invocation, skip already successful repeats, defer live in-flight work, and fail closed when a crash leaves the outcome uncertain.
 - Shutdown waits for a bounded scheduler grace period and reports if a synchronous handler is still running; handlers cannot be force-killed safely.
 - Scheduler delivery for reminders and arbitrary handlers remains at-least-once, not exactly-once. The built-in tool ledger prevents automatic replay of a successful or ambiguous tool invocation, but cannot prove whether an external effect completed if the process crashes in the effect/checkpoint window; that job is failed closed for manual reconciliation. Other integrations must durably enforce `execution_id` at their own side-effect boundary.
 
