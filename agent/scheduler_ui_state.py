@@ -29,7 +29,8 @@ def job_display_state(job: Dict[str, Any]) -> Tuple[str, str, bool]:
     else:
         status = str(raw_status).strip().lower()
 
-    label = _STATUS_LABELS.get(status, "Unknown")
+    waiting = status == "pending" and bool(job.get("execution_waiting"))
+    label = "Waiting" if waiting else _STATUS_LABELS.get(status, "Unknown")
     details = []
     try:
         attempts = max(0, int(job.get("attempts", 0)))
@@ -45,4 +46,4 @@ def job_display_state(job: Dict[str, Any]) -> Tuple[str, str, bool]:
             safe_error = safe_error[:177] + "..."
         details.append(f"last error: {safe_error}")
 
-    return label, " | ".join(details), status == "pending"
+    return label, " | ".join(details), status == "pending" and not waiting
