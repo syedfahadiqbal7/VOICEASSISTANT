@@ -112,6 +112,7 @@ def test_scheduled_write_rolls_back_when_undo_entry_cannot_be_saved(tmp_path):
         {"filepath": str(target), "content": "after"},
         "Scheduled write",
         auto_approve=False,
+        execution_id="undo-safety-" + target.name,
     )
 
     assert isinstance(result, JobExecutionResult)
@@ -141,6 +142,7 @@ def test_scheduled_write_surfaces_rollback_failure(tmp_path):
         {"filepath": str(target), "content": "after"},
         "Scheduled write",
         auto_approve=False,
+        execution_id="undo-safety-" + target.name,
     )
 
     assert isinstance(result, JobExecutionResult)
