@@ -25,5 +25,16 @@ void main() {
     test('fails closed for unknown explicit status', () {
       expect(canCancelScheduledJob({'status': 'future-state', 'enabled': true}), isFalse);
     });
+
+    test('does not offer cancellation while a deferred action is still active', () {
+      expect(
+        canCancelScheduledJob({
+          'status': 'pending',
+          'enabled': true,
+          'execution_waiting': true,
+        }),
+        isFalse,
+      );
+    });
   });
 }
