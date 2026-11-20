@@ -242,3 +242,43 @@ def test_stop_reports_when_handler_exceeds_shutdown_grace_period(tmp_path, monke
 def test_stop_without_started_worker_returns_true(tmp_path, monkeypatch):
     scheduler, _ = _scheduler(tmp_path, monkeypatch)
     assert scheduler.stop() is True
+
+
+def test_deferred_execution_does_not_consume_retry_budget_or_rotate_id(tmp_path, monkeypatch):
+    from agent.scheduler import JobExecutionResult
+
+    scheduler, _ = _scheduler(
+        tmp_path, monkeypatch,
+        lambda _job: JobExecutionResult(
+            success=False, retryable=True, defer=True, message="still running"
+        ),
+    )
+    job = scheduler.add_once("wait for existing action", datetime.now() - timedelta(seconds=1))
+    execution_id = job["execution_id"]
+    scheduler._fire(job)
+    stored = scheduler.list_jobs()[0]
+    assert stored["status"] == "pending"
+    assert stored["enabled"] is True
+    assert stored["attempts"] == 0
+    assert stored["execution_id"] == execution_id
+    assert stored["execution_waiting"] is True
+    assert stored["last_error"] == "still running"
+
+
+def test_non_retryable_execution_failure_is_terminal(tmp_path, monkeypatch):
+    from agent.scheduler import JobExecutionResult
+
+    scheduler, _ = _scheduler(
+        tmp_path, monkeypatch,
+        lambda _job: JobExecutionResult(
+            success=False, retryable=False, message="outcome uncertain; manual review required"
+        ),
+    )
+    job = scheduler.add_once("do not replay side effect", datetime.now() - timedelta(seconds=1))
+    scheduler._fire(job)
+    stored = scheduler.list_jobs()[0]
+    assert stored["status"] == "failed"
+    assert stored["enabled"] is False
+    assert stored["attempts"] == 1
+    assert stored["last_error"] == "outcome uncertain; manual review required"
+    assert stored["execution_waiting"] is False
