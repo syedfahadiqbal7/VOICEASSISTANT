@@ -60,6 +60,9 @@ def test_ambiguous_execution_from_previous_process_fails_closed(tmp_path):
     path = tmp_path / "scheduled_execution_ledger.json"
     previous_process = ScheduledExecutionLedger(path)
     assert previous_process.claim("crash-window", "open_app") == "claimed"
+    import agent.scheduled_execution_ledger as ledger_module
+    with ledger_module._ACTIVE_EXECUTIONS_LOCK:
+        ledger_module._ACTIVE_EXECUTIONS.discard("crash-window")
     previous_process._entries["crash-window"]["owner_pid"] = -1
     previous_process._entries["crash-window"]["owner_process_start"] = 0
     previous_process._save()
