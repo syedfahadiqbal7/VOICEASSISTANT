@@ -12,6 +12,7 @@ import logging
 import shutil
 import threading
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
@@ -24,6 +25,25 @@ MAX_ATTEMPTS = 3
 RETRY_DELAYS_MINUTES = (1, 5, 15)
 
 logger = logging.getLogger("voiceassistant.scheduler")
+
+
+@dataclass(frozen=True)
+class JobExecutionResult:
+    """Explicit handler result for safe retry, deferral or terminal failure.
+
+    Existing bool/None callbacks remain backward-compatible. A deferred result
+    means the same logical execution is still active elsewhere in this process;
+    it is rescheduled without consuming a retry attempt or rotating execution_id.
+    """
+
+    success: bool
+    retryable: bool = True
+    defer: bool = False
+    message: Optional[str] = None
+
+    def __post_init__(self):
+        if self.defer and (self.success or not self.retryable):
+            raise ValueError("A deferred execution must be unsuccessful and retryable")
 
 
 def _now() -> datetime:
@@ -132,7 +152,7 @@ class JobScheduler:
     def cancel(self, job_id: str) -> bool:
         with self._lock:
             job = next((item for item in self.jobs if item.get("id") == job_id), None)
-            if not job or job.get("status") in {"completed", "cancelled", "running"}:
+            if not job or job.get("status") in {"completed", "cancelled", "running"} or job.get("execution_waiting"):
                 return False
             previous = dict(job)
             job["enabled"] = False
@@ -214,12 +234,22 @@ class JobScheduler:
             fired_job = dict(live)
 
         succeeded = True
+        retryable = True
+        defer = False
         error_text = None
         if self.on_job:
             try:
-                succeeded = self.on_job(fired_job) is not False
+                outcome = self.on_job(fired_job)
+                if isinstance(outcome, JobExecutionResult):
+                    succeeded = outcome.success
+                    retryable = outcome.retryable
+                    defer = outcome.defer
+                    error_text = (outcome.message or "")[:1000] or None
+                else:
+                    succeeded = outcome is not False
             except Exception as error:
                 succeeded = False
+                retryable = True
                 error_text = f"{type(error).__name__}: {error}"[:1000]
                 logger.exception("Scheduled job handler failed", extra={"event": "scheduler.handler_failed"})
 
@@ -228,31 +258,45 @@ class JobScheduler:
             if not live:
                 return
             execution_id_before_completion = live.get("execution_id")
-            live["last_run"] = _now().isoformat()
             live.pop("started_at", None)
-            if succeeded:
-                live["last_error"] = None
-                live["attempts"] = 0
-                interval = (live.get("repeat") or {}).get("every_minutes")
-                if interval:
-                    live["run_at"] = (_now() + timedelta(minutes=max(1, int(interval)))).isoformat()
-                    live["execution_id"] = str(uuid.uuid4())
-                    live["status"] = "pending"
-                    live["enabled"] = True
-                else:
-                    live["status"] = "completed"
-                    live["enabled"] = False
+            if defer:
+                # The same invocation is still active; poll it later without
+                # consuming retry budget or changing its idempotency key.
+                live["status"] = "pending"
+                live["enabled"] = True
+                live["attempts"] = max(0, int(live.get("attempts", 1)) - 1)
+                live["run_at"] = (_now() + timedelta(minutes=1)).isoformat()
+                live["last_error"] = error_text or "Scheduled action is still in progress; waiting for its outcome"
+                live["execution_waiting"] = True
             else:
-                live["last_error"] = error_text or "Handler reported failure"
-                attempts = int(live.get("attempts", 1))
-                if attempts < MAX_ATTEMPTS:
-                    delay = RETRY_DELAYS_MINUTES[min(attempts - 1, len(RETRY_DELAYS_MINUTES) - 1)]
-                    live["run_at"] = (_now() + timedelta(minutes=delay)).isoformat()
-                    live["status"] = "pending"
-                    live["enabled"] = True
+                live["last_run"] = _now().isoformat()
+                live["execution_waiting"] = False
+                if succeeded:
+                    live["last_error"] = None
+                    live["attempts"] = 0
+                    interval = (live.get("repeat") or {}).get("every_minutes")
+                    if interval:
+                        live["run_at"] = (_now() + timedelta(minutes=max(1, int(interval)))).isoformat()
+                        live["execution_id"] = str(uuid.uuid4())
+                        live["status"] = "pending"
+                        live["enabled"] = True
+                    else:
+                        live["status"] = "completed"
+                        live["enabled"] = False
                 else:
-                    live["status"] = "failed"
-                    live["enabled"] = False
+                    live["last_error"] = error_text or "Handler reported failure"
+                    attempts = int(live.get("attempts", 1))
+                    if not retryable:
+                        live["status"] = "failed"
+                        live["enabled"] = False
+                    elif attempts < MAX_ATTEMPTS:
+                        delay = RETRY_DELAYS_MINUTES[min(attempts - 1, len(RETRY_DELAYS_MINUTES) - 1)]
+                        live["run_at"] = (_now() + timedelta(minutes=delay)).isoformat()
+                        live["status"] = "pending"
+                        live["enabled"] = True
+                    else:
+                        live["status"] = "failed"
+                        live["enabled"] = False
             try:
                 self.save()
             except Exception as error:

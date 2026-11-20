@@ -7,9 +7,9 @@ bool canCancelScheduledJob(Map<String, dynamic> job) {
   final status = rawStatus == null || rawStatus.isEmpty
       ? ((job["enabled"] == false) ? "completed" : "pending")
       : rawStatus.toLowerCase();
-  // Running jobs cannot be cancelled by the scheduler; terminal and unknown
-  // states must not present an action that the server will reject.
-  return status == "pending";
+  // A deferred execution may still be running in an approval callback. It is
+  // pending only for scheduler polling and must not be presented as cancellable.
+  return status == "pending" && job["execution_waiting"] != true;
 }
 
 class SchedulesScreen extends StatefulWidget {
@@ -37,9 +37,12 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
     final repeat = job["repeat"];
     final rawStatus = job["status"]?.toString();
     final enabled = job["enabled"] != false;
-    final status = rawStatus == null || rawStatus.isEmpty
-        ? (enabled ? "PENDING" : "DONE")
-        : rawStatus.toUpperCase();
+    final waiting = job["execution_waiting"] == true;
+    final status = waiting
+        ? "WAITING"
+        : (rawStatus == null || rawStatus.isEmpty
+            ? (enabled ? "PENDING" : "DONE")
+            : rawStatus.toUpperCase());
     String when = runAt;
     if (runAt.length > 19) when = runAt.substring(0, 19);
     if (repeat is Map && repeat["every_minutes"] != null) {
