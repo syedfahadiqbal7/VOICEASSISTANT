@@ -149,3 +149,29 @@ def test_approval_callback_arriving_after_timeout_cannot_execute(tmp_path, monke
 
     callback_holder["callback"]()
     assert manager.tool_registry.calls == []
+
+
+def test_open_app_fast_path_matches_and_propagates_execution_id(tmp_path):
+    manager = _manager(tmp_path)
+    captured = {}
+    manager._is_trusted_scheduled_open = lambda _target: True
+
+    def run_tool(name, args, display, auto_approve=False, execution_id=None):
+        captured.update({
+            "name": name,
+            "args": args,
+            "display": display,
+            "auto_approve": auto_approve,
+            "execution_id": execution_id,
+        })
+        return True
+
+    manager._run_tool_direct = run_tool
+    assert manager._execute_scheduled_prompt_fast("Open notepad", "occurrence-42") is True
+    assert captured == {
+        "name": "open_app",
+        "args": {"target": "notepad"},
+        "display": "Scheduled: Open notepad",
+        "auto_approve": True,
+        "execution_id": "occurrence-42",
+    }
