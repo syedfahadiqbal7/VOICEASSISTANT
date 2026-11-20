@@ -358,4 +358,8 @@ def test_malformed_persisted_entry_is_quarantined_not_silently_dropped(tmp_path,
     assert restarted.list_jobs() == []
     backups = list(tmp_path.glob("scheduled_jobs.json.corrupt.*.bak"))
     assert backups
-    assert json.loads(backups[0].read_text(encoding="utf-8"))[0]["id"] == "valid"
+    # Schedule backups retain the authenticated encrypted-at-rest format.
+    from agent.storage import load_json
+    preserved = load_json(backups[0], encrypt=True)
+    assert preserved[0]["id"] == "valid"
+    assert preserved[1]["prompt"] == "missing id"
