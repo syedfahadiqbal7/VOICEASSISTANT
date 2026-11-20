@@ -282,3 +282,20 @@ def test_non_retryable_execution_failure_is_terminal(tmp_path, monkeypatch):
     assert stored["attempts"] == 1
     assert stored["last_error"] == "outcome uncertain; manual review required"
     assert stored["execution_waiting"] is False
+
+
+def test_deferred_active_execution_cannot_be_cancelled(tmp_path, monkeypatch):
+    from agent.scheduler import JobExecutionResult
+
+    scheduler, _ = _scheduler(
+        tmp_path, monkeypatch,
+        lambda _job: JobExecutionResult(
+            success=False, retryable=True, defer=True, message="still running"
+        ),
+    )
+    job = scheduler.add_once("active callback", datetime.now() - timedelta(seconds=1))
+    scheduler._fire(job)
+    assert scheduler.list_jobs()[0]["execution_waiting"] is True
+    assert scheduler.cancel(job["id"]) is False
+    assert scheduler.list_jobs()[0]["status"] == "pending"
+    assert scheduler.list_jobs()[0]["execution_waiting"] is True
