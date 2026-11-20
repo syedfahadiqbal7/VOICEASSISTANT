@@ -47,7 +47,22 @@ class JobExecutionResult:
 
 
 def _now() -> datetime:
+    # Keep legacy local-wall-clock storage for compatibility with existing jobs.
     return datetime.now()
+
+
+def _run_at_timestamp(value: Any) -> float:
+    """Convert an ISO-8601 run_at value to an absolute timestamp.
+
+    Offset-aware values represent an explicit instant. Legacy naive values are
+    interpreted in the host's local timezone, matching datetime.timestamp()
+    semantics and the historical scheduler behavior. Comparing timestamps avoids
+    TypeError when an aware value is compared with the legacy naive _now().
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("run_at must be a non-empty ISO-8601 string")
+    parsed = datetime.fromisoformat(value.strip())
+    return parsed.timestamp()
 
 
 class JobScheduler:
@@ -71,7 +86,8 @@ class JobScheduler:
             recovered = False
             for raw in data:
                 if not isinstance(raw, dict) or not raw.get("id"):
-                    continue
+                    # Do not silently discard malformed entries from a durable store.
+                    raise ValueError("scheduled jobs contain an entry without a valid id")
                 job = dict(raw)
                 job.setdefault("attempts", 0)
                 job.setdefault("last_error", None)
@@ -82,7 +98,18 @@ class JobScheduler:
                     job["recovered_after_crash"] = True
                     recovered = True
                 if job["status"] not in {"pending", "running", "completed", "failed", "cancelled"}:
-                    job["status"] = "pending" if job.get("enabled", True) else "completed"
+                    job["status"] = "failed"
+                    job["enabled"] = False
+                    job["last_error"] = "Unsupported persisted scheduler status; manual review required"
+                    recovered = True
+                if job.get("status") == "pending":
+                    try:
+                        _run_at_timestamp(job.get("run_at"))
+                    except (TypeError, ValueError, OverflowError, OSError):
+                        job["status"] = "failed"
+                        job["enabled"] = False
+                        job["last_error"] = "Invalid persisted run_at timestamp; job disabled for manual review"
+                        recovered = True
                 # Stable across retries and crash recovery; a new interval occurrence gets a new ID.
                 if job.get("status") in {"pending", "running"} and not job.get("execution_id"):
                     job["execution_id"] = str(uuid.uuid4())
@@ -211,8 +238,8 @@ class JobScheduler:
     @staticmethod
     def _is_due(job: Dict[str, Any], now: datetime) -> bool:
         try:
-            return datetime.fromisoformat(str(job["run_at"])) <= now
-        except (KeyError, TypeError, ValueError):
+            return _run_at_timestamp(job["run_at"]) <= now.timestamp()
+        except (KeyError, TypeError, ValueError, OverflowError, OSError):
             return False
 
     def _fire(self, job: Dict[str, Any]) -> None:
