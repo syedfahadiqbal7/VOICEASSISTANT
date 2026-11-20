@@ -348,19 +348,19 @@ def test_invalid_persisted_run_at_is_retained_but_disabled(tmp_path, monkeypatch
 
 def test_malformed_persisted_entry_is_quarantined_not_silently_dropped(tmp_path, monkeypatch):
     scheduler, path = _scheduler(tmp_path, monkeypatch)
-    original_content = json.dumps([
+    original_content = [
         {"id": "valid", "prompt": "keep", "run_at": datetime.now().isoformat(),
          "repeat": None, "enabled": True, "status": "pending"},
         {"prompt": "missing id", "run_at": datetime.now().isoformat()},
-    ])
-    path.write_text(original_content, encoding="utf-8")
+    ]
+    from agent.storage import save_json
+    save_json(path, original_content, encrypt=True)
+    original_bytes = path.read_bytes()
 
     restarted = JobScheduler()
     assert restarted.list_jobs() == []
     backups = list(tmp_path.glob("scheduled_jobs.json.corrupt.*.bak"))
     assert len(backups) == 1
-    # Quarantine must preserve the original bytes exactly. The backup filename
-    # differs from the storage filename, so authenticated decryption uses a
-    # different context and is intentionally not the right way to verify it.
-    assert backups[0].read_text(encoding="utf-8") == original_content
+    # Quarantine preserves the encrypted source blob byte-for-byte.
+    assert backups[0].read_bytes() == original_bytes
     assert not path.exists()
