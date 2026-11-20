@@ -32,6 +32,9 @@ def test_started_execution_after_restart_becomes_uncertain_and_is_never_reclaime
     assert concurrent.claim("exec-3", "open_app") == "in_progress"
 
     # Simulate a previous process that no longer exists.
+    import agent.scheduled_execution_ledger as ledger_module
+    with ledger_module._ACTIVE_EXECUTIONS_LOCK:
+        ledger_module._ACTIVE_EXECUTIONS.discard("exec-3")
     first._entries["exec-3"]["owner_pid"] = -1
     first._entries["exec-3"]["owner_process_start"] = 0
     first._save()
@@ -71,3 +74,36 @@ def test_ledger_rejects_unknown_format_and_fails_closed(tmp_path):
         pass
     else:
         raise AssertionError("unknown ledger format must not be treated as empty")
+
+
+def test_completion_checkpoint_failure_marks_execution_ambiguous(tmp_path, monkeypatch):
+    import agent.scheduled_execution_ledger as module
+
+    ledger = ScheduledExecutionLedger(tmp_path / "ledger.json")
+    assert ledger.claim("exec-6", "open_app") == "claimed"
+    monkeypatch.setattr(
+        module,
+        "atomic_write_json",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
+    try:
+        ledger.complete("exec-6", success=True)
+    except ScheduledExecutionLedgerError:
+        pass
+    else:
+        raise AssertionError("completion checkpoint failure must be surfaced")
+
+    monkeypatch.undo()
+    assert ledger.claim("exec-6", "open_app") == "uncertain"
+
+
+def test_ledger_capacity_fails_closed(tmp_path):
+    ledger = ScheduledExecutionLedger(tmp_path / "ledger.json", max_entries=1)
+    assert ledger.claim("exec-7", "open_app") == "claimed"
+    ledger.complete("exec-7", success=True)
+    try:
+        ledger.claim("exec-8", "open_app")
+    except ScheduledExecutionLedgerError as error:
+        assert "full" in str(error).lower()
+    else:
+        raise AssertionError("full ledger must block untracked side effects")
