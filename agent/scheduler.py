@@ -152,7 +152,7 @@ class JobScheduler:
     def cancel(self, job_id: str) -> bool:
         with self._lock:
             job = next((item for item in self.jobs if item.get("id") == job_id), None)
-            if not job or job.get("status") in {"completed", "cancelled", "running"}:
+            if not job or job.get("status") in {"completed", "cancelled", "running"} or job.get("execution_waiting"):
                 return False
             previous = dict(job)
             job["enabled"] = False
