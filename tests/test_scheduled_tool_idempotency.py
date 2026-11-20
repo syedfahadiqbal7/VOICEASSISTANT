@@ -104,3 +104,48 @@ def test_missing_execution_id_blocks_scheduled_side_effect(tmp_path):
     assert isinstance(outcome, JobExecutionResult)
     assert outcome.retryable is False
     assert manager.tool_registry.calls == []
+
+
+def test_failed_fast_path_is_not_reinterpreted_as_a_successful_reminder(tmp_path):
+    manager = _manager(tmp_path)
+    spoken = []
+    manager.on_speak = lambda message: spoken.append(message)
+    manager._execute_scheduled_prompt_fast = lambda _prompt, _execution_id: False
+
+    outcome = manager._on_scheduled_job({
+        "id": "job-1",
+        "execution_id": "occurrence-1",
+        "prompt": "open notepad",
+    })
+
+    assert outcome is False
+    assert spoken == []
+
+
+def test_approval_callback_arriving_after_timeout_cannot_execute(tmp_path, monkeypatch):
+    import agent.conversation_manager as manager_module
+
+    callback_holder = {}
+
+    class TimedOutQueue:
+        def put(self, _value):
+            pass
+
+        def get(self, timeout=None):
+            assert timeout == 300
+            raise manager_module.queue.Empty()
+
+    monkeypatch.setattr(manager_module.queue, "Queue", lambda: TimedOutQueue())
+    manager = _manager(
+        tmp_path,
+        gate=lambda _display, callback, _risk: callback_holder.setdefault("callback", callback),
+    )
+
+    outcome = manager._run_tool_direct(
+        "open_app", {"target": "notepad"}, "Open notepad",
+        auto_approve=False, execution_id="late-approval",
+    )
+    assert outcome is False
+
+    callback_holder["callback"]()
+    assert manager.tool_registry.calls == []
