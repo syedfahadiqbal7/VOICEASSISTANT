@@ -459,3 +459,30 @@ This is a presentation correction; it does not change scheduler execution, retry
 
 - Changes are on branch `ui/scheduler-accurate-job-status`.
 - Awaiting pull-request CI; no pass is claimed until the workflow completes.
+
+
+## Continuation checkpoint — scheduled tool execution idempotency and crash ambiguity (2026-11-20)
+
+The scheduler already persisted a stable `execution_id`, but the built-in scheduled fast-path tool invocation did not consume it. A retry or process restart could therefore invoke the same open-app/file-write action again. The scheduled tool path also treated a failed fast-path action as an unhandled reminder, potentially reporting the job as completed even though the requested tool action failed.
+
+### Changes implemented on the PR branch
+
+- Added `agent/scheduled_execution_ledger.py`, an encrypted-at-rest local ledger using the existing authenticated storage layer. It persists an invocation claim before a scheduled tool is called and records success only after required post-execution bookkeeping.
+- Repeated IDs already marked successful are treated as successful no-ops. An invocation still active in this process is deferred without consuming retry budget or changing the logical occurrence ID.
+- A persisted `started` record found after process restart is treated as ambiguous, not as permission to replay. The scheduler marks that occurrence failed for manual reconciliation rather than blindly repeating a potentially completed external effect.
+- Tool errors after invocation are recorded as uncertain and are not automatically retried. Policy denials and undo-snapshot failures that occur before the tool invocation remain retryable.
+- Added `JobExecutionResult` to distinguish normal retryable failures, terminal ambiguous failures and in-progress deferrals while retaining backward compatibility with existing bool/None scheduler handlers.
+- A deferred job is presented as Waiting in desktop and mobile schedule views, and cancellation is blocked while its callback remains active.
+- Delayed approval callbacks are rejected if the approval wait already timed out; duplicate approval callback invocations are ignored.
+- Corrected the scheduled fast-path result handling so a recognized tool action that fails is not silently reinterpreted as a reminder.
+- Added focused ledger, scheduler and ConversationManager regression tests; added the new Python test modules to Windows CI. Updated README scheduler guarantees and limitations.
+
+### Reliability boundary — do not overstate guarantees
+
+This is an at-most-once invocation guard for the built-in scheduled tool fast paths, not exactly-once external effect delivery. A crash can occur after the OS/tool has performed an action but before the ledger records success. That outcome is intentionally failed closed and requires operator reconciliation. Reminders and arbitrary external scheduler callbacks remain at-least-once; third-party integrations must enforce the stable `execution_id` at their own side-effect boundary. The ledger is local to the desktop profile and is not a distributed multi-server idempotency service. Its bounded capacity is 20,000 occurrence IDs; when full, new scheduled tool side effects are blocked rather than run without a durable claim.
+
+### Verification status
+
+- Branch: `reliability/scheduled-execution-idempotency`.
+- New tests: `tests/test_scheduled_execution_ledger.py` and `tests/test_scheduled_tool_idempotency.py`; scheduler deferral/cancellation and UI waiting-state regressions were added to their existing suites.
+- Windows CI and Flutter CI are pending PR execution. No test pass or runtime acceptance is claimed yet.
