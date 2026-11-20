@@ -27,6 +27,14 @@ def test_started_execution_after_restart_becomes_uncertain_and_is_never_reclaime
     first = ScheduledExecutionLedger(path)
     assert first.claim("exec-3", "open_app") == "claimed"
 
+    # A second instance can see the live owner and must defer rather than replay.
+    concurrent = ScheduledExecutionLedger(path)
+    assert concurrent.claim("exec-3", "open_app") == "in_progress"
+
+    # Simulate a previous process that no longer exists.
+    first._entries["exec-3"]["owner_pid"] = -1
+    first._entries["exec-3"]["owner_process_start"] = 0
+    first._save()
     restarted = ScheduledExecutionLedger(path)
     assert restarted.claim("exec-3", "open_app") == "uncertain"
     assert restarted.claim("exec-3", "open_app") == "uncertain"
