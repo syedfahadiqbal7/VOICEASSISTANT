@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 
 from agent.conversation_manager import ConversationManager
+from agent.scheduled_execution_ledger import ScheduledExecutionLedger
+from agent.scheduler import JobExecutionResult
 from agent import undo_manager as undo_module
 
 
@@ -59,6 +61,7 @@ class _Undo:
 
 def _manager(target, undo, logs):
     manager = ConversationManager.__new__(ConversationManager)
+    manager.scheduled_execution_ledger = ScheduledExecutionLedger(target.parent / 'scheduled_execution_ledger.json')
     manager.policy = _Policy()
     manager.tool_registry = _Tools(target)
     manager.undo = undo
@@ -83,6 +86,7 @@ def test_scheduled_write_is_blocked_when_undo_snapshot_fails(tmp_path):
         {"filepath": str(target), "content": "after"},
         "Scheduled write",
         auto_approve=False,
+        execution_id="undo-safety-" + target.name,
     )
 
     assert result is False
@@ -110,7 +114,9 @@ def test_scheduled_write_rolls_back_when_undo_entry_cannot_be_saved(tmp_path):
         auto_approve=False,
     )
 
-    assert result is False
+    assert isinstance(result, JobExecutionResult)
+    assert result.success is False
+    assert result.retryable is False
     assert undo.rollback_calls == 1
     assert any("File write was rolled back" in item for item in logs)
 
@@ -137,7 +143,9 @@ def test_scheduled_write_surfaces_rollback_failure(tmp_path):
         auto_approve=False,
     )
 
-    assert result is False
+    assert isinstance(result, JobExecutionResult)
+    assert result.success is False
+    assert result.retryable is False
     assert target.read_text(encoding="utf-8") == "after"
     assert any("CRITICAL:" in item and "rollback failed" in item for item in logs)
 
