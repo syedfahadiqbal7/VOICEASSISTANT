@@ -439,3 +439,23 @@ This remains cooperative/bounded shutdown, not forced cancellation. Synchronous 
 - PR #18 merged to `main` as `1753a5251996e0f95d9f4f05cef42e0b4fdbb318`.
 - PR CI [#44535538127](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44535538127) passed Windows compile/regressions/Phase 0 smoke tests, Flutter analysis/tests + Android APK build, and unsigned iOS build.
 - Shutdown lifecycle changes are submitted for CI in the next PR; no validation pass is claimed yet.
+
+
+
+## Continuation checkpoint — truthful scheduler status in desktop UI (2026-11-19)
+
+The desktop scheduler list previously inferred status only from the legacy enabled flag, rendering every enabled job as `ON` and every disabled job as `DONE`. This hid the scheduler's real persisted lifecycle states and could make an actively executing job appear cancellable even though the scheduler correctly rejects cancellation while a handler is running.
+
+The UI now uses a pure, independently testable presentation helper:
+- Distinguishes Pending, Running, Completed, Failed and Cancelled from the persisted scheduler status.
+- Shows next-run time for pending jobs, start time for running jobs, last-run time for terminal completed/failed jobs, retry attempts and a whitespace-normalized, bounded last-error excerpt.
+- Offers the Cancel action only for pending jobs in both desktop and Flutter mobile schedule views. Running work is not represented as cancellable; terminal and unknown states do not expose a misleading action.
+- Preserves enabled-based status inference only for legacy records that have no explicit status. Unknown explicit states display as Unknown and fail closed for cancellation.
+- Adds focused pure-helper regression tests for desktop and Flutter mobile cancellation visibility; the desktop tests are included explicitly in the Windows CI command and the mobile tests run under Flutter CI.
+
+This is a presentation correction; it does not change scheduler execution, retry, persistence, or cancellation semantics. The desktop UI still requires Windows runtime acceptance.
+
+### Verification status
+
+- Changes are on branch `ui/scheduler-accurate-job-status`.
+- Awaiting pull-request CI; no pass is claimed until the workflow completes.
