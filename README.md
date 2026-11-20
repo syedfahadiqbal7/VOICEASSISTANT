@@ -38,9 +38,9 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Create and inspect scheduled jobs from the desktop assistant.
 - Persist job state and recover eligible work after restart.
 - Retry failed handlers with bounded attempts; desktop and mobile schedule views distinguish Pending, Running, Completed, Failed and Cancelled jobs and show retry/error diagnostics. Both expose cancellation only for pending work.
-- Assign a stable `execution_id` to each logical occurrence, persist it before invoking the handler, preserve it across retries/recovery/checkpoint failures, and rotate it after a successful recurring occurrence. Integrations can use it as a durable idempotency key.
+- Assign a stable `execution_id` to each logical occurrence and preserve it across retries/recovery. Built-in scheduled tool actions claim it in an encrypted local ledger before invocation, skip already successful repeats, defer same-process in-flight work, and fail closed when a crash leaves the outcome uncertain.
 - Shutdown waits for a bounded scheduler grace period and reports if a synchronous handler is still running; handlers cannot be force-killed safely.
-- Delivery is at-least-once, not exactly-once. A crash after an external side effect but before its completion checkpoint can replay the handler; downstream integrations must persist/enforce `execution_id` to deduplicate side effects.
+- Scheduler delivery for reminders and arbitrary handlers remains at-least-once, not exactly-once. The built-in tool ledger prevents automatic replay of a successful or ambiguous tool invocation, but cannot prove whether an external effect completed if the process crashes in the effect/checkpoint window; that job is failed closed for manual reconciliation. Other integrations must durably enforce `execution_id` at their own side-effect boundary.
 
 ### 6. Flutter mobile companion
 - Connect to the running desktop over the local WebSocket API.
@@ -152,7 +152,7 @@ By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. 
 ## Tests
 
 ```powershell
-python -m pytest -q tests/test_security_reliability_regressions.py tests/test_mobile_device_identity.py tests/test_mobile_rbac.py tests/test_mobile_approval_routing.py tests/test_scheduler_reliability.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_keyring.py tests/test_data_protection_v2.py tests/test_key_migration.py tests/test_key_migration_cli.py tests/test_key_rotation.py tests/test_key_recovery.py tests/test_key_retirement.py tests/test_scheduled_write_undo_safety.py tests/test_backup_manager.py tests/test_privacy_manager.py tests/test_observability.py
+python -m pytest -q tests/test_security_reliability_regressions.py tests/test_mobile_device_identity.py tests/test_mobile_rbac.py tests/test_mobile_approval_routing.py tests/test_scheduler_reliability.py tests/test_scheduler_ui_state.py tests/test_scheduled_execution_ledger.py tests/test_scheduled_tool_idempotency.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_keyring.py tests/test_data_protection_v2.py tests/test_key_migration.py tests/test_key_migration_cli.py tests/test_key_rotation.py tests/test_key_recovery.py tests/test_key_retirement.py tests/test_scheduled_write_undo_safety.py tests/test_backup_manager.py tests/test_privacy_manager.py tests/test_observability.py
 python tests/phase0_smoke_tests.py
 ```
 
@@ -239,7 +239,7 @@ Use `0` for any setting to disable that rule. Conversation history and memory ar
 
 Local data-key bootstrap, rotation, backup-verified VAENC1-to-VAENC2 migration, offline recovery-kit export/import, and guarded retained-key retirement are implemented. Secure erasure is not provided; removing a key from the live keyring does not erase copies from historical backups, recovery kits, snapshots or storage media.
 
-Scheduled jobs use persisted execution states and retry failed handlers up to three times. Each logical occurrence has a stable `execution_id` persisted before handler invocation and reused across retries and crash recovery; recurring jobs rotate the key only after a successful completion checkpoint. Delivery remains at-least-once, not exactly-once: a crash after an external side effect but before its completion checkpoint can replay the handler. Integrations must durably deduplicate using `execution_id` at their side-effect boundary. Shutdown waits up to a bounded grace period and logs when a synchronous handler remains active, because Python cannot safely force-kill that handler.
+Scheduled jobs use persisted execution states and retry retryable handlers up to three times. Each logical occurrence has a stable `execution_id` reused across retries and crash recovery. Built-in scheduled tool actions persist an encrypted invocation claim before execution, skip successful duplicates, defer work still active in the same process, and fail closed when a prior process left an ambiguous outcome. This is not exactly-once delivery: reminders and arbitrary callbacks remain at-least-once, and external integrations must enforce `execution_id` at their own side-effect boundary. Ambiguous tool outcomes require manual reconciliation rather than automatic replay. Shutdown waits up to a bounded grace period and logs when a synchronous handler remains active, because Python cannot safely force-kill that handler.
 
 ## Documentation
 
