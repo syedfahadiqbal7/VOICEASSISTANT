@@ -467,7 +467,7 @@ The scheduler already persisted a stable `execution_id`, but the built-in schedu
 
 ### Changes implemented on the PR branch
 
-- Added `agent/scheduled_execution_ledger.py`, an encrypted-at-rest local ledger using the existing authenticated storage layer. It persists an invocation claim before a scheduled tool is called and records success only after required post-execution bookkeeping.
+- Added `agent/scheduled_execution_ledger.py`, an encrypted-at-rest local ledger using the existing authenticated storage layer and an OS-backed sidecar lock for atomic read/modify/write across desktop processes. It persists an invocation claim before a scheduled tool is called and records success only after required post-execution bookkeeping. Recorded owner PID/process-start identity distinguishes a live invocation from a stale claim after process exit.
 - Repeated IDs already marked successful are treated as successful no-ops. An invocation still active in this process is deferred without consuming retry budget or changing the logical occurrence ID.
 - A persisted `started` record found after process restart is treated as ambiguous, not as permission to replay. The scheduler marks that occurrence failed for manual reconciliation rather than blindly repeating a potentially completed external effect.
 - Tool errors after invocation are recorded as uncertain and are not automatically retried. Policy denials and undo-snapshot failures that occur before the tool invocation remain retryable.
