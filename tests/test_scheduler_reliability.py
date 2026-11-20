@@ -353,8 +353,8 @@ def test_malformed_persisted_entry_is_quarantined_not_silently_dropped(tmp_path,
          "repeat": None, "enabled": True, "status": "pending"},
         {"prompt": "missing id", "run_at": datetime.now().isoformat()},
     ]
-    from agent.storage import save_json
-    save_json(path, original_content, encrypt=True)
+    from agent.storage import atomic_write_json
+    atomic_write_json(path, original_content, encrypt=True)
     original_bytes = path.read_bytes()
 
     restarted = JobScheduler()
