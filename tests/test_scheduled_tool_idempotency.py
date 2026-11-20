@@ -60,6 +60,9 @@ def test_ambiguous_execution_from_previous_process_fails_closed(tmp_path):
     path = tmp_path / "scheduled_execution_ledger.json"
     previous_process = ScheduledExecutionLedger(path)
     assert previous_process.claim("crash-window", "open_app") == "claimed"
+    previous_process._entries["crash-window"]["owner_pid"] = -1
+    previous_process._entries["crash-window"]["owner_process_start"] = 0
+    previous_process._save()
 
     manager = _manager(tmp_path)
     outcome = manager._run_tool_direct(
