@@ -121,7 +121,9 @@ class JobScheduler:
             try:
                 stamp = _now().strftime("%Y%m%d_%H%M%S_%f")
                 backup = SCHEDULE_FILE.with_name(f"{SCHEDULE_FILE.name}.corrupt.{stamp}.bak")
-                shutil.copy2(SCHEDULE_FILE, backup)
+                # Same-directory rename atomically removes the corrupt active file
+                # only after the quarantine destination has been selected.
+                SCHEDULE_FILE.replace(backup)
                 logger.exception("Corrupt schedule preserved at %s", backup, extra={"event": "scheduler.corrupt_store_preserved"})
             except Exception as backup_error:
                 logger.exception("Schedule load and backup recovery both failed (original error: %s)", type(error).__name__, extra={"event": "scheduler.backup_failed"})
