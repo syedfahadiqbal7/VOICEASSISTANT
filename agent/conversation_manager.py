@@ -65,12 +65,12 @@ class ConversationManager:
         context_blocks = []
         mem_ctx = self.memory.context_snippet()
         if mem_ctx:
-            context_blocks.append("[Memory]\\n" + mem_ctx)
+            context_blocks.append("[Memory]\n" + mem_ctx)
         profile_ctx = self.profile.context_snippet() if self.profile is not None else ""
         if profile_ctx:
-            context_blocks.append("[User Preferences]\\n" + profile_ctx)
+            context_blocks.append("[User Preferences]\n" + profile_ctx)
         if context_blocks:
-            system_content = SYSTEM_PROMPT + "\\n\\n" + "\\n\\n".join(context_blocks)
+            system_content = SYSTEM_PROMPT + "\n\n" + "\n\n".join(context_blocks)
 
 
         self.session_messages: List[Dict[str, Any]] = [
