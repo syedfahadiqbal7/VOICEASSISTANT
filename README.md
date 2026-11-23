@@ -65,7 +65,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Bootstrap and rotate data-encryption keys locally while retaining previous keys for old data.
 - Export/import a separate encrypted offline recovery kit containing the keyring; import refuses to overwrite an existing keyring.
 - Retire a retained key only after registered stores, authenticated backup and recovery-kit checks pass and the operator confirms the action.
-- Preview and explicitly confirm retention cleanup; retention is disabled by default.
+- Preview and explicitly confirm retention cleanup; retention is disabled by default. Optional retention windows also cover the encrypted personal profile and scheduled execution history.
 - Redacted structured diagnostics and audit/policy controls support troubleshooting and accountability.
 
 ### 8. Current limitations to understand
