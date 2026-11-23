@@ -422,7 +422,12 @@ def test_calendar_job_is_persisted_and_advanced_after_success(tmp_path, monkeypa
     }
     job = scheduler.add_calendar("daily task", rule)
     first_execution_id = job["execution_id"]
-    first_run = job["run_at"]
+    # Force the persisted occurrence due; _fire is normally called by the due loop.
+    with scheduler._lock:
+        live = scheduler.jobs[0]
+        live["run_at"] = (datetime.now().astimezone() - timedelta(minutes=1)).isoformat()
+        scheduler.save()
+    first_run = scheduler.list_jobs()[0]["run_at"]
 
     scheduler._fire(job)
 
