@@ -417,6 +417,27 @@ class SchedulerViewer(ctk.CTkToplevel):
                 timing = f"started: {job.get('started_at', 'in progress')}"
             elif status in {"Completed", "Failed"}:
                 timing = f"last run: {job.get('last_run') or 'not recorded'}"
+            repeat = job.get("repeat")
+            if isinstance(repeat, dict) and repeat.get("type") == "calendar":
+                cadence = (
+                    f"{repeat.get('frequency', 'calendar')} at "
+                    f"{repeat.get('local_time', 'unspecified')} "
+                    f"({repeat.get('timezone', 'unspecified timezone')})"
+                )
+                if repeat.get("frequency") == "weekly":
+                    day_names = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+                    days = ", ".join(
+                        day_names[day] for day in repeat.get("weekdays", [])
+                        if isinstance(day, int) and 0 <= day < 7
+                    )
+                    cadence += f" · {days}"
+                elif repeat.get("frequency") == "monthly":
+                    cadence += f" · day {repeat.get('day_of_month', '?')}"
+                timing = " · ".join(part for part in (timing, cadence) if part)
+            elif isinstance(repeat, dict) and repeat.get("every_minutes") is not None:
+                timing = " · ".join(
+                    part for part in (timing, f"every {repeat['every_minutes']} minutes") if part
+                )
             details = [part for part in (timing, diagnostics) if part]
             text = (
                 f"[{job.get('id')}] {status}"
