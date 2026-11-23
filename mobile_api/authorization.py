@@ -36,6 +36,7 @@ ROLE_PERMISSIONS = {
         "ping",
         "get_session_state",
         "list_schedules",
+        "list_schedule_history",
         "user_message",
         "cancel_schedule",
         "undo_last",
@@ -44,12 +45,14 @@ ROLE_PERMISSIONS = {
         "ping",
         "get_session_state",
         "list_schedules",
+        "list_schedule_history",
         "approval_response",
     }),
     ROLE_VIEWER: frozenset({
         "ping",
         "get_session_state",
         "list_schedules",
+        "list_schedule_history",
     }),
 }
 
