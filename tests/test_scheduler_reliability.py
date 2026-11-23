@@ -86,8 +86,51 @@ def test_empty_prompt_and_invalid_interval_are_rejected(tmp_path, monkeypatch):
     scheduler, _ = _scheduler(tmp_path, monkeypatch)
     with pytest.raises(ValueError):
         scheduler.add_once("  ", datetime.now())
-    with pytest.raises(ValueError):
-        scheduler.add_interval("valid prompt", 0)
+    for invalid in (0, -1, 525601, True, 1.5, "10"):
+        with pytest.raises(ValueError):
+            scheduler.add_interval("valid prompt", invalid)
+
+
+def test_interval_upper_bound_is_inclusive(tmp_path, monkeypatch):
+    scheduler, _ = _scheduler(tmp_path, monkeypatch)
+    job = scheduler.add_interval("annual interval", 525600)
+    assert job["repeat"] == {"every_minutes": 525600}
+
+
+def test_invalid_persisted_recurrence_is_disabled_for_manual_review(tmp_path, monkeypatch):
+    scheduler, path = _scheduler(tmp_path, monkeypatch)
+    job = scheduler.add_interval("persisted interval", 10)
+    scheduler.jobs[0]["repeat"] = {"every_minutes": "10"}
+    scheduler.save()
+    restarted = JobScheduler()
+    recovered = restarted.list_jobs()[0]
+    assert recovered["id"] == job["id"]
+    assert recovered["status"] == "failed"
+    assert recovered["enabled"] is False
+    assert "invalid persisted recurrence" in recovered["last_error"].lower()
+
+
+def test_retry_delays_are_exactly_one_five_and_fifteen_minutes(tmp_path, monkeypatch):
+    fixed_now = datetime(2026, 1, 15, 12, 0, 0)
+    monkeypatch.setattr(scheduler_module, "_now", lambda: fixed_now)
+    scheduler, _ = _scheduler(tmp_path, monkeypatch, lambda _job: False)
+    job = scheduler.add_once("retry timing", fixed_now - timedelta(seconds=1))
+
+    scheduler._fire(job)
+    first = scheduler.list_jobs()[0]
+    assert datetime.fromisoformat(first["run_at"]) == fixed_now + timedelta(minutes=1)
+    assert first["attempts"] == 1 and first["status"] == "pending"
+
+    scheduler._fire(first)
+    second = scheduler.list_jobs()[0]
+    assert datetime.fromisoformat(second["run_at"]) == fixed_now + timedelta(minutes=5)
+    assert second["attempts"] == 2 and second["status"] == "pending"
+
+    scheduler._fire(second)
+    terminal = scheduler.list_jobs()[0]
+    assert terminal["attempts"] == 3
+    assert terminal["status"] == "failed"
+    assert terminal["enabled"] is False
 
 
 def test_corrupt_schedule_is_quarantined(tmp_path, monkeypatch):
