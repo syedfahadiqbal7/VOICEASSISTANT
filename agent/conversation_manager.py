@@ -136,11 +136,12 @@ class ConversationManager:
         if profile_ctx:
             blocks.append("[User Preferences]\n" + profile_ctx)
         content = SYSTEM_PROMPT + (("\n\n" + "\n\n".join(blocks)) if blocks else "")
-        with self._processing_lock:
-            if self.session_messages and self.session_messages[0].get("role") == "system":
-                self.session_messages[0]["content"] = content
-            else:
-                self.session_messages.insert(0, {"role": "system", "content": content})
+        # Replacing the system-message content is a single list-item assignment;
+        # do not block the UI thread waiting for a potentially long LLM turn.
+        if self.session_messages and self.session_messages[0].get("role") == "system":
+            self.session_messages[0]["content"] = content
+        else:
+            self.session_messages.insert(0, {"role": "system", "content": content})
 
     def _ts(self) -> str:
         return datetime.now().strftime("%H:%M:%S")
