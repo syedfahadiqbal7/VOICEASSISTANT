@@ -15,7 +15,7 @@ def test_daily_recurrence_uses_configured_wall_clock_and_timezone():
         "type": "calendar", "frequency": "daily",
         "local_time": "08:15", "timezone": "Asia/Dubai",
     }
-    after = datetime(2026, 11, 23, 4, 30, tzinfo=ZoneInfo("UTC"))
+    after = datetime(2026, 11, 23, 4, 0, tzinfo=ZoneInfo("UTC"))
     result = next_calendar_occurrence(rule, after)
     assert result.isoformat() == "2026-11-23T08:15:00+04:00"
 
