@@ -109,7 +109,7 @@ class SchedulerViewer(ctk.CTkToplevel):
         self.when_menu = ctk.CTkOptionMenu(
             form,
             variable=self.when_var,
-            values=["Once, after a delay", "Repeat every X minutes"],
+            values=["Once, after a delay", "Repeat every X minutes", "Daily", "Weekly", "Monthly"],
             width=280,
         )
         self.when_menu.grid(row=5, column=1, columnspan=2, sticky="w", padx=8, pady=4)
@@ -119,9 +119,37 @@ class SchedulerViewer(ctk.CTkToplevel):
         self.minutes_entry.insert(0, "2")
         self.minutes_entry.grid(row=6, column=1, sticky="w", padx=8, pady=4)
 
+        self.calendar_frame = ctk.CTkFrame(form, fg_color="transparent")
+        self.calendar_time_entry = ctk.CTkEntry(
+            self.calendar_frame, width=80, placeholder_text="09:00"
+        )
+        self.calendar_time_entry.insert(0, "09:00")
+        self.calendar_timezone_entry = ctk.CTkEntry(
+            self.calendar_frame, width=145, placeholder_text="Asia/Dubai"
+        )
+        self.calendar_timezone_entry.insert(0, "Asia/Dubai")
+        self.calendar_weekdays_entry = ctk.CTkEntry(
+            self.calendar_frame, width=120, placeholder_text="Mon,Wed,Fri"
+        )
+        self.calendar_weekdays_entry.insert(0, "Mon,Wed,Fri")
+        self.calendar_monthday_entry = ctk.CTkEntry(
+            self.calendar_frame, width=55, placeholder_text="1"
+        )
+        self.calendar_monthday_entry.insert(0, "1")
+        for column, (label, widget) in enumerate((
+            ("Local time", self.calendar_time_entry),
+            ("IANA timezone", self.calendar_timezone_entry),
+            ("Weekdays", self.calendar_weekdays_entry),
+            ("Day of month", self.calendar_monthday_entry),
+        )):
+            ctk.CTkLabel(self.calendar_frame, text=label).grid(
+                row=0, column=column, padx=3, pady=(2, 0)
+            )
+            widget.grid(row=1, column=column, padx=3, pady=(0, 3))
+
         # Preview
         ctk.CTkLabel(form, text="Preview command").grid(
-            row=7, column=0, sticky="nw", padx=12, pady=8
+            row=8, column=0, sticky="nw", padx=12, pady=8
         )
         self.preview = ctk.CTkLabel(
             form,
@@ -132,11 +160,11 @@ class SchedulerViewer(ctk.CTkToplevel):
             font=ctk.CTkFont(size=12),
             wraplength=420,
         )
-        self.preview.grid(row=7, column=1, columnspan=2, sticky="w", padx=8, pady=8)
+        self.preview.grid(row=8, column=1, columnspan=2, sticky="w", padx=8, pady=8)
 
         # Buttons
         btn_row = ctk.CTkFrame(form, fg_color="transparent")
-        btn_row.grid(row=8, column=0, columnspan=3, sticky="ew", padx=12, pady=(4, 14))
+        btn_row.grid(row=9, column=0, columnspan=3, sticky="ew", padx=12, pady=(4, 14))
 
         ctk.CTkButton(
             btn_row,
@@ -160,14 +188,17 @@ class SchedulerViewer(ctk.CTkToplevel):
         ).pack(side="left")
 
         self._on_action_change(self.action_var.get())
+        self._on_when_change(self.when_var.get())
         self._update_preview()
 
         # Live preview on change
         self.minutes_entry.bind("<KeyRelease>", lambda e: self._update_preview())
+        for entry in (self.calendar_time_entry, self.calendar_timezone_entry, self.calendar_weekdays_entry, self.calendar_monthday_entry):
+            entry.bind("<KeyRelease>", lambda e: self._update_preview())
         self.file_entry.bind("<KeyRelease>", lambda e: self._update_preview())
         self.content_entry.bind("<KeyRelease>", lambda e: self._update_preview())
         self.custom_entry.bind("<KeyRelease>", lambda e: self._update_preview())
-        self.when_menu.configure(command=lambda _=None: self._update_preview())
+        self.when_menu.configure(command=self._on_when_change)
         self.app_menu.configure(command=lambda _=None: self._update_preview())
 
     def _on_action_change(self, value: str):
@@ -197,15 +228,17 @@ class SchedulerViewer(ctk.CTkToplevel):
             self.custom_entry.grid(row=2, column=1, columnspan=2, sticky="w", padx=8, pady=4)
         self._update_preview()
 
-    def _build_prompt(self) -> str:
-        action = self.action_var.get()
-        raw_minutes = self.minutes_entry.get().strip()
-        if not raw_minutes.isdigit():
-            raise ValueError("Minutes must be a whole number between 1 and 525600.")
-        minutes = int(raw_minutes)
-        if not 1 <= minutes <= 525600:
-            raise ValueError("Minutes must be between 1 and 525600.")
+    def _on_when_change(self, value: str):
+        if value in {"Daily", "Weekly", "Monthly"}:
+            self.calendar_frame.grid(row=7, column=0, columnspan=3, sticky="w", padx=8, pady=3)
+            self.minutes_entry.configure(state="disabled")
+        else:
+            self.calendar_frame.grid_remove()
+            self.minutes_entry.configure(state="normal")
+        self._update_preview()
 
+    def _build_action_body(self) -> str:
+        action = self.action_var.get()
         if action == "Open an app":
             app = self.app_var.get().strip() or "notepad"
             if app not in COMMON_APPS:
@@ -226,7 +259,48 @@ class SchedulerViewer(ctk.CTkToplevel):
             if len(body) > 10000:
                 raise ValueError("Custom instructions are limited to 10000 characters.")
 
-        if self.when_var.get().startswith("Once"):
+        return body
+
+    def _calendar_rule(self):
+        from agent.calendar_recurrence import validate_calendar_recurrence
+
+        frequency = self.when_var.get().lower()
+        local_time = self.calendar_time_entry.get().strip()
+        timezone_name = self.calendar_timezone_entry.get().strip()
+        rule = {
+            "type": "calendar",
+            "frequency": frequency,
+            "local_time": local_time,
+            "timezone": timezone_name,
+        }
+        if frequency == "weekly":
+            day_map = {"mon": 0, "tue": 1, "wed": 2, "thu": 3,
+                       "fri": 4, "sat": 5, "sun": 6}
+            raw_days = [part.strip().lower()[:3]
+                        for part in self.calendar_weekdays_entry.get().split(",")]
+            if not raw_days or any(day not in day_map for day in raw_days):
+                raise ValueError("Weekdays must be comma-separated names, e.g. Mon,Wed,Fri.")
+            rule["weekdays"] = [day_map[day] for day in raw_days]
+        elif frequency == "monthly":
+            raw_day = self.calendar_monthday_entry.get().strip()
+            if not raw_day.isdigit():
+                raise ValueError("Day of month must be a number from 1 to 31.")
+            rule["day_of_month"] = int(raw_day)
+        return validate_calendar_recurrence(rule)
+
+    def _build_prompt(self) -> str:
+        when = self.when_var.get()
+        body = self._build_action_body()
+        if when in {"Daily", "Weekly", "Monthly"}:
+            rule = self._calendar_rule()
+            return f"Calendar schedule: {rule['frequency']} at {rule['local_time']} ({rule['timezone']}): {body}"
+        raw_minutes = self.minutes_entry.get().strip()
+        if not raw_minutes.isdigit():
+            raise ValueError("Minutes must be a whole number between 1 and 525600.")
+        minutes = int(raw_minutes)
+        if not 1 <= minutes <= 525600:
+            raise ValueError("Minutes must be between 1 and 525600.")
+        if when.startswith("Once"):
             return f"schedule in {minutes} minutes: {body}"
         return f"schedule every {minutes} minutes: {body}"
 
@@ -241,6 +315,7 @@ class SchedulerViewer(ctk.CTkToplevel):
         self.action_var.set("Open an app")
         self.app_var.set("notepad")
         self.when_var.set("Once, after a delay")
+        self._on_when_change(self.when_var.get())
         self.minutes_entry.delete(0, "end")
         self.minutes_entry.insert(0, "2")
         self.file_entry.delete(0, "end")
@@ -271,6 +346,21 @@ class SchedulerViewer(ctk.CTkToplevel):
             prompt = self._build_prompt()
         except ValueError:
             self._update_preview()
+            return
+        if self.when_var.get() in {"Daily", "Weekly", "Monthly"}:
+            try:
+                body = self._build_action_body()
+                recurrence = self._calendar_rule()
+                self.scheduler.add_calendar(body, recurrence)
+                self.preview.configure(
+                    text="Calendar schedule created successfully.", text_color="#27AE60"
+                )
+                self._clear_form()
+                self.after(200, self.reload)
+            except Exception as error:
+                self.preview.configure(
+                    text=f"Could not create calendar schedule: {error}", text_color="#E74C3C"
+                )
             return
         if not self.on_schedule_direct:
             self.preview.configure(text="Scheduler action is unavailable.", text_color="#E74C3C")
