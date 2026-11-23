@@ -109,4 +109,28 @@ void main() {
     });
   });
 
+  group('scheduled execution history labels', () {
+    test('shows outcome and safe task label', () {
+      expect(
+        scheduledHistoryTitle({'status': 'succeeded', 'label': 'Daily report'}),
+        'SUCCEEDED · Daily report',
+      );
+    });
+
+    test('shows attempt count and start timestamp', () {
+      expect(
+        scheduledHistorySubtitle({
+          'attempts': 2,
+          'started_at': '2026-11-23T08:00:00+04:00',
+        }),
+        'Attempts: 2 · 2026-11-23T08:00:00+04:00',
+      );
+    });
+
+    test('uses safe fallbacks for incomplete history records', () {
+      expect(scheduledHistoryTitle({}), 'UNKNOWN · Scheduled task');
+      expect(scheduledHistorySubtitle({}), 'Attempts: 0 · time unavailable');
+    });
+  });
+
 }
