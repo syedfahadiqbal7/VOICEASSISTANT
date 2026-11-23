@@ -22,6 +22,10 @@ _ALLOWED_STATUSES = {
     "started", "retrying", "succeeded", "failed", "uncertain", "skipped", "deferred"
 }
 _TERMINAL_STATUSES = {"succeeded", "failed", "uncertain", "skipped"}
+_SAFE_DIAGNOSTICS = {
+    "execution deferred", "handler succeeded", "handler outcome uncertain",
+    "retry scheduled", "handler failed", "outcome recorded",
+}
 
 
 class SchedulerHistoryError(RuntimeError):
@@ -136,7 +140,7 @@ class SchedulerExecutionHistory:
                 existing = {
                     "job_id": job_id,
                     "execution_id": execution_id,
-                    "label": str(job.get("label") or "Scheduled task")[:120],
+                    "label": "Scheduled task",
                     "scheduled_at": str(job.get("run_at") or "")[:64],
                     "started_at": _utc_now(),
                     "finished_at": None,
@@ -170,7 +174,7 @@ class SchedulerExecutionHistory:
             record["status"] = status
             record["finished_at"] = _utc_now() if status in _TERMINAL_STATUSES else None
             # Diagnostics are categorical, bounded and must never contain raw prompts/errors.
-            record["diagnostic"] = str(diagnostic)[:80] if diagnostic else None
+            record["diagnostic"] = diagnostic if diagnostic in _SAFE_DIAGNOSTICS else "outcome recorded" if diagnostic else None
             self._write(records)
 
     def list_records(self, limit: int = 100) -> List[Dict[str, Any]]:
