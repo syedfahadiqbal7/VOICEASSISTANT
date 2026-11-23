@@ -43,8 +43,9 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
         : (rawStatus == null || rawStatus.isEmpty
             ? (enabled ? "PENDING" : "DONE")
             : rawStatus.toUpperCase());
-    String when = runAt;
-    if (runAt.length > 19) when = runAt.substring(0, 19);
+    // Preserve the full ISO-8601 value, including an explicit UTC offset.
+    // Truncating at seconds hides the offset and can mislead users about the instant.
+    final String when = runAt.isEmpty ? "unspecified" : runAt;
     if (repeat is Map && repeat["every_minutes"] != null) {
       return "$status · every ${repeat["every_minutes"]} min · next $when";
     }
