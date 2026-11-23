@@ -352,10 +352,10 @@ class SchedulerViewer(ctk.CTkToplevel):
                 body = self._build_action_body()
                 recurrence = self._calendar_rule()
                 self.scheduler.add_calendar(body, recurrence)
+                self._clear_form()
                 self.preview.configure(
                     text="Calendar schedule created successfully.", text_color="#27AE60"
                 )
-                self._clear_form()
                 self.after(200, self.reload)
             except Exception as error:
                 self.preview.configure(
