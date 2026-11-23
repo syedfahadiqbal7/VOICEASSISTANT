@@ -2,6 +2,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:voice_assistant_mobile/screens/schedules_screen.dart';
 
 void main() {
+  group('scheduledRunAtLabel', () {
+    test('preserves full timestamp and explicit timezone offset', () {
+      expect(scheduledRunAtLabel({'run_at': '2026-11-23T18:30:00+04:00'}), '2026-11-23T18:30:00+04:00');
+    });
+
+    test('preserves legacy naive local timestamps without inventing an offset', () {
+      expect(scheduledRunAtLabel({'run_at': '2026-11-23T18:30:00'}), '2026-11-23T18:30:00');
+    });
+
+    test('labels missing timestamps explicitly', () {
+      expect(scheduledRunAtLabel({}), 'unspecified');
+    });
+  });
+
   group('canCancelScheduledJob', () {
     test('allows pending jobs', () {
       expect(canCancelScheduledJob({'status': 'pending', 'enabled': true}), isTrue);

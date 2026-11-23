@@ -35,7 +35,8 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Plugin execution is in-process; the current permission and manifest checks are not an operating-system sandbox.
 
 ### 5. Scheduling and automation
-- Create and inspect scheduled jobs from the desktop assistant.
+- Create and inspect scheduled jobs from the desktop assistant; interval recurrence accepts integer minutes from 1 through 525,600 and rejects coercive or out-of-range values.
+- Recover malformed recurrence metadata by disabling the affected job for manual review instead of silently coercing its interval. Mobile schedule entries retain the full ISO-8601 timestamp and explicit UTC offset.
 - Persist job state and recover eligible work after restart.
 - Retry failed handlers with bounded attempts; desktop and mobile schedule views distinguish Pending, Running, Completed, Failed and Cancelled jobs and show retry/error diagnostics. Both expose cancellation only for pending work.
 - Assign a stable `execution_id` to each logical occurrence and preserve it across retries/recovery. Built-in scheduled tool actions claim it in an encrypted local ledger protected by an OS sidecar lock before invocation, skip already successful repeats, defer live in-flight work, and fail closed when a crash leaves the outcome uncertain.

@@ -12,6 +12,12 @@ bool canCancelScheduledJob(Map<String, dynamic> job) {
   return status == "pending" && job["execution_waiting"] != true;
 }
 
+String scheduledRunAtLabel(Map<String, dynamic> job) {
+  final runAt = job["run_at"]?.toString() ?? "";
+  // Preserve the complete ISO-8601 timestamp, including any explicit offset.
+  return runAt.isEmpty ? "unspecified" : runAt;
+}
+
 class SchedulesScreen extends StatefulWidget {
   const SchedulesScreen({super.key});
 
@@ -33,7 +39,6 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
   }
 
   String _fmtWhen(Map<String, dynamic> job) {
-    final runAt = job["run_at"]?.toString() ?? "";
     final repeat = job["repeat"];
     final rawStatus = job["status"]?.toString();
     final enabled = job["enabled"] != false;
@@ -43,8 +48,7 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
         : (rawStatus == null || rawStatus.isEmpty
             ? (enabled ? "PENDING" : "DONE")
             : rawStatus.toUpperCase());
-    String when = runAt;
-    if (runAt.length > 19) when = runAt.substring(0, 19);
+    final when = scheduledRunAtLabel(job);
     if (repeat is Map && repeat["every_minutes"] != null) {
       return "$status · every ${repeat["every_minutes"]} min · next $when";
     }
