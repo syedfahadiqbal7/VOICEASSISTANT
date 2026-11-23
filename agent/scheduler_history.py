@@ -106,6 +106,8 @@ class SchedulerExecutionHistory:
         records = document["records"]
         if len(records) > self.max_records:
             records = records[-self.max_records:]
+            self._write(records)
+        seen_ids = set()
         for record in records:
             if (
                 not isinstance(record, dict)
@@ -114,6 +116,9 @@ class SchedulerExecutionHistory:
                 or record.get("status") not in _ALLOWED_STATUSES
             ):
                 raise ValueError("Malformed scheduler history record")
+            if record["execution_id"] in seen_ids:
+                raise ValueError("Duplicate scheduler history execution_id")
+            seen_ids.add(record["execution_id"])
         return records
 
     def _write(self, records: List[Dict[str, Any]]) -> None:
@@ -174,7 +179,7 @@ class SchedulerExecutionHistory:
             record["status"] = status
             record["finished_at"] = _utc_now() if status in _TERMINAL_STATUSES else None
             # Diagnostics are categorical, bounded and must never contain raw prompts/errors.
-            record["diagnostic"] = diagnostic if diagnostic in _SAFE_DIAGNOSTICS else "outcome recorded" if diagnostic else None
+            record["diagnostic"] = diagnostic if isinstance(diagnostic, str) and diagnostic in _SAFE_DIAGNOSTICS else "outcome recorded" if diagnostic else None
             self._write(records)
 
     def list_records(self, limit: int = 100) -> List[Dict[str, Any]]:
