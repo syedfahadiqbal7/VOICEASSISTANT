@@ -291,9 +291,9 @@ class SchedulerViewer(ctk.CTkToplevel):
     def _build_prompt(self) -> str:
         when_var = getattr(self, "when_var", None)
         when = when_var.get() if when_var is not None else "Once, after a delay"
-        body = SchedulerViewer._build_action_body(self)
         if when in {"Daily", "Weekly", "Monthly"}:
             rule = self._calendar_rule()
+            body = SchedulerViewer._build_action_body(self)
             return f"Calendar schedule: {rule['frequency']} at {rule['local_time']} ({rule['timezone']}): {body}"
         raw_minutes = self.minutes_entry.get().strip()
         if not raw_minutes.isdigit():
@@ -301,6 +301,7 @@ class SchedulerViewer(ctk.CTkToplevel):
         minutes = int(raw_minutes)
         if not 1 <= minutes <= 525600:
             raise ValueError("Minutes must be between 1 and 525600.")
+        body = SchedulerViewer._build_action_body(self)
         if when.startswith("Once"):
             return f"schedule in {minutes} minutes: {body}"
         return f"schedule every {minutes} minutes: {body}"
