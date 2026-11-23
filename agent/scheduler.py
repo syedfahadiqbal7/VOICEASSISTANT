@@ -22,6 +22,16 @@ from agent.data_protection import DataProtectionError
 SCHEDULE_FILE = BASE_DIR / "history" / "scheduled_jobs.json"
 MAX_ATTEMPTS = 3
 RETRY_DELAYS_MINUTES = (1, 5, 15)
+MAX_INTERVAL_MINUTES = 525600
+
+
+def _validated_interval(value: Any) -> int:
+    """Validate persisted/API interval metadata without lossy coercion."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("Interval must be an integer number of minutes")
+    if not 1 <= value <= MAX_INTERVAL_MINUTES:
+        raise ValueError(f"Interval must be between 1 and {MAX_INTERVAL_MINUTES} minutes")
+    return value
 
 logger = logging.getLogger("voiceassistant.scheduler")
 
@@ -91,6 +101,17 @@ class JobScheduler:
                 job.setdefault("attempts", 0)
                 job.setdefault("last_error", None)
                 job.setdefault("status", "pending" if job.get("enabled", True) else "completed")
+                repeat = job.get("repeat")
+                if repeat is not None:
+                    try:
+                        if not isinstance(repeat, dict) or set(repeat) != {"every_minutes"}:
+                            raise ValueError("repeat must contain only every_minutes")
+                        _validated_interval(repeat.get("every_minutes"))
+                    except ValueError as error:
+                        job["status"] = "failed"
+                        job["enabled"] = False
+                        job["last_error"] = f"Invalid persisted recurrence metadata: {error}; manual review required"
+                        recovered = True
                 if job["status"] == "running":
                     job["status"] = "pending"
                     job["enabled"] = True
@@ -161,9 +182,7 @@ class JobScheduler:
         prompt = (prompt or "").strip()
         if not prompt:
             raise ValueError("Scheduled prompt cannot be empty")
-        every_minutes = int(every_minutes)
-        if every_minutes < 1:
-            raise ValueError("Interval must be at least one minute")
+        every_minutes = _validated_interval(every_minutes)
         job = {
             "id": str(uuid.uuid4()), "prompt": prompt,
             "label": label or prompt[:60],
@@ -249,6 +268,18 @@ class JobScheduler:
             live = next((item for item in self.jobs if item.get("id") == job_id), None)
             if not live or not live.get("enabled") or live.get("status") != "pending":
                 return
+            try:
+                repeat = live.get("repeat")
+                if repeat is not None:
+                    if not isinstance(repeat, dict) or set(repeat) != {"every_minutes"}:
+                        raise ValueError("repeat must contain only every_minutes")
+                    _validated_interval(repeat.get("every_minutes"))
+            except ValueError as error:
+                live["status"] = "failed"
+                live["enabled"] = False
+                live["last_error"] = f"Invalid recurrence metadata: {error}; manual review required"
+                self.save()
+                return
             live["status"] = "running"
             live["attempts"] = int(live.get("attempts", 0)) + 1
             live["started_at"] = _now().isoformat()
@@ -303,8 +334,9 @@ class JobScheduler:
                     live["last_error"] = None
                     live["attempts"] = 0
                     interval = (live.get("repeat") or {}).get("every_minutes")
-                    if interval:
-                        live["run_at"] = (_now() + timedelta(minutes=max(1, int(interval)))).isoformat()
+                    if interval is not None:
+                        interval = _validated_interval(interval)
+                        live["run_at"] = (_now() + timedelta(minutes=interval)).isoformat()
                         live["execution_id"] = str(uuid.uuid4())
                         live["status"] = "pending"
                         live["enabled"] = True
