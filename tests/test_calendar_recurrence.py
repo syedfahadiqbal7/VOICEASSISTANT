@@ -88,6 +88,8 @@ def test_dst_fold_uses_first_occurrence_only():
      "timezone": "Not/AZone"},
     {"type": "calendar", "frequency": "yearly", "local_time": "08:00",
      "timezone": "UTC"},
+    {"type": "calendar", "frequency": [], "local_time": "08:00",
+     "timezone": "UTC"},
 ])
 def test_invalid_calendar_recurrence_is_rejected(rule):
     with pytest.raises(ValueError):
