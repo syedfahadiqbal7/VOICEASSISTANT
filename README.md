@@ -41,6 +41,8 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Persist job state and recover eligible work after restart.
 - Retry failed handlers with bounded attempts; desktop and mobile schedule views distinguish Pending, Running, Completed, Failed and Cancelled jobs and show retry/error diagnostics. Both expose cancellation only for pending work.
 - Assign a stable `execution_id` to each logical occurrence and preserve it across retries/recovery. Built-in scheduled tool actions claim it in an encrypted local ledger protected by an OS sidecar lock before invocation, skip already successful repeats, defer live in-flight work, and fail closed when a crash leaves the outcome uncertain.
+- Persist encrypted, bounded execution history (last 1,000 occurrences) with one record per `execution_id`, retry attempt counts, timestamps and categorical outcomes (`started`, `retrying`, `deferred`, `succeeded`, `failed`, `uncertain`, `skipped`). History deliberately excludes raw prompts and exception text; desktop and mobile schedule screens show the 30/50 most recent records respectively. If history cannot be checkpointed, the scheduler blocks the action or marks its outcome for manual review.
+- Missed-run policy is catch-up-once: after restart, one overdue occurrence is eligible to run; the scheduler does not replay every missed interval. After a successful recurring occurrence it calculates the next future run from the current time. Jobs still require the desktop app to be running.
 - Shutdown waits for a bounded scheduler grace period and reports if a synchronous handler is still running; handlers cannot be force-killed safely.
 - Scheduler delivery for reminders and arbitrary handlers remains at-least-once, not exactly-once. The built-in tool ledger prevents automatic replay of a successful or ambiguous tool invocation, but cannot prove whether an external effect completed if the process crashes in the effect/checkpoint window; that job is failed closed for manual reconciliation. Other integrations must durably enforce `execution_id` at their own side-effect boundary.
 
@@ -48,7 +50,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Connect to the running desktop over the local WebSocket API.
 - View conversation transcripts, assistant speech/status events and synchronized plan checklists.
 - Submit text and voice input where platform speech permissions/capabilities are available.
-- View scheduled jobs and refresh session/schedule state.
+- View scheduled jobs, refresh schedule state and inspect recent execution history.
 - Save connection settings using platform secure storage and optionally restore a saved connection.
 - Pair individual devices with unique credentials; revoke devices and enforce server-side roles (admin, operator, approver, viewer).
 - Route sensitive approval prompts to an authenticated admin/approver device, with desktop approval as fallback.
