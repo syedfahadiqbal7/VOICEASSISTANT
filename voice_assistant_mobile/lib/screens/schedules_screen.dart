@@ -52,6 +52,24 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
     if (repeat is Map && repeat["every_minutes"] != null) {
       return "$status · every ${repeat["every_minutes"]} min · next $when";
     }
+    if (repeat is Map && repeat["type"] == "calendar") {
+      final frequency = repeat["frequency"]?.toString() ?? "calendar";
+      final localTime = repeat["local_time"]?.toString() ?? "unspecified time";
+      final timezone = repeat["timezone"]?.toString() ?? "unspecified timezone";
+      var cadence = frequency;
+      if (frequency == "weekly" && repeat["weekdays"] is List) {
+        const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        final days = (repeat["weekdays"] as List)
+            .whereType<int>()
+            .where((day) => day >= 0 && day < dayNames.length)
+            .map((day) => dayNames[day])
+            .join(", ");
+        cadence = "weekly ($days)";
+      } else if (frequency == "monthly") {
+        cadence = "monthly on day ${repeat["day_of_month"] ?? "?"}";
+      }
+      return "$status · $cadence at $localTime ($timezone) · next $when";
+    }
     return "$status · at $when";
   }
 
