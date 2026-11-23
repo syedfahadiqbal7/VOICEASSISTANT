@@ -149,3 +149,19 @@ def test_corrupt_profile_fails_closed_without_resetting_file(tmp_path):
     # Legacy plaintext is encrypted on read, but malformed data is preserved;
     # the store must never silently replace it with an empty profile.
     assert load_json(path, encrypt=True) == {"version": 99}
+
+def test_profile_editor_updates_preserve_birthday_and_watchlist_ids(tmp_path):
+    store = UserProfileStore(tmp_path / "profile.json")
+    birthday = store.add_birthday("Family member", "04-12")
+    product = store.add_watchlist_item("Headphones", "Audio", 100, "AED")
+    store.update_profile({
+        "birthdays": [{"label": "Family member", "month_day": "04-12", "reminder_days": [30, 7, 1]}],
+        "shopping": {
+            "favorite_stores": [],
+            "watchlist": [{"name": "Headphones", "category": "Audio", "target_price": 90, "currency": "AED"}],
+        },
+    })
+    profile = store.get_profile()
+    assert profile["birthdays"][0]["id"] == birthday["id"]
+    assert profile["shopping"]["watchlist"][0]["id"] == product["id"]
+    assert profile["shopping"]["watchlist"][0]["target_price"] == 90.0
