@@ -410,11 +410,13 @@ class SchedulerViewer(ctk.CTkToplevel):
             jobs = self.scheduler.list_jobs()
         except Exception as e:
             ctk.CTkLabel(self.list_frame, text=f"Error: {e}").pack(anchor="w")
+            self._reload_history()
             return
         if not jobs:
             ctk.CTkLabel(
                 self.list_frame, text="No jobs yet. Use the form above.", text_color="gray"
             ).pack(anchor="w", padx=8, pady=8)
+            self._reload_history()
             return
         for job in jobs:
             row = ctk.CTkFrame(self.list_frame, fg_color=("gray92", "gray20"), corner_radius=8)
