@@ -351,6 +351,29 @@ class UserProfileStore:
                     candidate[key].update(value)
                 else:
                     candidate[key] = value
+            # Preserve stable IDs when the editor submits entries without exposing IDs.
+            if "birthdays" in updates and isinstance(candidate.get("birthdays"), list):
+                existing_birthdays = {
+                    (item["label"].casefold(), item["month_day"]): item["id"]
+                    for item in current["birthdays"]
+                }
+                for item in candidate["birthdays"]:
+                    if isinstance(item, dict) and not item.get("id"):
+                        key = (str(item.get("label", "")).casefold(), str(item.get("month_day", "")))
+                        if key in existing_birthdays:
+                            item["id"] = existing_birthdays[key]
+            if "shopping" in updates and isinstance(candidate.get("shopping"), dict):
+                raw_items = candidate["shopping"].get("watchlist")
+                if isinstance(raw_items, list):
+                    existing_items = {
+                        item["name"].casefold(): item["id"]
+                        for item in current["shopping"]["watchlist"]
+                    }
+                    for item in raw_items:
+                        if isinstance(item, dict) and not item.get("id"):
+                            key = str(item.get("name", "")).casefold()
+                            if key in existing_items:
+                                item["id"] = existing_items[key]
             candidate = self._validate(candidate)
             self._write_unlocked(candidate)
             return copy.deepcopy(candidate)
