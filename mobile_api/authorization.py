@@ -26,6 +26,7 @@ ROLE_PERMISSIONS = {
         "ping",
         "get_session_state",
         "list_schedules",
+        "list_schedule_history",
         "user_message",
         "cancel_schedule",
         "undo_last",
