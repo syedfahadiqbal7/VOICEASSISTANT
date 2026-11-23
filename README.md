@@ -24,6 +24,8 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 ### 3. Desktop workspace and operations UI
 - CustomTkinter Windows desktop interface for conversations and agent interaction.
 - Operational viewers for audit events, policy, scheduler jobs, undo history and file diffs.
+- Encrypted local profile editor for interests, career targets, preferred locations, content tastes, language-learning level, lifestyle preferences, wardrobe items, favorite stores, product watchlists and birthday reminders.
+- Assistant profile context is opt-in and includes only selected general preferences; birthday dates store month/day only, and profile validation rejects secret-like values. Profile data is not synchronized to mobile or cloud by this feature.
 - Help and skill-authoring interfaces.
 - Desktop lifecycle/restart handling and structured, redacted diagnostics.
 
@@ -156,7 +158,7 @@ By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. 
 ## Tests
 
 ```powershell
-python -m pytest -q tests/test_security_reliability_regressions.py tests/test_mobile_device_identity.py tests/test_mobile_rbac.py tests/test_mobile_approval_routing.py tests/test_scheduler_reliability.py tests/test_scheduler_ui_state.py tests/test_scheduled_execution_ledger.py tests/test_scheduled_tool_idempotency.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_keyring.py tests/test_data_protection_v2.py tests/test_key_migration.py tests/test_key_migration_cli.py tests/test_key_rotation.py tests/test_key_recovery.py tests/test_key_retirement.py tests/test_scheduled_write_undo_safety.py tests/test_backup_manager.py tests/test_privacy_manager.py tests/test_observability.py
+python -m pytest -q tests/test_security_reliability_regressions.py tests/test_user_profile.py tests/test_mobile_device_identity.py tests/test_mobile_rbac.py tests/test_mobile_approval_routing.py tests/test_scheduler_reliability.py tests/test_scheduler_ui_state.py tests/test_scheduled_execution_ledger.py tests/test_scheduled_tool_idempotency.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_keyring.py tests/test_data_protection_v2.py tests/test_key_migration.py tests/test_key_migration_cli.py tests/test_key_rotation.py tests/test_key_recovery.py tests/test_key_retirement.py tests/test_scheduled_write_undo_safety.py tests/test_backup_manager.py tests/test_privacy_manager.py tests/test_observability.py
 python tests/phase0_smoke_tests.py
 ```
 
