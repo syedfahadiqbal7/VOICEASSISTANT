@@ -18,6 +18,18 @@ String scheduledRunAtLabel(Map<String, dynamic> job) {
   return runAt.isEmpty ? "unspecified" : runAt;
 }
 
+String scheduledHistoryTitle(Map<String, dynamic> record) {
+  final status = (record["status"] ?? "unknown").toString().toUpperCase();
+  final label = (record["label"] ?? "Scheduled task").toString();
+  return "$status · $label";
+}
+
+String scheduledHistorySubtitle(Map<String, dynamic> record) {
+  final attempts = record["attempts"] ?? 0;
+  final started = (record["started_at"] ?? "time unavailable").toString();
+  return "Attempts: $attempts · $started";
+}
+
 String scheduledRecurrenceLabel(Map<String, dynamic> job) {
   final repeat = job["repeat"];
   if (repeat is Map && repeat["every_minutes"] != null) {
@@ -60,6 +72,7 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
       if (ws.isConnected) {
         ws.requestSchedules();
         ws.requestSessionState();
+        ws.requestScheduleHistory();
       }
     });
   }
@@ -97,6 +110,7 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                 ? () {
                     ws.requestSchedules();
                     ws.requestSessionState();
+                    ws.requestScheduleHistory();
                   }
                 : null,
             icon: const Icon(Icons.refresh),
@@ -117,6 +131,7 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
             ),
           ),
           Expanded(
+            flex: 3,
             child: !ws.isConnected
                 ? const Center(
                     child: Text("Offline", style: TextStyle(color: Colors.white54)),
@@ -223,6 +238,62 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                           );
                         },
                       ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Container(
+              width: double.infinity,
+              color: const Color(0xFF111C30),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          "Recent execution history",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: "Refresh history",
+                        onPressed: ws.isConnected ? ws.requestScheduleHistory : null,
+                        icon: const Icon(Icons.refresh, color: Colors.white70, size: 20),
+                      ),
+                    ],
+                  ),
+                  Expanded(
+                    child: !ws.isConnected
+                        ? const Center(child: Text("Connect to desktop to view history", style: TextStyle(color: Colors.white54)))
+                        : ws.scheduleHistory.isEmpty
+                            ? const Center(child: Text("No execution history yet", style: TextStyle(color: Colors.white54)))
+                            : ListView.builder(
+                                itemCount: ws.scheduleHistory.length,
+                                itemBuilder: (context, index) {
+                                  final record = ws.scheduleHistory[index];
+                                  return ListTile(
+                                    dense: true,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                                    title: Text(
+                                      scheduledHistoryTitle(record),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                                    ),
+                                    subtitle: Text(
+                                      scheduledHistorySubtitle(record),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: Colors.white54, fontSize: 10),
+                                    ),
+                                  );
+                                },
+                              ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),

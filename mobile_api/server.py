@@ -278,6 +278,13 @@ async def websocket_endpoint(websocket: WebSocket):
                     "jobs": jobs
                 })
 
+            elif msg_type == "list_schedule_history":
+                records = bridge.list_schedule_history(limit=50)
+                await manager.send_personal(websocket, {
+                    "type": "schedule_history",
+                    "records": records,
+                })
+
             elif msg_type == "cancel_schedule":
                 try:
                     job_id = _validate_job_id(data)

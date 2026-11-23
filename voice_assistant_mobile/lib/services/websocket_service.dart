@@ -47,6 +47,7 @@ class WebSocketService extends ChangeNotifier {
   bool undoAvailable = false;
   int jobsCount = 0;
   List<Map<String, dynamic>> jobs = [];
+  List<Map<String, dynamic>> scheduleHistory = [];
   String? lastUserText;
   String? lastStatus;
   Map<String, dynamic>? activePlan;
@@ -433,6 +434,10 @@ class WebSocketService extends ChangeNotifier {
     _sendRaw({"type": "list_schedules"});
   }
 
+  void requestScheduleHistory() {
+    _sendRaw({"type": "list_schedule_history"});
+  }
+
   void requestUndo() {
     _sendRaw({"type": "undo_last"});
   }
@@ -488,6 +493,7 @@ class WebSocketService extends ChangeNotifier {
             if (isConnected) {
               requestSessionState();
               requestSchedules();
+              requestScheduleHistory();
             }
           });
           break;
@@ -553,6 +559,16 @@ class WebSocketService extends ChangeNotifier {
                 .map((e) => Map<String, dynamic>.from(e))
                 .toList();
             jobsCount = jobs.length;
+          }
+          break;
+
+        case "schedule_history":
+          final records = data["records"];
+          if (records is List) {
+            scheduleHistory = records
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList();
           }
           break;
 
