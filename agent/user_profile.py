@@ -81,6 +81,8 @@ class UserProfileError(RuntimeError):
 @contextmanager
 def _profile_file_lock(path: Path) -> Iterator[None]:
     lock_path = path.with_name(path.name + ".lock")
+    if path.is_symlink() or lock_path.is_symlink():
+        raise DataProtectionError("Profile or profile lock path must not be a symbolic link")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as handle:
         handle.seek(0, os.SEEK_END)
@@ -153,6 +155,8 @@ class UserProfileStore:
 
     def __init__(self, path: Optional[Path | str] = None):
         self.path = Path(path or PROFILE_FILE)
+        if self.path.parent.is_symlink() or self.path.is_symlink():
+            raise DataProtectionError("Profile storage path must not be a symbolic link")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         with self._guard():
