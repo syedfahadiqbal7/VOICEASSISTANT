@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, List, Optional
 from config import BASE_DIR
 from agent.storage import atomic_write_json, load_json
 from agent.data_protection import DataProtectionError
+from agent.calendar_recurrence import validate_calendar_recurrence, next_calendar_occurrence
 
 SCHEDULE_FILE = BASE_DIR / "history" / "scheduled_jobs.json"
 MAX_ATTEMPTS = 3
@@ -104,9 +105,12 @@ class JobScheduler:
                 repeat = job.get("repeat")
                 if repeat is not None:
                     try:
-                        if not isinstance(repeat, dict) or set(repeat) != {"every_minutes"}:
-                            raise ValueError("repeat must contain only every_minutes")
-                        _validated_interval(repeat.get("every_minutes"))
+                        if isinstance(repeat, dict) and set(repeat) == {"every_minutes"}:
+                            _validated_interval(repeat.get("every_minutes"))
+                        elif isinstance(repeat, dict) and repeat.get("type") == "calendar":
+                            job["repeat"] = validate_calendar_recurrence(repeat)
+                        else:
+                            raise ValueError("repeat must be a valid interval or calendar recurrence")
                     except ValueError as error:
                         job["status"] = "failed"
                         job["enabled"] = False
@@ -196,6 +200,27 @@ class JobScheduler:
             self.save()
         return dict(job)
 
+    def add_calendar(
+        self, prompt: str, recurrence: Dict[str, Any], label: str = ""
+    ) -> Dict[str, Any]:
+        """Create a daily, weekly or monthly wall-clock schedule in an IANA timezone."""
+        prompt = (prompt or "").strip()
+        if not prompt:
+            raise ValueError("Scheduled prompt cannot be empty")
+        rule = validate_calendar_recurrence(recurrence)
+        first_run = next_calendar_occurrence(rule, _now())
+        job = {
+            "id": str(uuid.uuid4()), "prompt": prompt,
+            "label": label or prompt[:60], "run_at": first_run.isoformat(),
+            "repeat": rule, "enabled": True, "status": "pending",
+            "attempts": 0, "last_run": None, "last_error": None,
+            "execution_id": str(uuid.uuid4()),
+        }
+        with self._lock:
+            self.jobs.append(job)
+            self.save()
+        return dict(job)
+
     def cancel(self, job_id: str) -> bool:
         with self._lock:
             job = next((item for item in self.jobs if item.get("id") == job_id), None)
@@ -271,9 +296,12 @@ class JobScheduler:
             try:
                 repeat = live.get("repeat")
                 if repeat is not None:
-                    if not isinstance(repeat, dict) or set(repeat) != {"every_minutes"}:
-                        raise ValueError("repeat must contain only every_minutes")
-                    _validated_interval(repeat.get("every_minutes"))
+                    if isinstance(repeat, dict) and set(repeat) == {"every_minutes"}:
+                        _validated_interval(repeat.get("every_minutes"))
+                    elif isinstance(repeat, dict) and repeat.get("type") == "calendar":
+                        live["repeat"] = validate_calendar_recurrence(repeat)
+                    else:
+                        raise ValueError("repeat must be a valid interval or calendar recurrence")
             except ValueError as error:
                 live["status"] = "failed"
                 live["enabled"] = False
@@ -333,10 +361,18 @@ class JobScheduler:
                 if succeeded:
                     live["last_error"] = None
                     live["attempts"] = 0
-                    interval = (live.get("repeat") or {}).get("every_minutes")
+                    repeat_rule = live.get("repeat")
+                    interval = (repeat_rule or {}).get("every_minutes")
                     if interval is not None:
                         interval = _validated_interval(interval)
                         live["run_at"] = (_now() + timedelta(minutes=interval)).isoformat()
+                        live["execution_id"] = str(uuid.uuid4())
+                        live["status"] = "pending"
+                        live["enabled"] = True
+                    elif isinstance(repeat_rule, dict) and repeat_rule.get("type") == "calendar":
+                        live["run_at"] = next_calendar_occurrence(
+                            repeat_rule, datetime.now().astimezone()
+                        ).isoformat()
                         live["execution_id"] = str(uuid.uuid4())
                         live["status"] = "pending"
                         live["enabled"] = True
