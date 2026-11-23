@@ -12,8 +12,11 @@ from agent.scheduler import JobScheduler
 
 
 def _scheduler(tmp_path, monkeypatch, handler=None):
+    import agent.scheduler_history as history_module
+
     path = tmp_path / "scheduled_jobs.json"
     monkeypatch.setattr(scheduler_module, "SCHEDULE_FILE", path)
+    monkeypatch.setattr(history_module, "HISTORY_FILE", tmp_path / "scheduled_execution_history.json")
     return JobScheduler(on_job=handler), path
 
 

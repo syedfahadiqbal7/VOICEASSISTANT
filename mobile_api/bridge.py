@@ -288,6 +288,19 @@ class MobileBridge:
         except Exception:
             return []
 
+    def list_schedule_history(self, limit: int = 50):
+        """Return bounded, sanitized execution history for authorized mobile viewers."""
+        if not self._conversation:
+            return []
+        try:
+            history = getattr(self._conversation.scheduler, "history", None)
+            if history is None:
+                return []
+            return history.list_records(limit=limit)
+        except Exception:
+            logger.exception("Could not read scheduled execution history", extra={"event": "mobile_bridge.schedule_history_failed"})
+            return []
+
     def cancel_schedule(self, job_id: str) -> bool:
         if not self._conversation or not job_id:
             return False

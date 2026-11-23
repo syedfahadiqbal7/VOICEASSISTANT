@@ -20,28 +20,28 @@ def test_supported_roles_and_least_privilege_defaults():
 
 def test_admin_can_use_all_mobile_commands():
     for command in (
-        "ping", "get_session_state", "list_schedules", "user_message",
+        "ping", "get_session_state", "list_schedules", "list_schedule_history", "user_message",
         "cancel_schedule", "undo_last", "approval_response",
     ):
         assert is_allowed(ROLE_ADMIN, command) is True
 
 
 def test_operator_cannot_approve_or_administer():
-    for command in ("ping", "get_session_state", "list_schedules", "user_message", "cancel_schedule", "undo_last"):
+    for command in ("ping", "get_session_state", "list_schedules", "list_schedule_history", "user_message", "cancel_schedule", "undo_last"):
         assert is_allowed(ROLE_OPERATOR, command) is True
     assert is_allowed(ROLE_OPERATOR, "approval_response") is False
     assert is_allowed(ROLE_OPERATOR, "enroll_device") is False
 
 
 def test_approver_can_only_observe_and_approve():
-    for command in ("ping", "get_session_state", "list_schedules", "approval_response"):
+    for command in ("ping", "get_session_state", "list_schedules", "list_schedule_history", "approval_response"):
         assert is_allowed(ROLE_APPROVER, command) is True
     assert is_allowed(ROLE_APPROVER, "user_message") is False
     assert is_allowed(ROLE_APPROVER, "undo_last") is False
 
 
 def test_viewer_is_read_only():
-    for command in ("ping", "get_session_state", "list_schedules"):
+    for command in ("ping", "get_session_state", "list_schedules", "list_schedule_history"):
         assert is_allowed(ROLE_VIEWER, command) is True
     for command in ("user_message", "cancel_schedule", "undo_last", "approval_response"):
         assert is_allowed(ROLE_VIEWER, command) is False

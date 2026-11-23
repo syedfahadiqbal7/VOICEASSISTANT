@@ -39,7 +39,7 @@ class SchedulerViewer(ctk.CTkToplevel):
         super().__init__(parent)
         _open_viewer = self
         self.title("Scheduler — Schedule a Task")
-        self.geometry("700x620")
+        self.geometry("700x760")
         self.scheduler = scheduler
         self.on_fill_message = on_fill_message
         self.on_schedule_direct = on_schedule_direct
@@ -378,8 +378,16 @@ class SchedulerViewer(ctk.CTkToplevel):
             font=ctk.CTkFont(size=14, weight="bold"),
         ).pack(anchor="w", padx=16, pady=(8, 4))
 
-        self.list_frame = ctk.CTkScrollableFrame(self, height=200)
+        self.list_frame = ctk.CTkScrollableFrame(self, height=180)
         self.list_frame.pack(fill="both", expand=True, padx=16, pady=4)
+
+        ctk.CTkLabel(
+            self,
+            text="Recent execution history",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).pack(anchor="w", padx=16, pady=(8, 4))
+        self.history_frame = ctk.CTkScrollableFrame(self, height=140)
+        self.history_frame.pack(fill="both", expand=True, padx=16, pady=4)
 
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
         btn_row.pack(fill="x", padx=16, pady=(4, 12))
@@ -402,11 +410,13 @@ class SchedulerViewer(ctk.CTkToplevel):
             jobs = self.scheduler.list_jobs()
         except Exception as e:
             ctk.CTkLabel(self.list_frame, text=f"Error: {e}").pack(anchor="w")
+            self._reload_history()
             return
         if not jobs:
             ctk.CTkLabel(
                 self.list_frame, text="No jobs yet. Use the form above.", text_color="gray"
             ).pack(anchor="w", padx=8, pady=8)
+            self._reload_history()
             return
         for job in jobs:
             row = ctk.CTkFrame(self.list_frame, fg_color=("gray92", "gray20"), corner_radius=8)
@@ -459,6 +469,49 @@ class SchedulerViewer(ctk.CTkToplevel):
                     hover_color="#922B21",
                     command=lambda i=jid: self._cancel(i),
                 ).pack(side="right", padx=10, pady=8)
+
+        self._reload_history()
+
+    def _reload_history(self):
+        if not hasattr(self, "history_frame"):
+            return
+        for widget in self.history_frame.winfo_children():
+            widget.destroy()
+        history = getattr(self.scheduler, "history", None)
+        if history is None:
+            ctk.CTkLabel(
+                self.history_frame,
+                text="Execution history unavailable; scheduled actions are blocked.",
+                text_color="#E74C3C",
+            ).pack(anchor="w", padx=8, pady=6)
+            return
+        try:
+            records = history.list_records(limit=30)
+        except Exception as error:
+            ctk.CTkLabel(
+                self.history_frame,
+                text=f"Could not load execution history: {type(error).__name__}",
+                text_color="#E74C3C",
+            ).pack(anchor="w", padx=8, pady=6)
+            return
+        if not records:
+            ctk.CTkLabel(
+                self.history_frame, text="No scheduled executions yet.", text_color="gray"
+            ).pack(anchor="w", padx=8, pady=6)
+            return
+        for record in records:
+            status = str(record.get("status", "unknown")).upper()
+            label = str(record.get("label") or "Scheduled task")[:120]
+            started = str(record.get("started_at") or "time unavailable")
+            attempts = int(record.get("attempts", 0))
+            text = f"{status} · {label} · attempts: {attempts} · {started}"
+            ctk.CTkLabel(
+                self.history_frame,
+                text=text,
+                justify="left",
+                anchor="w",
+                wraplength=610,
+            ).pack(fill="x", anchor="w", padx=8, pady=3)
 
     def _cancel(self, job_id: str):
         try:

@@ -19,6 +19,7 @@ from config import BASE_DIR
 from agent.storage import atomic_write_json, load_json
 from agent.data_protection import DataProtectionError
 from agent.calendar_recurrence import validate_calendar_recurrence, next_calendar_occurrence
+from agent.scheduler_history import SchedulerExecutionHistory, SchedulerHistoryError
 
 SCHEDULE_FILE = BASE_DIR / "history" / "scheduled_jobs.json"
 MAX_ATTEMPTS = 3
@@ -82,6 +83,14 @@ class JobScheduler:
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self.history: Optional[SchedulerExecutionHistory] = None
+        self.history_error: Optional[str] = None
+        try:
+            self.history = SchedulerExecutionHistory()
+        except Exception as error:
+            # Keep the desktop usable, but fail scheduled execution closed.
+            self.history_error = type(error).__name__
+            logger.exception("Scheduler history unavailable; scheduled execution is disabled", extra={"event": "scheduler.history_unavailable"})
         SCHEDULE_FILE.parent.mkdir(parents=True, exist_ok=True)
         self.load()
 
@@ -320,6 +329,29 @@ class JobScheduler:
                 raise
             fired_job = dict(live)
 
+        # Persist the occurrence identity before any handler can cause a side effect.
+        if self.history is None:
+            history_error = self.history_error or "SchedulerHistoryUnavailable"
+        else:
+            try:
+                self.history.record_started(fired_job)
+                history_error = None
+            except Exception as error:
+                history_error = type(error).__name__
+        if history_error:
+            with self._lock:
+                live = next((item for item in self.jobs if item.get("id") == job_id), None)
+                if live:
+                    live["status"] = "failed"
+                    live["enabled"] = False
+                    live["last_error"] = "Execution history unavailable; action was not started. Manual review required."
+                    try:
+                        self.save()
+                    except Exception:
+                        logger.exception("Could not persist fail-closed scheduler state", extra={"event": "scheduler.history_fail_closed_checkpoint_failed"})
+            logger.error("Scheduled action blocked because execution history could not be checkpointed (%s)", history_error, extra={"event": "scheduler.history_start_failed"})
+            return
+
         succeeded = True
         retryable = True
         defer = False
@@ -393,6 +425,36 @@ class JobScheduler:
                     else:
                         live["status"] = "failed"
                         live["enabled"] = False
+            # History is a separate durable audit checkpoint. Never store raw prompts
+            # or exception text; diagnostics are categorical and bounded.
+            history_status = (
+                "deferred" if defer else
+                "succeeded" if succeeded else
+                "retrying" if retryable and int(live.get("attempts", 1)) < MAX_ATTEMPTS else
+                "uncertain" if not retryable else
+                "failed"
+            )
+            history_diagnostic = (
+                "execution deferred" if defer else
+                "handler succeeded" if succeeded else
+                "handler outcome uncertain" if history_status == "uncertain" else
+                "retry scheduled" if history_status == "retrying" else
+                "handler failed"
+            )
+            try:
+                self.history.record_outcome(
+                    str(execution_id_before_completion), history_status, history_diagnostic
+                )
+            except Exception as history_error:
+                live["status"] = "failed"
+                live["enabled"] = False
+                live["last_error"] = "Execution history checkpoint failed; outcome requires manual review."
+                try:
+                    self.save()
+                except Exception:
+                    logger.exception("Could not persist history failure state", extra={"event": "scheduler.history_outcome_checkpoint_failed"})
+                logger.exception("Scheduled action outcome could not be recorded", extra={"event": "scheduler.history_outcome_failed"})
+                return
             try:
                 self.save()
             except Exception as error:
