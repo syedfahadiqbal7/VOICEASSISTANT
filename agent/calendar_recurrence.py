@@ -21,7 +21,7 @@ def validate_calendar_recurrence(value: Any) -> Dict[str, Any]:
         raise ValueError("Calendar recurrence has missing or unsupported fields")
     if value.get("type") != "calendar":
         raise ValueError("Recurrence type must be calendar")
-    if frequency not in {"daily", "weekly", "monthly"}:
+    if not isinstance(frequency, str) or frequency not in {"daily", "weekly", "monthly"}:
         raise ValueError("Frequency must be daily, weekly or monthly")
     local_time = value.get("local_time")
     if not isinstance(local_time, str) or len(local_time) != 5 or local_time[2] != ":":
