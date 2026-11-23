@@ -95,8 +95,10 @@ def test_corrupt_schedule_is_quarantined(tmp_path, monkeypatch):
     path.write_text("{broken json", encoding="utf-8")
     restarted = JobScheduler()
     assert restarted.list_jobs() == []
-    assert list(tmp_path.glob("scheduled_jobs.json.corrupt.*.bak"))
-    assert path.read_text(encoding="utf-8") == "{broken json"
+    backups = list(tmp_path.glob("scheduled_jobs.json.corrupt.*.bak"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == "{broken json"
+    assert not path.exists()
 
 
 def test_concurrent_fire_attempts_execute_handler_once(tmp_path, monkeypatch):
