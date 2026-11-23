@@ -226,7 +226,7 @@ class UserProfileStore:
 
         career = _only_keys(data.get("career"), set(DEFAULT_PROFILE["career"]), "career")
         remote = career.get("remote_preference", "any")
-        if remote not in _REMOTE:
+        if not isinstance(remote, str) or remote not in _REMOTE:
             raise ValueError("career.remote_preference is invalid")
         data["career"] = {
             "target_roles": _string_list(career.get("target_roles"), "career.target_roles"),
@@ -243,7 +243,7 @@ class UserProfileStore:
 
         language = _only_keys(data.get("language"), set(DEFAULT_PROFILE["language"]), "language")
         level = language.get("level", "beginner")
-        if level not in _LEVELS:
+        if not isinstance(level, str) or level not in _LEVELS:
             raise ValueError("language.level is invalid")
         minutes = language.get("daily_minutes", 10)
         if isinstance(minutes, bool) or not isinstance(minutes, int) or not 1 <= minutes <= 10:
@@ -354,15 +354,25 @@ class UserProfileStore:
     ) -> Dict[str, Any]:
         with self._guard():
             profile = self._read_unlocked()
-            profile["birthdays"].append({
+            normalized_label = _safe_text(label, "birthday.label")
+            normalized_day = _safe_text(month_day, "birthday.month_day", 5)
+            existing = next((
+                item for item in profile["birthdays"]
+                if item["label"].casefold() == normalized_label.casefold()
+                and item["month_day"] == normalized_day
+            ), None)
+            if existing:
+                return copy.deepcopy(existing)
+            item = {
                 "id": str(uuid.uuid4()),
-                "label": label,
-                "month_day": month_day,
+                "label": normalized_label,
+                "month_day": normalized_day,
                 "reminder_days": reminder_days if reminder_days is not None else [30, 7, 1],
-            })
+            }
+            profile["birthdays"].append(item)
             profile = self._validate(profile)
             self._write_unlocked(profile)
-            return copy.deepcopy(profile["birthdays"][-1])
+            return copy.deepcopy(next(x for x in profile["birthdays"] if x["id"] == item["id"]))
 
     def remove_birthday(self, birthday_id: str) -> bool:
         with self._guard():
@@ -379,9 +389,16 @@ class UserProfileStore:
     ) -> Dict[str, Any]:
         with self._guard():
             profile = self._read_unlocked()
+            normalized_name = _safe_text(name, "watchlist.name")
+            existing = next((
+                item for item in profile["shopping"]["watchlist"]
+                if item["name"].casefold() == normalized_name.casefold()
+            ), None)
+            if existing:
+                return copy.deepcopy(existing)
             item = {
                 "id": str(uuid.uuid4()),
-                "name": name,
+                "name": normalized_name,
                 "category": category,
                 "target_price": target_price,
                 "currency": currency,
