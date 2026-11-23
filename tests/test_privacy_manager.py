@@ -20,7 +20,7 @@ def test_retention_is_disabled_by_default_and_policy_is_encrypted(tmp_path, monk
     _key(monkeypatch)
     manager = PrivacyManager(base_dir=tmp_path)
     assert all(manager.get_policy()[key] is None for key in (
-        "conversation_days", "audit_days", "memory_days", "completed_job_days"
+        "conversation_days", "audit_days", "memory_days", "profile_days", "execution_history_days", "completed_job_days"
     ))
     manager.set_retention(audit_days=365, conversation_days=0)
     assert is_encrypted_bytes(manager.policy_path.read_bytes())
@@ -37,12 +37,18 @@ def test_retention_preview_and_purge_keep_recent_and_pending_data(tmp_path, monk
     memory = history / "agent_memory.json"
     audit = history / "audit_log.json"
     schedule = history / "scheduled_jobs.json"
+    profile = history / "user_profile.json"
+    execution_history = history / "scheduled_execution_history.json"
 
     atomic_write_json(conversation, {"messages": [{"content": "old private chat"}]}, encrypt=True)
     atomic_write_json(memory, {"facts": ["old private fact"]}, encrypt=True)
+    atomic_write_json(profile, {"version": 1, "interests": ["old profile"]}, encrypt=True)
+    atomic_write_json(execution_history, {"version": 1, "records": []}, encrypt=True)
     old_time = (now - timedelta(days=10)).timestamp()
     os.utime(conversation, (old_time, old_time))
     os.utime(memory, (old_time, old_time))
+    os.utime(profile, (old_time, old_time))
+    os.utime(execution_history, (old_time, old_time))
 
     atomic_write_json(audit, [
         {"timestamp": (now - timedelta(days=400)).isoformat(), "action": "old"},
@@ -60,12 +66,16 @@ def test_retention_preview_and_purge_keep_recent_and_pending_data(tmp_path, monk
     manager.set_retention(
         conversation_days=5,
         memory_days=5,
+        profile_days=5,
+        execution_history_days=5,
         audit_days=365,
         completed_job_days=90,
     )
     preview = manager.preview(now=now)
     assert preview["conversation_history"]["delete_file"] is True
     assert preview["memory"]["delete_file"] is True
+    assert preview["user_profile"]["delete_file"] is True
+    assert preview["execution_history"]["delete_file"] is True
     assert preview["audit_log"]["delete_entries"] == 1
     assert preview["scheduled_jobs"]["delete_terminal_jobs"] == 1
 
@@ -76,11 +86,15 @@ def test_retention_preview_and_purge_keep_recent_and_pending_data(tmp_path, monk
     assert result["deleted"] == {
         "conversation_history_files": 1,
         "memory_files": 1,
+        "user_profile_files": 1,
+        "execution_history_files": 1,
         "audit_entries": 1,
         "scheduled_jobs": 1,
     }
     assert not conversation.exists()
     assert not memory.exists()
+    assert not profile.exists()
+    assert not execution_history.exists()
     assert [entry["action"] for entry in load_json(audit)] == ["recent", "unknown timestamp is retained"]
     remaining = load_json(schedule)
     assert {job["id"] for job in remaining} == {"recent-failed", "old-pending", "unknown-terminal"}
