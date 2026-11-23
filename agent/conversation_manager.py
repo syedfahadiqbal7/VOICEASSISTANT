@@ -126,6 +126,22 @@ class ConversationManager:
         except Exception as e:
             print(f"[Scheduler] start failed: {e}")
 
+    def refresh_profile_context(self) -> None:
+        """Refresh the system context after an explicit profile preference change."""
+        blocks = []
+        mem_ctx = self.memory.context_snippet()
+        if mem_ctx:
+            blocks.append("[Memory]\n" + mem_ctx)
+        profile_ctx = self.profile.context_snippet() if self.profile is not None else ""
+        if profile_ctx:
+            blocks.append("[User Preferences]\n" + profile_ctx)
+        content = SYSTEM_PROMPT + (("\n\n" + "\n\n".join(blocks)) if blocks else "")
+        with self._processing_lock:
+            if self.session_messages and self.session_messages[0].get("role") == "system":
+                self.session_messages[0]["content"] = content
+            else:
+                self.session_messages.insert(0, {"role": "system", "content": content})
+
     def _ts(self) -> str:
         return datetime.now().strftime("%H:%M:%S")
 
