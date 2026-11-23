@@ -306,6 +306,8 @@ class UserProfileStore:
         for item in raw_birthdays:
             item = _only_keys(item, {"id", "label", "month_day", "reminder_days"}, "birthday")
             label = _safe_text(item.get("label"), "birthday.label")
+            if not label:
+                raise ValueError("birthday.label cannot be empty")
             month_day = _safe_text(item.get("month_day"), "birthday.month_day", 5)
             if not re.fullmatch(r"\d{2}-\d{2}", month_day):
                 raise ValueError("birthday.month_day must use MM-DD format")
