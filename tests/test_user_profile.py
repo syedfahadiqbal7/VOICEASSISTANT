@@ -165,3 +165,17 @@ def test_profile_editor_updates_preserve_birthday_and_watchlist_ids(tmp_path):
     assert profile["birthdays"][0]["id"] == birthday["id"]
     assert profile["shopping"]["watchlist"][0]["id"] == product["id"]
     assert profile["shopping"]["watchlist"][0]["target_price"] == 90.0
+
+def test_conversation_manager_refreshes_only_opted_in_profile_context(tmp_path):
+    from types import SimpleNamespace
+    from agent.conversation_manager import ConversationManager
+
+    store = UserProfileStore(tmp_path / "profile.json")
+    store.update_profile({"interests": ["Technology"], "settings": {"assistant_context_enabled": True}})
+    manager = object.__new__(ConversationManager)
+    manager.memory = SimpleNamespace(context_snippet=lambda: "")
+    manager.profile = store
+    manager.session_messages = [{"role": "system", "content": "old"}]
+    manager.refresh_profile_context()
+    assert "Technology" in manager.session_messages[0]["content"]
+    assert "[User Preferences]" in manager.session_messages[0]["content"]
