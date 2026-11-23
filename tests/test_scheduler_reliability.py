@@ -95,8 +95,10 @@ def test_corrupt_schedule_is_quarantined(tmp_path, monkeypatch):
     path.write_text("{broken json", encoding="utf-8")
     restarted = JobScheduler()
     assert restarted.list_jobs() == []
-    assert list(tmp_path.glob("scheduled_jobs.json.corrupt.*.bak"))
-    assert path.read_text(encoding="utf-8") == "{broken json"
+    backups = list(tmp_path.glob("scheduled_jobs.json.corrupt.*.bak"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == "{broken json"
+    assert not path.exists()
 
 
 def test_concurrent_fire_attempts_execute_handler_once(tmp_path, monkeypatch):
@@ -299,3 +301,68 @@ def test_deferred_active_execution_cannot_be_cancelled(tmp_path, monkeypatch):
     assert scheduler.cancel(job["id"]) is False
     assert scheduler.list_jobs()[0]["status"] == "pending"
     assert scheduler.list_jobs()[0]["execution_waiting"] is True
+
+
+
+def test_offset_aware_run_at_is_compared_as_an_absolute_instant():
+    from datetime import timezone
+
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    assert JobScheduler._is_due(
+        {"run_at": "2026-01-01T11:59:00+00:00"}, now
+    )
+    assert not JobScheduler._is_due(
+        {"run_at": "2026-01-01T12:01:00+00:00"}, now
+    )
+
+
+def test_naive_legacy_run_at_can_be_compared_with_aware_now():
+    from datetime import timezone
+
+    run_at = (datetime.now() - timedelta(minutes=1)).isoformat()
+    assert JobScheduler._is_due({"run_at": run_at}, datetime.now(timezone.utc))
+
+
+def test_dst_fallback_offsets_represent_distinct_instants():
+    from datetime import timezone
+
+    first_occurrence = {"run_at": "2026-11-01T01:30:00-04:00"}
+    second_occurrence = {"run_at": "2026-11-01T01:30:00-05:00"}
+    between_occurrences = datetime(2026, 11, 1, 5, 45, tzinfo=timezone.utc)
+    assert JobScheduler._is_due(first_occurrence, between_occurrences)
+    assert not JobScheduler._is_due(second_occurrence, between_occurrences)
+
+
+def test_invalid_persisted_run_at_is_retained_but_disabled(tmp_path, monkeypatch):
+    scheduler, path = _scheduler(tmp_path, monkeypatch)
+    path.write_text(json.dumps([{
+        "id": "bad-time", "prompt": "do not lose me", "run_at": "not-a-date",
+        "repeat": None, "enabled": True, "status": "pending",
+    }]), encoding="utf-8")
+
+    restarted = JobScheduler()
+    job = restarted.list_jobs()[0]
+    assert job["id"] == "bad-time"
+    assert job["status"] == "failed"
+    assert job["enabled"] is False
+    assert "invalid persisted run_at" in job["last_error"].lower()
+
+
+def test_malformed_persisted_entry_is_quarantined_not_silently_dropped(tmp_path, monkeypatch):
+    scheduler, path = _scheduler(tmp_path, monkeypatch)
+    original_content = [
+        {"id": "valid", "prompt": "keep", "run_at": datetime.now().isoformat(),
+         "repeat": None, "enabled": True, "status": "pending"},
+        {"prompt": "missing id", "run_at": datetime.now().isoformat()},
+    ]
+    from agent.storage import atomic_write_json
+    atomic_write_json(path, original_content, encrypt=True)
+    original_bytes = path.read_bytes()
+
+    restarted = JobScheduler()
+    assert restarted.list_jobs() == []
+    backups = list(tmp_path.glob("scheduled_jobs.json.corrupt.*.bak"))
+    assert len(backups) == 1
+    # Quarantine preserves the encrypted source blob byte-for-byte.
+    assert backups[0].read_bytes() == original_bytes
+    assert not path.exists()
