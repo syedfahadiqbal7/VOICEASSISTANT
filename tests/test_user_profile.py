@@ -6,6 +6,7 @@ import threading
 import pytest
 
 from agent.user_profile import UserProfileError, UserProfileStore
+from agent.storage import load_json
 
 
 def test_profile_defaults_are_private_and_context_is_opt_in(tmp_path):
@@ -143,7 +144,8 @@ def test_profile_updates_from_multiple_instances_do_not_lose_sections(tmp_path):
 def test_corrupt_profile_fails_closed_without_resetting_file(tmp_path):
     path = tmp_path / "profile.json"
     path.write_text('{"version":99}', encoding="utf-8")
-    before = path.read_bytes()
     with pytest.raises(UserProfileError):
         UserProfileStore(path)
-    assert path.read_bytes() == before
+    # Legacy plaintext is encrypted on read, but malformed data is preserved;
+    # the store must never silently replace it with an empty profile.
+    assert load_json(path, encrypt=True) == {"version": 99}
