@@ -21,12 +21,16 @@ DEFAULT_RETENTION: Dict[str, Any] = {
     "conversation_days": None,
     "audit_days": None,
     "memory_days": None,
+    "profile_days": None,
+    "execution_history_days": None,
     "completed_job_days": None,
 }
 _ALLOWED_SETTINGS = {
     "conversation_days",
     "audit_days",
     "memory_days",
+    "profile_days",
+    "execution_history_days",
     "completed_job_days",
 }
 _TERMINAL_JOB_STATES = {"completed", "failed", "cancelled"}
@@ -109,6 +113,8 @@ class PrivacyManager:
         result: Dict[str, Any] = {
             "conversation_history": {"delete_file": False},
             "memory": {"delete_file": False},
+            "user_profile": {"delete_file": False},
+            "execution_history": {"delete_file": False},
             "audit_log": {"delete_entries": 0, "keep_entries": 0},
             "scheduled_jobs": {"delete_terminal_jobs": 0, "keep_jobs": 0},
         }
@@ -128,6 +134,22 @@ class PrivacyManager:
                 raise DataProtectionError("Memory store must not be a symbolic link")
             age = datetime.fromtimestamp(memory.stat().st_mtime)
             result["memory"]["delete_file"] = age < now - timedelta(days=days)
+
+        profile_path = self.history_dir / "user_profile.json"
+        days = self.policy.get("profile_days")
+        if days is not None and profile_path.is_file():
+            if profile_path.is_symlink():
+                raise DataProtectionError("User profile must not be a symbolic link")
+            age = datetime.fromtimestamp(profile_path.stat().st_mtime)
+            result["user_profile"]["delete_file"] = age < now - timedelta(days=days)
+
+        execution_history_path = self.history_dir / "scheduled_execution_history.json"
+        days = self.policy.get("execution_history_days")
+        if days is not None and execution_history_path.is_file():
+            if execution_history_path.is_symlink():
+                raise DataProtectionError("Execution history must not be a symbolic link")
+            age = datetime.fromtimestamp(execution_history_path.stat().st_mtime)
+            result["execution_history"]["delete_file"] = age < now - timedelta(days=days)
 
         days = self.policy.get("audit_days")
         audit_path = self.history_dir / "audit_log.json"
@@ -171,6 +193,8 @@ class PrivacyManager:
         deleted: Dict[str, int] = {
             "conversation_history_files": 0,
             "memory_files": 0,
+            "user_profile_files": 0,
+            "execution_history_files": 0,
             "audit_entries": 0,
             "scheduled_jobs": 0,
         }
@@ -184,6 +208,16 @@ class PrivacyManager:
         if preview["memory"]["delete_file"] and memory.exists():
             memory.unlink()
             deleted["memory_files"] = 1
+
+        profile_path = self.history_dir / "user_profile.json"
+        if preview["user_profile"]["delete_file"] and profile_path.exists():
+            profile_path.unlink()
+            deleted["user_profile_files"] = 1
+
+        execution_history_path = self.history_dir / "scheduled_execution_history.json"
+        if preview["execution_history"]["delete_file"] and execution_history_path.exists():
+            execution_history_path.unlink()
+            deleted["execution_history_files"] = 1
 
         audit_path = self.history_dir / "audit_log.json"
         if preview["audit_log"]["delete_entries"]:
