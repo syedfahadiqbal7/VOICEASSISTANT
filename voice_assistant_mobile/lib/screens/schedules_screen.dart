@@ -110,6 +110,7 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                 ? () {
                     ws.requestSchedules();
                     ws.requestSessionState();
+                    ws.requestScheduleHistory();
                   }
                 : null,
             icon: const Icon(Icons.refresh),
