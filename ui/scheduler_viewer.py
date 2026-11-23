@@ -289,8 +289,9 @@ class SchedulerViewer(ctk.CTkToplevel):
         return validate_calendar_recurrence(rule)
 
     def _build_prompt(self) -> str:
-        when = self.when_var.get()
-        body = self._build_action_body()
+        when_var = getattr(self, "when_var", None)
+        when = when_var.get() if when_var is not None else "Once, after a delay"
+        body = SchedulerViewer._build_action_body(self)
         if when in {"Daily", "Weekly", "Monthly"}:
             rule = self._calendar_rule()
             return f"Calendar schedule: {rule['frequency']} at {rule['local_time']} ({rule['timezone']}): {body}"
