@@ -18,6 +18,18 @@ String scheduledRunAtLabel(Map<String, dynamic> job) {
   return runAt.isEmpty ? "unspecified" : runAt;
 }
 
+String scheduledHistoryTitle(Map<String, dynamic> record) {
+  final status = (record["status"] ?? "unknown").toString().toUpperCase();
+  final label = (record["label"] ?? "Scheduled task").toString();
+  return "$status · $label";
+}
+
+String scheduledHistorySubtitle(Map<String, dynamic> record) {
+  final attempts = record["attempts"] ?? 0;
+  final started = (record["started_at"] ?? "time unavailable").toString();
+  return "Attempts: $attempts · $started";
+}
+
 String scheduledRecurrenceLabel(Map<String, dynamic> job) {
   final repeat = job["repeat"];
   if (repeat is Map && repeat["every_minutes"] != null) {
@@ -259,21 +271,17 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                                 itemCount: ws.scheduleHistory.length,
                                 itemBuilder: (context, index) {
                                   final record = ws.scheduleHistory[index];
-                                  final status = (record["status"] ?? "unknown").toString().toUpperCase();
-                                  final label = (record["label"] ?? "Scheduled task").toString();
-                                  final attempts = record["attempts"] ?? 0;
-                                  final started = (record["started_at"] ?? "").toString();
                                   return ListTile(
                                     dense: true,
                                     contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                                     title: Text(
-                                      "$status · $label",
+                                      scheduledHistoryTitle(record),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
                                     ),
                                     subtitle: Text(
-                                      "Attempts: $attempts · $started",
+                                      scheduledHistorySubtitle(record),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(color: Colors.white54, fontSize: 10),
