@@ -72,5 +72,7 @@ def test_data_retention_policy_is_included_verified_and_restored(tmp_path, monke
         "conversation_days": 90,
         "audit_days": 365,
         "memory_days": 180,
+        "profile_days": 365,
+        "execution_history_days": 30,
         "completed_job_days": 30,
     }
