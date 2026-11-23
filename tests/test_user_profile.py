@@ -45,7 +45,7 @@ def test_profile_rejects_unknown_sections_and_fields(tmp_path):
     store = UserProfileStore(tmp_path / "profile.json")
     with pytest.raises(ValueError, match="Unknown profile sections"):
         store.update_profile({"unknown": []})
-    with pytest.raises(UserProfileError, match="Profile validation failed"):
+    with pytest.raises(ValueError, match="Unknown career fields"):
         store.update_profile({"career": {"admin": True}})
 
 
