@@ -18,6 +18,32 @@ String scheduledRunAtLabel(Map<String, dynamic> job) {
   return runAt.isEmpty ? "unspecified" : runAt;
 }
 
+String scheduledRecurrenceLabel(Map<String, dynamic> job) {
+  final repeat = job["repeat"];
+  if (repeat is Map && repeat["every_minutes"] != null) {
+    return "every ${repeat["every_minutes"]} min";
+  }
+  if (repeat is Map && repeat["type"] == "calendar") {
+    final frequency = repeat["frequency"]?.toString() ?? "calendar";
+    final localTime = repeat["local_time"]?.toString() ?? "unspecified time";
+    final timezone = repeat["timezone"]?.toString() ?? "unspecified timezone";
+    var cadence = frequency;
+    if (frequency == "weekly" && repeat["weekdays"] is List) {
+      const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      final days = (repeat["weekdays"] as List)
+          .whereType<int>()
+          .where((day) => day >= 0 && day < dayNames.length)
+          .map((day) => dayNames[day])
+          .join(", ");
+      cadence = "weekly ($days)";
+    } else if (frequency == "monthly") {
+      cadence = "monthly on day ${repeat["day_of_month"] ?? "?"}";
+    }
+    return "$cadence at $localTime ($timezone)";
+  }
+  return "";
+}
+
 class SchedulesScreen extends StatefulWidget {
   const SchedulesScreen({super.key});
 
@@ -39,7 +65,6 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
   }
 
   String _fmtWhen(Map<String, dynamic> job) {
-    final repeat = job["repeat"];
     final rawStatus = job["status"]?.toString();
     final enabled = job["enabled"] != false;
     final waiting = job["execution_waiting"] == true;
@@ -49,8 +74,9 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
             ? (enabled ? "PENDING" : "DONE")
             : rawStatus.toUpperCase());
     final when = scheduledRunAtLabel(job);
-    if (repeat is Map && repeat["every_minutes"] != null) {
-      return "$status · every ${repeat["every_minutes"]} min · next $when";
+    final recurrence = scheduledRecurrenceLabel(job);
+    if (recurrence.isNotEmpty) {
+      return "$status · $recurrence · next $when";
     }
     return "$status · at $when";
   }

@@ -30,6 +30,7 @@ pypdf>=4.0
 PyPDF2>=3.0
 pdfminer.six>=20231228
 cryptography>=42.0
+tzdata>=2024.1; platform_system == "Windows"
 reportlab>=4.0
 pandas>=2.1
 yt-dlp>=2024.1

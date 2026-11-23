@@ -409,3 +409,54 @@ def test_malformed_persisted_entry_is_quarantined_not_silently_dropped(tmp_path,
     # Quarantine preserves the encrypted source blob byte-for-byte.
     assert backups[0].read_bytes() == original_bytes
     assert not path.exists()
+
+
+def test_calendar_job_is_persisted_and_advanced_after_success(tmp_path, monkeypatch):
+    seen = []
+    scheduler, path = _scheduler(
+        tmp_path, monkeypatch, lambda job: seen.append(job["execution_id"]) or True
+    )
+    rule = {
+        "type": "calendar", "frequency": "daily",
+        "local_time": "08:00", "timezone": "Asia/Dubai",
+    }
+    job = scheduler.add_calendar("daily task", rule)
+    first_execution_id = job["execution_id"]
+    # Force the persisted occurrence due; _fire is normally called by the due loop.
+    with scheduler._lock:
+        live = scheduler.jobs[0]
+        live["run_at"] = (datetime.now().astimezone() - timedelta(minutes=1)).isoformat()
+        scheduler.save()
+    first_run = scheduler.list_jobs()[0]["run_at"]
+
+    scheduler._fire(job)
+
+    stored = scheduler.list_jobs()[0]
+    assert seen == [first_execution_id]
+    assert stored["status"] == "pending"
+    assert stored["enabled"] is True
+    assert stored["run_at"] != first_run
+    assert stored["execution_id"] != first_execution_id
+    assert stored["repeat"] == rule
+    from agent.storage import load_json
+    assert load_json(path, encrypt=True)[0]["repeat"] == rule
+
+
+def test_invalid_calendar_recurrence_is_disabled_during_recovery(tmp_path, monkeypatch):
+    scheduler, path = _scheduler(tmp_path, monkeypatch)
+    path.write_text(json.dumps([{
+        "id": "bad-calendar", "prompt": "do not execute",
+        "run_at": datetime.now().isoformat(),
+        "repeat": {
+            "type": "calendar", "frequency": "weekly",
+            "local_time": "08:00", "timezone": "UTC", "weekdays": [],
+        },
+        "enabled": True, "status": "pending",
+    }]), encoding="utf-8")
+
+    restarted = JobScheduler()
+    stored = restarted.list_jobs()[0]
+    assert stored["id"] == "bad-calendar"
+    assert stored["status"] == "failed"
+    assert stored["enabled"] is False
+    assert "invalid persisted recurrence" in stored["last_error"].lower()
