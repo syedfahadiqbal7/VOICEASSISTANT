@@ -39,7 +39,6 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
   }
 
   String _fmtWhen(Map<String, dynamic> job) {
-    final runAt = job["run_at"]?.toString() ?? "";
     final repeat = job["repeat"];
     final rawStatus = job["status"]?.toString();
     final enabled = job["enabled"] != false;
