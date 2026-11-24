@@ -112,6 +112,11 @@ def test_tool_registry_discovers_and_executes_safe_builtin_inside_appcontainer(t
         repo_root / "plugins" / "json_formatter.manifest.json",
         plugin_dir / "json_formatter.manifest.json",
     )
+    shutil.copy2(repo_root / "plugins" / "example_hello_tool.py", plugin_dir / "example_hello_tool.py")
+    shutil.copy2(
+        repo_root / "plugins" / "example_hello_tool.manifest.json",
+        plugin_dir / "example_hello_tool.manifest.json",
+    )
     monkeypatch.setattr(tool_registry_module, "PLUGINS_DIR", plugin_dir)
 
     registry = ToolRegistry()
@@ -124,3 +129,8 @@ def test_tool_registry_discovers_and_executes_safe_builtin_inside_appcontainer(t
     )
     assert result["is_error"] is False
     assert result["content"] == '{\n  "safe_plugin": true,\n  "execution": "appcontainer"\n}'
+
+
+    greeting = registry.execute("say_hello", {"name": "VoiceAssistant"})
+    assert greeting["is_error"] is False
+    assert greeting["content"] == "Hello VoiceAssistant! This message came from a custom plugin tool."
