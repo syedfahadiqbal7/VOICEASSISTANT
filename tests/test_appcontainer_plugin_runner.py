@@ -70,7 +70,7 @@ def test_appcontainer_plugin_uses_named_pipe_host_broker_for_file_read(tmp_path)
         permissions=["filesystem:read"],
         timeout_seconds=20,
     )
-    assert response["ok"] is True
+    assert response["ok"] is True, response
     assert response["result"]["content"] == "read only through host broker"
     assert response["worker_exit_code"] == 0
 
