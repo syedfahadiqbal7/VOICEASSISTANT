@@ -146,3 +146,36 @@ def test_corrupt_device_registry_fails_closed(tmp_path, monkeypatch):
         }
 
     assert server._reauthenticate_mobile(FakeSocket()) is False
+
+
+def test_registry_refuses_symlinked_registry_file(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    path = tmp_path / "mobile_devices.json"
+    registry = MobileDeviceRegistry(path)
+    original_is_symlink = Path.is_symlink
+
+    def is_symlink(candidate):
+        return candidate == path or original_is_symlink(candidate)
+
+    monkeypatch.setattr(Path, "is_symlink", is_symlink)
+    with pytest.raises(ValueError, match="symbolic links"):
+        registry.register("Must be refused")
+    assert not path.exists()
+
+
+def test_registry_refuses_symlinked_lock_sidecar(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    path = tmp_path / "mobile_devices.json"
+    lock_path = path.with_name(path.name + ".lock")
+    registry = MobileDeviceRegistry(path)
+    original_is_symlink = Path.is_symlink
+
+    def is_symlink(candidate):
+        return candidate == lock_path or original_is_symlink(candidate)
+
+    monkeypatch.setattr(Path, "is_symlink", is_symlink)
+    with pytest.raises(ValueError, match="symbolic links"):
+        registry.list_devices()
+    assert not path.exists()
