@@ -83,7 +83,7 @@ def _windows_apis():
     advapi32.ConvertSidToStringSidW.restype = wintypes.BOOL
     advapi32.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR)]
     kernel32.LocalFree.argtypes = [ctypes.c_void_p]
-    kernel32.FreeSid.argtypes = [ctypes.c_void_p]
+    advapi32.FreeSid.argtypes = [ctypes.c_void_p]
 
     kernel32.InitializeProcThreadAttributeList.restype = wintypes.BOOL
     kernel32.InitializeProcThreadAttributeList.argtypes = [
@@ -231,4 +231,4 @@ def run_appcontainer_command(
         if owns_profile:
             userenv.DeleteAppContainerProfile(profile_name)
             if sid:
-                kernel32.FreeSid(sid)
+                advapi32.FreeSid(sid)
