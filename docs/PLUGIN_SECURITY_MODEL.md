@@ -20,3 +20,8 @@ Plugins are imported and execute inside the VoiceAssistant Python process. SHA-2
 ## Planned isolation work
 
 The detailed target architecture, IPC contract, Windows containment requirements, rollout plan and release gates are documented in [Plugin Execution Isolation Design](PLUGIN_EXECUTION_ISOLATION_DESIGN.md). This is a design decision, not an implemented sandbox. Until the Windows restricted-worker and broker controls pass their negative security tests, all plugins must continue to be treated as trusted in-process code.
+
+
+## Current implementation status — 2026-11-24
+
+Plugin inspection and execution have been moved to a one-shot child process (PR #32, merged). This provides crash containment and a JSON boundary, with source digest revalidation and execution timeout. It is **not** a sandbox: the worker retains the desktop user's OS privileges and can directly access resources available to that user. Continue treating all plugins as trusted code. Restricted-token/AppContainer, network/filesystem isolation, process/resource quotas and a host-only capability broker remain unimplemented.

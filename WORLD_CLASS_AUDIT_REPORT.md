@@ -535,3 +535,19 @@ This addendum supersedes earlier pending-state notes where the corresponding wor
 ## Next engineering priority
 
 Continue source-level security hardening without weakening existing compatibility: review plugin execution boundaries and design an isolated worker process with a narrow, validated IPC contract before attempting to move arbitrary plugin code out of the desktop process. Do not describe a subprocess boundary as a complete OS sandbox; OS-level containment and least-privilege enforcement must be evaluated separately. Keep physical-device, Windows runtime, recovery-drill and independent-security-review items as explicit external acceptance gates.
+
+
+### Plugin worker crash-containment implementation — PR #32
+
+- Third-party plugin module imports, class construction, metadata evaluation and tool execution now run in one-shot child processes rather than inside the desktop Python process.
+- The host retains manifest/checksum verification, declared-tool parity, duplicate-name checks, permission metadata and the existing `BaseTool`/OpenAI schema contract through host-side proxy objects.
+- Worker IPC uses a versioned JSON envelope over stdin/stdout, bounded request/response payload checks, source SHA-256 revalidation before import, categorical error responses and a configurable execution timeout.
+- Added Windows CI regressions for process separation, source-tamper rejection, timeout handling and symlinked plugin source rejection. Updated the explicit CI test list so the new test module is actually executed.
+
+**Verification:** [PR #32](https://github.com/syedfahadiqbal7/VOICEASSISTANT/pull/32) merged to `main` as `8383c0dba99a35d5a11046fa0a136d3371867d63`. CI run [#45333862364](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45333862364) passed **311 Python regression tests**, **16 Phase 0 smoke checks**, Flutter analysis/tests, Android APK build and unsigned iOS build.
+
+**Security boundary:** This is crash containment only, not an OS sandbox. Workers still run with the desktop user's privileges. They can access resources available to that user; the worker has no restricted token/AppContainer, Job Object resource enforcement, network isolation or filesystem ACL boundary. A child process may still perform direct OS operations. Plugin packages must remain trusted. The 1 MiB protocol checks do not replace OS memory/disk quotas against hostile code. Do not advertise this phase as plugin sandboxing.
+
+## Next plugin security phase
+
+Implement and test the host-owned capability broker, then implement Windows restricted-token/AppContainer containment with explicit filesystem ACLs, network denial by default, process/resource limits and process-tree termination. The current subprocess worker is an intermediate compatibility/crash-containment step only. Do not enable untrusted third-party plugins until negative OS-boundary tests and independent security review pass.
