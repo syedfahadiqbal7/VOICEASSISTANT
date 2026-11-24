@@ -164,11 +164,25 @@ class AppContainerPluginRunner:
                 _grant_acl(runtime_root, sid_text, "(OI)(CI)RX")
                 granted.append(runtime_root)
             stage = "grant_staging_acl"
+            # These files/directories were created before the parent ACL was
+            # applied. Explicitly grant the existing tree; inheritance alone
+            # does not retroactively fix every existing child DACL.
             _grant_acl(staging, sid_text, "(OI)(CI)RX")
             granted.append(staging)
+            for child in sorted(staging.rglob("*"), key=lambda item: len(item.parts)):
+                if child.is_dir():
+                    _grant_acl(child, sid_text, "(OI)(CI)RX")
+                else:
+                    _grant_acl(child, sid_text, "(R)")
+                granted.append(child)
+
             stage = "grant_ipc_acl"
             _grant_acl(work, sid_text, "(OI)(CI)M")
             granted.append(work)
+            # The request file already exists; grant it explicitly. The
+            # response and temporary response files will inherit from work.
+            _grant_acl(request_path, sid_text, "(M)")
+            granted.append(request_path)
 
             stage = "launch_appcontainer_worker"
             worker_path = staging / "agent" / "plugin_worker.py"
