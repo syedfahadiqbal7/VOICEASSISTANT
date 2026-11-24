@@ -194,7 +194,7 @@ class AppContainerPluginRunner:
                 "stage": stage,
                 "winerror": getattr(error, "winerror", None),
                 "errno": getattr(error, "errno", None),
-                "detail": getattr(error, "strerror", None),
+                "detail": str(error)[:240],
             }
         finally:
             if broker is not None:
