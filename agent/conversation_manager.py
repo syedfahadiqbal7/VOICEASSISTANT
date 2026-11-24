@@ -14,6 +14,7 @@ from security.command_analyzer import CommandAnalyzer
 from agent.planner import Planner
 from agent.plan_executor import PlanExecutor
 from agent.memory_store import MemoryStore
+from agent.user_profile import UserProfileStore
 from agent.undo_manager import UndoManager
 from agent.scheduler import JobScheduler, JobExecutionResult
 from agent.scheduled_execution_ledger import ScheduledExecutionLedger
@@ -54,10 +55,22 @@ class ConversationManager:
         self._processing_lock = threading.Lock()
         # Phase 1B memory first (for system prompt enrichment)
         self.memory = MemoryStore()
+        self.profile = None
+        try:
+            self.profile = UserProfileStore()
+        except Exception as error:
+            # Keep the assistant available, but never replace unreadable profile data.
+            print(f"[Profile] User profile unavailable; personalization context disabled: {type(error).__name__}")
         system_content = SYSTEM_PROMPT
+        context_blocks = []
         mem_ctx = self.memory.context_snippet()
         if mem_ctx:
-            system_content = SYSTEM_PROMPT + "\n\n[Memory]\n" + mem_ctx
+            context_blocks.append("[Memory]\n" + mem_ctx)
+        profile_ctx = self.profile.context_snippet() if self.profile is not None else ""
+        if profile_ctx:
+            context_blocks.append("[User Preferences]\n" + profile_ctx)
+        if context_blocks:
+            system_content = SYSTEM_PROMPT + "\n\n" + "\n\n".join(context_blocks)
 
 
         self.session_messages: List[Dict[str, Any]] = [
@@ -112,6 +125,23 @@ class ConversationManager:
             self.scheduler.start()
         except Exception as e:
             print(f"[Scheduler] start failed: {e}")
+
+    def refresh_profile_context(self) -> None:
+        """Refresh the system context after an explicit profile preference change."""
+        blocks = []
+        mem_ctx = self.memory.context_snippet()
+        if mem_ctx:
+            blocks.append("[Memory]\n" + mem_ctx)
+        profile_ctx = self.profile.context_snippet() if self.profile is not None else ""
+        if profile_ctx:
+            blocks.append("[User Preferences]\n" + profile_ctx)
+        content = SYSTEM_PROMPT + (("\n\n" + "\n\n".join(blocks)) if blocks else "")
+        # Replacing the system-message content is a single list-item assignment;
+        # do not block the UI thread waiting for a potentially long LLM turn.
+        if self.session_messages and self.session_messages[0].get("role") == "system":
+            self.session_messages[0]["content"] = content
+        else:
+            self.session_messages.insert(0, {"role": "system", "content": content})
 
     def _ts(self) -> str:
         return datetime.now().strftime("%H:%M:%S")
