@@ -183,9 +183,10 @@ def run_appcontainer_command(
         required = ctypes.c_size_t(0)
         kernel32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(required))
         attr_buffer = ctypes.create_string_buffer(required.value)
-        attr_list = ctypes.cast(attr_buffer, ctypes.c_void_p)
-        if not kernel32.InitializeProcThreadAttributeList(attr_list, 1, 0, ctypes.byref(required)):
+        candidate_attr_list = ctypes.cast(attr_buffer, ctypes.c_void_p)
+        if not kernel32.InitializeProcThreadAttributeList(candidate_attr_list, 1, 0, ctypes.byref(required)):
             raise OSError(ctypes.get_last_error(), "InitializeProcThreadAttributeList failed")
+        attr_list = candidate_attr_list
         attribute_security_capabilities = 0x00020009
         if not kernel32.UpdateProcThreadAttribute(
             attr_list, 0, attribute_security_capabilities,
@@ -213,6 +214,8 @@ def run_appcontainer_command(
             kernel32.WaitForSingleObject(process_info.hProcess, 5000)
             raise TimeoutError("AppContainer process timed out")
         if wait_result != 0:
+            kernel32.TerminateProcess(process_info.hProcess, 125)
+            kernel32.WaitForSingleObject(process_info.hProcess, 5000)
             raise OSError(ctypes.get_last_error(), "WaitForSingleObject failed")
         exit_code = wintypes.DWORD()
         if not kernel32.GetExitCodeProcess(process_info.hProcess, ctypes.byref(exit_code)):
