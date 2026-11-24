@@ -128,3 +128,52 @@ def test_worker_plugin_can_call_host_broker_over_per_invocation_ipc(tmp_path):
     }, broker=broker)
     assert response["ok"] is True
     assert response["result"]["content"] == "read through host broker"
+
+
+def test_broker_rejects_replayed_request_id(tmp_path):
+    import json
+    import socket
+
+    root = tmp_path / "Documents"
+    root.mkdir()
+    target = root / "note.txt"
+    target.write_text("hello", encoding="utf-8")
+    policy = _policy(tmp_path)
+    policy.data["allowed_read_roots"] = [str(root)]
+    broker = PluginCapabilityBroker(policy, "read_document", ["filesystem:read"])
+    config = broker.start()
+    request = {
+        "protocol_version": 1,
+        "request_id": "same-request-id",
+        "token": config["token"],
+        "capability": "filesystem:read",
+        "operation": "filesystem.read_text",
+        "arguments": {"path": str(target)},
+    }
+    try:
+        responses = []
+        for _ in range(2):
+            with socket.create_connection((config["host"], config["port"]), timeout=5) as connection:
+                connection.sendall(json.dumps(request).encode("utf-8") + b"\\n")
+                responses.append(json.loads(connection.makefile("rb").readline().decode("utf-8")))
+        assert responses[0]["ok"] is True
+        assert responses[1]["ok"] is False
+        assert responses[1]["error_code"] == "replayed_request"
+    finally:
+        broker.close()
+
+
+def test_broker_denies_network_until_a_host_handler_exists(tmp_path, monkeypatch):
+    from tools.plugin_capability_client import request_capability
+
+    policy = _policy(tmp_path)
+    broker = PluginCapabilityBroker(policy, "web_search", ["network:read"])
+    config = broker.start()
+    monkeypatch.setenv("VOICEASSISTANT_BROKER_HOST", config["host"])
+    monkeypatch.setenv("VOICEASSISTANT_BROKER_PORT", str(config["port"]))
+    monkeypatch.setenv("VOICEASSISTANT_BROKER_TOKEN", config["token"])
+    try:
+        with pytest.raises(PluginCapabilityError, match="capability_denied"):
+            request_capability("network.http_get", "network:read", {"url": "https://example.invalid"})
+    finally:
+        broker.close()
