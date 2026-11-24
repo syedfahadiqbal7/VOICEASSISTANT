@@ -70,7 +70,7 @@ class AppContainerPluginRunner:
         if not isinstance(arguments, dict):
             return {"ok": False, "error_code": "invalid_arguments"}
         normalized_permissions = [str(item).strip().lower() for item in (permissions or []) if str(item).strip()]
-        if normalized_permissions and self.policy is None:
+        if mode == "execute" and normalized_permissions and self.policy is None:
             return {"ok": False, "error_code": "host_policy_unavailable"}
 
         try:
@@ -151,7 +151,7 @@ class AppContainerPluginRunner:
                 raise ValueError("staged plugin checksum changed")
 
             broker_config = None
-            if normalized_permissions:
+            if mode == "execute" and normalized_permissions:
                 broker = PluginCapabilityBroker(self.policy, tool_name, normalized_permissions)
                 broker_config = broker.start_named_pipe(sid_text)
 
