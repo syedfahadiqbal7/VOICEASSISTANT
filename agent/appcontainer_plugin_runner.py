@@ -48,7 +48,10 @@ class AppContainerPluginRunner:
         arguments: dict[str, Any],
         permissions: list[str],
         timeout_seconds: int = 30,
+        mode: str = "execute",
     ) -> dict[str, Any]:
+        if mode not in {"execute", "describe"}:
+            return {"ok": False, "error_code": "unsupported_worker_mode"}
         if os.name != "nt":
             return {"ok": False, "error_code": "appcontainer_unavailable"}
         original_entry = Path(entry)
@@ -66,6 +69,9 @@ class AppContainerPluginRunner:
             return {"ok": False, "error_code": "plugin_digest_mismatch"}
         if not isinstance(arguments, dict):
             return {"ok": False, "error_code": "invalid_arguments"}
+        normalized_permissions = [str(item).strip().lower() for item in (permissions or []) if str(item).strip()]
+        if normalized_permissions and self.policy is None:
+            return {"ok": False, "error_code": "host_policy_unavailable"}
 
         try:
             inventory = inspect_source(
@@ -131,15 +137,15 @@ class AppContainerPluginRunner:
                 raise ValueError("staged plugin checksum changed")
 
             broker_config = None
-            if permissions:
-                broker = PluginCapabilityBroker(self.policy, tool_name, permissions)
+            if normalized_permissions:
+                broker = PluginCapabilityBroker(self.policy, tool_name, normalized_permissions)
                 broker_config = broker.start_named_pipe(sid_text)
 
             request_path = work / "request.json"
             response_path = work / "response.json"
             request = {
                 "protocol_version": 1,
-                "mode": "execute",
+                "mode": mode,
                 "entry": str(staged_entry),
                 "sha256": actual_digest,
                 "class_name": str(class_name),
@@ -225,6 +231,25 @@ class AppContainerPluginRunner:
                 "errno": getattr(error, "errno", None),
                 "detail": str(error)[:240],
             }
+    def describe(
+        self,
+        entry: Path,
+        sha256: str,
+        permissions: list[str] | None = None,
+        timeout_seconds: int = 15,
+    ) -> dict[str, Any]:
+        """Import and inspect plugin metadata inside AppContainer, never in the host worker."""
+        return self.execute(
+            entry=entry,
+            sha256=sha256,
+            class_name="",
+            tool_name=Path(entry).stem,
+            arguments={},
+            permissions=list(permissions or []),
+            timeout_seconds=timeout_seconds,
+            mode="describe",
+        )
+
         finally:
             if broker is not None:
                 broker.close()
