@@ -15,6 +15,7 @@ from tools.pip_installer import PipInstallerTool
 from config import PLUGINS_DIR
 from agent.plugin_marketplace import verify_flat_plugin, SAFE_NO_PERMISSION_PLUGIN_FILES
 from agent.plugin_capability_broker import PluginCapabilityBroker
+from agent.appcontainer_plugin_runner import AppContainerPluginRunner
 
 # Plugins that must not load (name collision / superseded).
 # task_scheduler.py conflicted with agent JobScheduler; use list_windows_tasks instead.
@@ -26,6 +27,16 @@ DISABLED_PLUGIN_FILES = {
 PLUGIN_WORKER_TIMEOUT_SECONDS = 30
 PLUGIN_WORKER_MAX_REQUEST_BYTES = 1024 * 1024
 PLUGIN_WORKER_MAX_RESPONSE_BYTES = 1024 * 1024
+
+
+def _should_use_appcontainer(entry: Path, permissions: List[str], platform_name: str | None = None) -> bool:
+    """Only the two reviewed no-permission built-ins use the Windows AppContainer pilot."""
+    active_platform = platform_name if platform_name is not None else os.name
+    return (
+        active_platform == "nt"
+        and not permissions
+        and Path(entry).name in SAFE_NO_PERMISSION_PLUGIN_FILES
+    )
 
 
 def _create_windows_worker_job(process):
@@ -255,7 +266,7 @@ class PluginWorkerTool(BaseTool):
             PluginCapabilityBroker(self._policy, self.name, self._permissions)
             if self._policy is not None else None
         )
-        response = _run_plugin_worker({
+        request = {
             "protocol_version": 1,
             "mode": "execute",
             "entry": self._entry,
@@ -263,7 +274,21 @@ class PluginWorkerTool(BaseTool):
             "class_name": self._class_name,
             "tool_name": self.name,
             "arguments": kwargs,
-        }, broker=broker)
+        }
+        if _should_use_appcontainer(self._entry, self._permissions):
+            # Fail closed: an AppContainer failure never falls back to the
+            # same-user worker for a plugin selected for OS sandboxing.
+            response = AppContainerPluginRunner(self._policy).execute(
+                entry=Path(self._entry),
+                sha256=self._sha256,
+                class_name=self._class_name,
+                tool_name=self.name,
+                arguments=kwargs,
+                permissions=[],
+                timeout_seconds=PLUGIN_WORKER_TIMEOUT_SECONDS,
+            )
+        else:
+            response = _run_plugin_worker(request, broker=broker)
         if response.get("ok") is not True:
             return {
                 "content": "Plugin worker failed: " + str(response.get("error") or response.get("error_code") or "unknown error"),
@@ -381,12 +406,22 @@ class ToolRegistry:
                 ver = manifest.get("version", "?")
                 print(f"[Plugin] Verified {file.name} v{ver}")
 
-                response = _run_plugin_worker({
-                    "protocol_version": 1,
-                    "mode": "describe",
-                    "entry": str(file.resolve()),
-                    "sha256": verification.get("sha256"),
-                }, timeout=15)
+                if _should_use_appcontainer(file, permissions=[]):
+                    # Metadata import is plugin code too; discover the tool
+                    # contract inside the same AppContainer used for execution.
+                    response = AppContainerPluginRunner(None).describe(
+                        entry=file,
+                        sha256=verification.get("sha256"),
+                        permissions=[],
+                        timeout_seconds=15,
+                    )
+                else:
+                    response = _run_plugin_worker({
+                        "protocol_version": 1,
+                        "mode": "describe",
+                        "entry": str(file.resolve()),
+                        "sha256": verification.get("sha256"),
+                    }, timeout=15)
                 if response.get("ok") is not True:
                     raise ValueError("worker metadata inspection failed: " + str(response.get("error_code") or response.get("error")))
                 exported = response.get("tools")
@@ -423,6 +458,7 @@ class ToolRegistry:
                     ))
                 for proxy in proxies:
                     self.register(proxy, permissions=permissions)
-                    print(f"[Plugin] Worker registered: {proxy.name} (crash containment only)")
+                    isolation = "AppContainer" if _should_use_appcontainer(file, permissions) else "same-user worker"
+                    print(f"[Plugin] Worker registered: {proxy.name} ({isolation})")
             except Exception as error:
                 print(f"[Plugin Error] Failed to load {file.name}: {type(error).__name__}: {error}")
