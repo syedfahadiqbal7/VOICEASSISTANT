@@ -21,6 +21,25 @@ MAX_REQUEST_BYTES = 1024 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
 
 
+class _DiscardTextWriter:
+    """Discard plugin output without opening the Windows NUL device."""
+
+    encoding = "utf-8"
+    errors = "replace"
+
+    def write(self, value: str) -> int:
+        return len(value)
+
+    def flush(self) -> None:
+        return None
+
+    def isatty(self) -> bool:
+        return False
+
+    def writable(self) -> bool:
+        return True
+
+
 def _emit(payload: dict[str, Any]) -> None:
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if len(encoded) > MAX_RESPONSE_BYTES:
@@ -54,9 +73,9 @@ def _load_plugin(entry: Path, expected_sha256: str):
     sys.modules[module_name] = module
 
     # Plugin stdout/stderr must never corrupt the host's machine-readable IPC.
-    with open(os.devnull, "w", encoding="utf-8") as sink:
-        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-            spec.loader.exec_module(module)
+    sink = _DiscardTextWriter()
+    with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+        spec.loader.exec_module(module)
             exported = [
                 (name, cls) for name, cls in inspect.getmembers(module, inspect.isclass)
                 if issubclass(cls, BaseTool) and cls is not BaseTool
@@ -115,9 +134,9 @@ def _main(request: dict[str, Any]) -> dict[str, Any]:
     ]
     if len(selected) != 1:
         raise ValueError("requested plugin tool identity did not match one exported tool")
-    with open(os.devnull, "w", encoding="utf-8") as sink:
-        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-            result = selected[0].execute(**arguments)
+    sink = _DiscardTextWriter()
+    with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+        result = selected[0].execute(**arguments)
     if not isinstance(result, dict):
         raise TypeError("plugin execute() must return a dictionary")
     # Enforce JSON-only IPC and reject opaque Python objects.
