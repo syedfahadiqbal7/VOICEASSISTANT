@@ -53,12 +53,18 @@ write_manifest_beside(
 
 The helper calculates the SHA-256 checksum. The manifest `tools` list must contain the exact `BaseTool.name` values exported by the plugin. If the Python source changes, regenerate the manifest checksum.
 
-The optional manifest field `execution_sandbox` defaults to `worker`. Set it to `appcontainer` only for a reviewed Windows-compatible plugin that meets the current pilot restrictions. Add it directly to the generated JSON manifest:
+The optional manifest field `execution_sandbox` defaults to `worker`. Set it to `appcontainer` only for a reviewed Windows-compatible plugin that meets the current pilot restrictions. The helper supports this field directly:
 
-```json
-{
-  "execution_sandbox": "appcontainer"
-}
+```python
+write_manifest_beside(
+    Path("plugins/my_tool.py"),
+    name="my_tool",
+    version="1.0.0",
+    author="local",
+    tools=["my_actual_tool_name"],
+    permissions=[],
+    execution_sandbox="appcontainer",
+)
 ```
 
 AppContainer metadata discovery and tool execution both run inside the sandbox. If sandbox creation, plugin inspection or execution fails, the plugin returns an error; it is never retried in the same-user worker. The current pilot supports standard-library plus the staged `tools` contract and only the `filesystem:read` broker permission. Unsupported imports, dynamic/native APIs, undeclared capabilities and other permissions are rejected. The JSON formatter is the first opted-in example. Do not mark other plugins AppContainer-compatible without adding and passing Windows integration tests for their dependency and capability requirements.
