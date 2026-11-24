@@ -125,25 +125,64 @@ def _main(request: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "result": result}
 
 
-def main() -> int:
-    raw = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
+def _process_request(raw: bytes) -> tuple[dict[str, Any], int]:
     if not raw or len(raw) > MAX_REQUEST_BYTES:
-        _emit({"ok": False, "error_code": "invalid_request", "error": "Invalid or oversized worker request."})
-        return 2
+        return {
+            "ok": False,
+            "error_code": "invalid_request",
+            "error": "Invalid or oversized worker request.",
+        }, 2
     try:
         request = json.loads(raw.decode("utf-8"))
-        response = _main(request)
-        _emit(response)
-        return 0
+        return _main(request), 0
     except BaseException as error:
         # Do not return tracebacks or plugin-controlled exception strings to the
         # desktop process; keep the protocol response categorical and bounded.
-        _emit({
+        return {
             "ok": False,
             "error_code": "plugin_worker_failed",
             "error": type(error).__name__,
-        })
-        return 1
+        }, 1
+
+
+def _encode_response(response: dict[str, Any]) -> bytes:
+    encoded = json.dumps(response, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(encoded) > MAX_RESPONSE_BYTES:
+        encoded = json.dumps({
+            "ok": False,
+            "error_code": "response_too_large",
+            "error": "Plugin worker response exceeded the configured size limit.",
+        }, separators=(",", ":")).encode("utf-8")
+    return encoded
+
+
+def main() -> int:
+    if len(sys.argv) == 4 and sys.argv[1] == "--file-ipc":
+        request_path = Path(sys.argv[2])
+        response_path = Path(sys.argv[3])
+        try:
+            raw = request_path.read_bytes()
+            response, exit_code = _process_request(raw)
+            encoded = _encode_response(response)
+            temporary = response_path.with_suffix(response_path.suffix + ".tmp")
+            temporary.write_bytes(encoded)
+            os.replace(temporary, response_path)
+            return exit_code
+        except BaseException as error:
+            try:
+                response_path.write_bytes(_encode_response({
+                    "ok": False,
+                    "error_code": "worker_file_ipc_failed",
+                    "error": type(error).__name__,
+                }))
+            except Exception:
+                pass
+            return 3
+
+    raw = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
+    response, exit_code = _process_request(raw)
+    _emit(response)
+    return exit_code
 
 
 if __name__ == "__main__":
