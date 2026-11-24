@@ -90,11 +90,25 @@ class AppContainerPluginRunner:
             item for item in inventory.get("warnings", [])
             if item.startswith(("dynamic_code_execution:", "dynamic_import", "native_or_COM_API:"))
         ]
-        if unsupported_imports or risky_warnings:
+        declared_permissions = set(normalized_permissions)
+        observed_capabilities = set(inventory.get("observed_capabilities") or [])
+        undeclared_capabilities = sorted(observed_capabilities - declared_permissions)
+        unsupported_capabilities = sorted(observed_capabilities - {"filesystem:read"})
+        unsupported_permissions = sorted(declared_permissions - {"filesystem:read"})
+        if (
+            unsupported_imports
+            or risky_warnings
+            or undeclared_capabilities
+            or unsupported_capabilities
+            or unsupported_permissions
+        ):
             return {
                 "ok": False,
                 "error_code": "plugin_not_appcontainer_compatible",
                 "unsupported_imports": unsupported_imports,
+                "undeclared_capabilities": undeclared_capabilities,
+                "unsupported_capabilities": unsupported_capabilities,
+                "unsupported_permissions": unsupported_permissions,
                 "warnings": risky_warnings,
             }
 
@@ -199,12 +213,31 @@ class AppContainerPluginRunner:
 
             stage = "launch_appcontainer_worker"
             worker_path = staging / "agent" / "plugin_worker.py"
+            system_root = os.environ.get("SYSTEMROOT") or os.environ.get("WINDIR") or r"C:\\Windows"
+            python_directory = str(Path(sys.executable).resolve().parent)
+            safe_path = os.pathsep.join([
+                str(Path(system_root) / "System32"),
+                system_root,
+                python_directory,
+            ])
+            # Do not inherit the desktop process environment. In particular,
+            # API keys, cloud credentials, proxy secrets and Python startup
+            # overrides must never reach the AppContainer worker.
+            environment = {
+                "SYSTEMROOT": system_root,
+                "WINDIR": system_root,
+                "PATH": safe_path,
+                "TEMP": str(work),
+                "TMP": str(work),
+                "PYTHONIOENCODING": "utf-8",
+            }
             exit_code = run_appcontainer_command(
                 Path(sys.executable),
                 ["-I", str(worker_path), "--file-ipc", str(request_path), str(response_path)],
                 profile_name=profile_name,
                 timeout_seconds=timeout_seconds,
                 appcontainer_sid=sid,
+                environment=environment,
             )
             if not response_path.is_file():
                 return {"ok": False, "error_code": "appcontainer_no_response", "exit_code": exit_code}
