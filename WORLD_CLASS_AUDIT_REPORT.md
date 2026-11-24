@@ -11,7 +11,7 @@ Voice Assistant is a local-first Windows AI desktop agent with a Flutter compani
 
 The repository now includes mobile per-device identity and revocation, server-enforced mobile RBAC and approval routing, fail-closed policy gates, plugin manifest/permission/archive enforcement, a Windows AppContainer pilot with package-SID named-pipe broker and explicit per-plugin registry routing, encrypted local runtime stores, DPAPI-backed Windows key protection, portable encrypted backup/restore, protected keyring bootstrap/rotation, explicit resumable VAENC1-to-VAENC2 migration, offline recovery kits, guarded retained-key retirement, structured redacted diagnostics, and opt-in retention controls. The README has a user-facing feature catalogue and documents the remaining per-plugin sandbox boundary.
 
-Latest fully green cross-platform CI run is [#45396454585](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45396454585) for the AppContainer registry-integration branch. Windows compile/regression/smoke checks, Flutter analysis/tests/Android APK build, and unsigned iOS build all completed successfully: **342 Python tests passed**, **16 Phase 0 smoke checks passed**, and all mobile validation builds passed. The AppContainer pilot is still pending merge at the time of this report update. Real Windows GUI/audio/Ollama operation and physical Android/iOS behavior still require target-environment validation.
+Latest fully green cross-platform CI run is [#45399119080](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45399119080) for the AppContainer registry-integration branch. Windows compile/regression/smoke checks, Flutter analysis/tests/Android APK build, and unsigned iOS build all completed successfully: **344 Python tests passed**, **16 Phase 0 smoke checks passed**, and all mobile validation builds passed. The AppContainer pilot is still pending merge at the time of this report update. Real Windows GUI/audio/Ollama operation and physical Android/iOS behavior still require target-environment validation.
 
 ## Phase completion map
 
@@ -576,7 +576,7 @@ Implement and test the host-owned capability broker, then implement Windows rest
 - The AppContainer runner rejects unsupported imports, native/dynamic APIs, undeclared capabilities and permissions outside the current broker contract. Python starts with `-I -S`; the trusted worker clears inherited environment variables before importing plugin code.
 - Added regressions for manifest generation/validation, dynamic-import detection, no-fallback behavior, AppContainer metadata discovery and real plugin execution.
 
-**CI verification:** [run #45396454585](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45396454585) — **342 Python tests passed**, **16 Phase 0 smoke checks passed**, Flutter analysis/tests passed, Android APK build passed and unsigned iOS build passed.
+**CI verification:** [run #45399119080](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45399119080) — **344 Python tests passed**, **16 Phase 0 smoke checks passed**, Flutter analysis/tests passed, Android APK build passed and unsigned iOS build passed.
 
 **Remaining gaps:** this is not blanket sandboxing. Additional plugins need dependency/capability migration; disk-exhaustion controls and ACL/profile cleanup verification need further hardening; publisher signatures and independent security review are outstanding. Validate on the target Windows machine before production use.
 
