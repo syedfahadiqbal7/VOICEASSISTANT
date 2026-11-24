@@ -61,7 +61,7 @@ def test_manifest_builder_preserves_default_and_emits_explicit_sandbox(tmp_path)
 
 def test_static_plugin_inventory_flags_builtin_dynamic_import(tmp_path):
     entry = tmp_path / "dynamic_import.py"
-    entry.write_text("__import__('ctypes')\\n", encoding="utf-8")
+    entry.write_text("__import__('ctypes')", encoding="utf-8")
     inventory = inspect_source(entry, {"permissions": []})
     assert "dynamic_import" in inventory["warnings"]
 
