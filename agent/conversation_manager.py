@@ -106,6 +106,7 @@ class ConversationManager:
         self.plan_executor.session_sync = self.session_sync
         self.policy = PolicyEngine()  # Phase 3 — local policy
         self.plan_executor.policy = self.policy
+        self.tool_registry.set_policy(self.policy)
         self.outcome_compiler = OutcomeCompiler()
         self.skill_packs = SkillPackManager()
         # Scheduled tool side effects are guarded by a separate encrypted

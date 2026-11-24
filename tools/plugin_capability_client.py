@@ -1,0 +1,87 @@
+"""Client for the host-owned VoiceAssistant plugin capability broker.
+
+Only typed, versioned JSON requests are supported. The client does not grant
+permissions; the host rechecks manifest declaration and local policy per call.
+"""
+from __future__ import annotations
+
+import json
+import os
+import secrets
+import socket
+from typing import Any
+
+
+MAX_REQUEST_BYTES = 64 * 1024
+MAX_RESPONSE_BYTES = 1024 * 1024
+
+
+class PluginCapabilityError(RuntimeError):
+    pass
+
+
+def request_capability(operation: str, capability: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    host = os.environ.get("VOICEASSISTANT_BROKER_HOST")
+    port_text = os.environ.get("VOICEASSISTANT_BROKER_PORT")
+    token = os.environ.get("VOICEASSISTANT_BROKER_TOKEN")
+    if not host or not port_text or not token:
+        raise PluginCapabilityError("Host capability broker is unavailable")
+    try:
+        port = int(port_text)
+    except ValueError as error:
+        raise PluginCapabilityError("Host capability broker configuration is invalid") from error
+    request_id = secrets.token_hex(16)
+    request = {
+        "protocol_version": 1,
+        "request_id": request_id,
+        "token": token,
+        "capability": str(capability),
+        "operation": str(operation),
+        "arguments": arguments if isinstance(arguments, dict) else {},
+    }
+    payload = json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+    if len(payload) > MAX_REQUEST_BYTES:
+        raise PluginCapabilityError("Capability request exceeds the size limit")
+    try:
+        with socket.create_connection((host, port), timeout=5) as connection:
+            connection.settimeout(5)
+            connection.sendall(payload)
+            response = bytearray()
+            while len(response) <= MAX_RESPONSE_BYTES:
+                chunk = connection.recv(min(65536, MAX_RESPONSE_BYTES + 1 - len(response)))
+                if not chunk:
+                    break
+                response.extend(chunk)
+                if b"\n" in chunk:
+                    break
+    except OSError as error:
+        raise PluginCapabilityError("Host capability broker connection failed") from error
+    if len(response) > MAX_RESPONSE_BYTES or not response.endswith(b"\n"):
+        raise PluginCapabilityError("Host capability broker returned an invalid response")
+    try:
+        result = json.loads(bytes(response).split(b"\n", 1)[0].decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise PluginCapabilityError("Host capability broker returned malformed JSON") from error
+    if not isinstance(result, dict) or result.get("request_id") != request_id:
+        raise PluginCapabilityError("Host capability broker response did not match the request")
+    if result.get("ok") is not True:
+        code = str(result.get("error_code") or "broker_denied")
+        reason = str(result.get("reason") or code)
+        raise PluginCapabilityError(f"{code}: {reason}")
+    value = result.get("result")
+    if not isinstance(value, dict):
+        raise PluginCapabilityError("Host capability broker returned an invalid result")
+    return value
+
+
+def read_text(path: str) -> str:
+    return str(request_capability(
+        "filesystem.read_text", "filesystem:read", {"path": str(path)}
+    )["text"])
+
+
+def read_bytes(path: str) -> bytes:
+    import base64
+
+    result = request_capability("filesystem.read_bytes", "filesystem:read", {"path": str(path)})
+    return base64.b64decode(str(result["data_base64"]), validate=True)
