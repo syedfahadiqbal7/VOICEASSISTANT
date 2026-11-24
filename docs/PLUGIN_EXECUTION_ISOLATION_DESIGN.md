@@ -1,0 +1,182 @@
+# Plugin Execution Isolation — Architecture and Delivery Plan
+
+**Status:** Architecture decision / implementation gate  
+**Review date:** 2026-11-24  
+**Applies to:** Windows desktop agent, plugin registry, policy engine and future plugin marketplace
+
+## 1. Current security position
+
+The current plugin pipeline performs useful package-level checks:
+
+- A plugin requires a manifest and matching SHA-256 checksum.
+- Archive extraction rejects traversal, symlinks, unexpected members and oversized input.
+- Manifest permissions are validated against a supported capability vocabulary.
+- Exported tool names must exactly match manifest declarations.
+- Registration is all-or-nothing and duplicate names are rejected.
+- Missing capability declarations fail closed to `system:admin`, except for two built-in pure utilities.
+
+These controls protect package integrity and reduce accidental privilege. They do **not** make Python code safe. `agent/tool_registry.py` imports each plugin module with `exec_module` and constructs its tool classes in the main VoiceAssistant process. A malicious or compromised plugin can execute arbitrary Python during import or call OS APIs directly during execution. The permission list is metadata consumed by the host policy path; it is not an OS reference monitor.
+
+**Decision:** Do not describe the current system as sandboxed. Treat every installed plugin as trusted code running with the desktop user's privileges until an OS-enforced boundary is implemented and independently tested.
+
+## 2. Goals
+
+1. Keep the desktop process, encryption keys, conversation state and approval UI outside plugin-controlled code.
+2. Preserve the existing tool contract at the host boundary: name, description, JSON schema, help metadata and structured result.
+3. Make every plugin request pass through a host-owned broker that revalidates identity, capability, arguments, policy and user approval.
+4. Bound plugin CPU time, memory, process count, output size and lifetime.
+5. Deny network and arbitrary filesystem access by default in the worker; grant narrow brokered operations only when required.
+6. Ensure worker crashes, hangs, malformed IPC and oversized responses fail closed without crashing the desktop.
+7. Preserve existing plugin package verification and never treat a checksum or manifest author field as publisher authentication.
+
+## 3. Non-goals
+
+- A Python subprocess by itself is not a security sandbox.
+- A Windows Job Object alone is not a security boundary; it primarily constrains process lifetime and resource usage.
+- A worker running under the same unrestricted Windows token can still access the user's files, credentials, network and processes.
+- The host must not expose data-encryption keys, DPAPI operations, raw conversation stores, approval callbacks or unrestricted Python objects to a plugin worker.
+- This design does not promise exactly-once external side effects. Plugin integrations must define idempotency and reconciliation semantics.
+
+## 4. Target architecture
+
+```text
+Desktop UI / Conversation Manager
+              |
+       Planner / Plan Executor
+              |
+      Host Tool Registry
+              |
+    Host Policy + Approval Gate
+              |
+       Plugin Broker (host)
+        /             \
+   schema validation  capability mapping
+        \             /
+        Authenticated, bounded IPC
+              |
+       Restricted Plugin Worker
+              |
+     One verified plugin package
+```
+
+The host remains authoritative for:
+- Plugin identity and verified entry-file digest
+- Manifest-to-export parity
+- User approval and role/policy decisions
+- Capability authorization for each individual request
+- File roots, process targets, network destinations and output limits
+- Cancellation, timeout, worker termination and audit events
+
+The worker receives only the arguments required for one tool call and returns a bounded JSON result. It never receives a live host object, callback, file handle, credential, encryption key or arbitrary capability token.
+
+## 5. IPC contract
+
+Use a versioned JSON message envelope with a strict maximum byte length. Do not use pickle or Python object serialization across the trust boundary.
+
+Request fields:
+- `protocol_version`
+- `request_id` (random, unique per call)
+- `plugin_id` (host-resolved identity, not accepted as authority from the worker)
+- `tool_name`
+- `arguments` (JSON object validated against the registered schema)
+- `deadline_utc` or bounded timeout duration
+- `correlation_id` (opaque; must not contain prompt text or secrets)
+
+Response fields:
+- `protocol_version`
+- `request_id`
+- `ok`
+- `result` (bounded JSON object)
+- `error_code` (categorical, allowlisted)
+- `duration_ms`
+
+Rules:
+- Reject unknown fields, invalid types, duplicate request IDs, malformed JSON and oversized frames.
+- Bind each worker channel to one plugin identity and one installed content digest.
+- A worker cannot ask the host to execute a different plugin or tool.
+- Every broker operation is separately authorized; the plugin's manifest is a requested capability declaration, not a grant.
+- Never serialize traceback text, environment variables, raw prompts, tokens or key material to the worker response.
+- A timeout or worker crash returns a typed tool error. Do not silently rerun a side-effecting request.
+- Cancellation is cooperative first; the host may terminate the worker process tree after the configured grace period.
+
+## 6. OS-enforced containment
+
+### Windows primary target
+
+The Windows implementation must use a restricted security principal/token or AppContainer-style isolation with explicit ACLs. It must not rely on the default inherited desktop user token.
+
+Required controls before calling the worker sandboxed:
+- Dedicated restricted identity with no administrator membership or debug privilege.
+- No access to the desktop profile, DPAPI key files, runtime history, browser profiles, SSH material or credential stores.
+- Private worker directory containing only the verified plugin package and explicitly approved temporary files.
+- Network denied by default. Any allowed network request is brokered and destination constrained.
+- Process creation denied by default. If a plugin requires a child process, the broker must expose a narrow, typed operation instead.
+- Job Object limits for active process count, memory/CPU policy where supported, and kill-on-close lifecycle.
+- Explicit handle inheritance list; no inherited handles other than the IPC channel and required standard streams.
+- Safe DLL/Python import search paths and no writable import directory preceding trusted runtime libraries.
+- Worker startup handshake confirms the expected protocol, plugin identity and content digest before tool calls are accepted.
+
+The exact Windows primitive combination must be proven on supported Windows 10/11 builds. If the restricted token/AppContainer setup cannot be established, the worker must remain marked **isolated for crash containment only**, not sandboxed.
+
+### Other platforms
+
+Do not silently fall back to an unrestricted subprocess and claim equivalent security. Linux namespace/seccomp and macOS sandbox controls require separate platform implementations and test suites. Until those exist, third-party plugin execution must be disabled or explicitly labelled unsupported on those platforms.
+
+## 7. Capability broker
+
+Map the current manifest vocabulary to host-owned broker operations. Examples:
+
+| Declared capability | Brokered operation | Default |
+|---|---|---|
+| `filesystem:read` | Read an approved path under an allowlisted root | Deny |
+| `filesystem:write` | Atomic write under an approved root, with diff/undo policy | Deny |
+| `filesystem:delete` | Delete a specific approved target after policy/approval | Deny |
+| `network:read` | HTTP request to an allowlisted destination | Deny |
+| `process:read` | Query an allowlisted process property | Deny |
+| `process:execute` | Launch a named, allowlisted executable with structured arguments | Deny |
+| `process:terminate` | Terminate a specific process after approval | Deny |
+| `clipboard:read/write` | Read/write clipboard through desktop broker | Deny |
+| `screen:read/control` | Screenshot or UI action through desktop broker | Deny |
+| `system:admin` | No generic RPC; requires a dedicated reviewed host operation | Deny |
+
+Do not implement a generic `run_powershell`, `run_shell`, arbitrary file path or arbitrary URL broker endpoint. Such endpoints would collapse the boundary and reintroduce unrestricted host authority.
+
+## 8. Rollout and compatibility
+
+1. **Inventory:** classify every active plugin by imports, external dependencies, required capabilities, GUI/COM usage, network use, filesystem roots and long-running behavior.
+2. **Contract extraction:** separate tool metadata/schema from executable plugin code. Validate schemas in the host without importing the plugin.
+3. **Worker prototype:** add versioned JSON IPC, per-plugin worker lifecycle, timeout/output limits and crash recovery. Mark this stage as crash containment only.
+4. **Broker implementation:** add narrowly typed broker operations with host-side policy and approval enforcement.
+5. **Windows containment:** launch workers with a restricted identity, ACL isolation and process/resource limits. Fail closed when containment cannot be established.
+6. **Pilot:** migrate pure, stateless plugins first (formatters/read-only helpers), then selected read-only integrations. Keep GUI/COM and high-impact plugins disabled until explicitly supported.
+7. **Enforcement:** make sandboxed workers the only supported path for third-party plugins. Any temporary legacy mode must be explicit, visible, owner-controlled and unavailable to untrusted packages.
+8. **Retirement:** remove in-process third-party imports after parity, recovery and compatibility tests pass.
+
+## 9. Required security and reliability tests
+
+- Worker import cannot execute in the desktop process.
+- Worker cannot read a sentinel file outside its assigned directory.
+- Worker cannot read the desktop environment, DPAPI key, runtime stores or credential material.
+- Worker cannot access network unless a broker policy explicitly permits the destination.
+- Worker cannot launch an arbitrary child process or escape its process/job boundary.
+- Malformed, oversized, replayed or cross-plugin IPC requests are rejected.
+- A worker cannot spoof plugin identity, capability, tool name or request ID.
+- Policy denial and approval rejection prevent the broker operation, even if the worker requests it repeatedly.
+- Worker crash, hang, timeout, memory exhaustion and forced termination do not corrupt host state.
+- A timed-out side-effecting request is marked uncertain and is not automatically replayed.
+- Every broker action is audited with a categorical result and redacted metadata.
+- Existing plugin manifest/export, checksum, permission and registration regressions remain green.
+- Full Windows integration tests run under a non-administrator test identity; unit tests alone are not sufficient evidence of OS containment.
+
+## 10. Release gate
+
+Do not claim plugin sandboxing or permit untrusted third-party plugins until all of the following are true:
+
+- Windows OS containment is implemented and independently validated.
+- The host broker is the only route to protected resources.
+- The negative security tests above pass on supported Windows versions.
+- A malicious-plugin review and independent penetration test have been completed.
+- Plugin compatibility and rollback behavior are documented.
+- The UI clearly distinguishes verified package integrity, publisher trust, worker crash isolation and OS-enforced sandbox status.
+
+Until then, the current documented warning remains in force: plugins execute with the desktop process privileges and must be installed only from trusted sources.
