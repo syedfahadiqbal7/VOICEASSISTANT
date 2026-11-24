@@ -282,8 +282,35 @@ def run_appcontainer_command(
             # Omitting =C:=... from a custom block can make CreateProcessW fail
             # with ERROR_ENVVAR_NOT_FOUND (203) on hosted Windows runners.
             current_directory = os.getcwd()
+            kernel32.GetEnvironmentStringsW.restype = ctypes.c_void_p
+            kernel32.FreeEnvironmentStringsW.argtypes = [ctypes.c_void_p]
+            environment_address = kernel32.GetEnvironmentStringsW()
+            if not environment_address:
+                raise OSError(ctypes.get_last_error(), "GetEnvironmentStringsW failed")
+            special_entries = []
+            try:
+                characters = ctypes.cast(
+                    environment_address, ctypes.POINTER(ctypes.c_wchar)
+                )
+                current_entry = []
+                for index in range(32767):
+                    character = characters[index]
+                    if character == "\x00":
+                        if not current_entry:
+                            break
+                        entry = "".join(current_entry)
+                        if entry.startswith("="):
+                            special_entries.append(entry)
+                        current_entry = []
+                    else:
+                        current_entry.append(character)
+            finally:
+                kernel32.FreeEnvironmentStringsW(environment_address)
             drive, _ = os.path.splitdrive(current_directory)
-            special_entries = [f"={drive}={current_directory}"] if drive else []
+            drive_key = f"={drive}"
+            if drive and not any(item.startswith(drive_key + "=") for item in special_entries):
+                special_entries.append(f"={drive}={current_directory}")
+            special_entries.sort(key=str.upper)
             ordinary_entries = [
                 f"{key}={value}"
                 for key, value in sorted(pairs, key=lambda item: item[0].upper())
