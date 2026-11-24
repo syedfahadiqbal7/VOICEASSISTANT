@@ -48,7 +48,12 @@ class AppContainerPluginRunner:
         arguments: dict[str, Any],
         permissions: list[str],
         timeout_seconds: int = 30,
+        mode: str = "execute",
     ) -> dict[str, Any]:
+        if mode not in {"execute", "describe"}:
+            return {"ok": False, "error_code": "unsupported_worker_mode"}
+        if mode == "describe" and permissions:
+            return {"ok": False, "error_code": "describe_requires_no_permissions"}
         if os.name != "nt":
             return {"ok": False, "error_code": "appcontainer_unavailable"}
         original_entry = Path(entry)
@@ -139,7 +144,7 @@ class AppContainerPluginRunner:
             response_path = work / "response.json"
             request = {
                 "protocol_version": 1,
-                "mode": "execute",
+                "mode": mode,
                 "entry": str(staged_entry),
                 "sha256": actual_digest,
                 "class_name": str(class_name),
@@ -235,3 +240,23 @@ class AppContainerPluginRunner:
                 userenv.DeleteAppContainerProfile(profile_name)
                 advapi32.FreeSid(sid)
             shutil.rmtree(root, ignore_errors=True)
+
+
+    def describe(
+        self,
+        entry: Path,
+        sha256: str,
+        permissions: list[str] | None = None,
+        timeout_seconds: int = 15,
+    ) -> dict[str, Any]:
+        """Inspect plugin metadata inside AppContainer without importing in the host."""
+        return self.execute(
+            entry=entry,
+            sha256=sha256,
+            class_name="",
+            tool_name="",
+            arguments={},
+            permissions=list(permissions or []),
+            timeout_seconds=timeout_seconds,
+            mode="describe",
+        )
