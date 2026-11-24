@@ -213,7 +213,7 @@ class AppContainerPluginRunner:
 
             stage = "launch_appcontainer_worker"
             worker_path = staging / "agent" / "plugin_worker.py"
-            system_root = os.environ.get("SYSTEMROOT") or os.environ.get("WINDIR") or r"C:\\Windows"
+            system_root = os.environ.get("SYSTEMROOT") or os.environ.get("WINDIR") or r"C:\Windows"
             python_directory = str(Path(sys.executable).resolve().parent)
             safe_path = os.pathsep.join([
                 str(Path(system_root) / "System32"),
