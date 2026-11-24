@@ -93,6 +93,9 @@ def validate_manifest(manifest: Dict[str, Any]) -> Tuple[bool, List[str]]:
         or len(set(tools)) != len(tools)
     ):
         errors.append("tools must be a non-empty unique list of valid BaseTool.name values")
+    execution_sandbox = manifest.get("execution_sandbox", "worker")
+    if not isinstance(execution_sandbox, str) or execution_sandbox not in {"worker", "appcontainer"}:
+        errors.append("execution_sandbox must be 'worker' or 'appcontainer'")
     permissions = manifest.get("permissions", [])
     if not isinstance(permissions, list) or not all(isinstance(x, str) and x.strip() for x in permissions):
         errors.append("permissions must be a list of non-empty strings")
@@ -196,10 +199,11 @@ def build_manifest_for_file(
     author: str = "local",
     tools: Optional[List[str]] = None,
     permissions: Optional[List[str]] = None,
+    execution_sandbox: Optional[str] = None,
 ) -> Dict[str, Any]:
     entry_file = Path(entry_file)
     digest = sha256_file(entry_file)
-    return {
+    manifest = {
         "name": name or entry_file.stem,
         "version": version,
         "description": description or f"Plugin {entry_file.stem}",
@@ -209,6 +213,11 @@ def build_manifest_for_file(
         "permissions": permissions or [],
         "checksum_sha256": digest,
     }
+    if execution_sandbox is not None:
+        if not isinstance(execution_sandbox, str) or execution_sandbox not in {"worker", "appcontainer"}:
+            raise ValueError("execution_sandbox must be 'worker' or 'appcontainer'")
+        manifest["execution_sandbox"] = execution_sandbox
+    return manifest
 
 
 def write_manifest_beside(entry_file: Path, **kwargs) -> Path:

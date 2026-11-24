@@ -34,7 +34,10 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Plugin permission declarations, integrity/checksum validation and archive/manifest validation.
 - Built-in plugin capabilities cover common development, Windows administration, document/data handling, browser workflows, productivity and reusable work skills.
 - Examples in the repository include Git/GitHub helpers, Docker/process/environment tools, file and PDF/Excel readers, document writing, email/Office helpers, browser and clipboard tools, and architecture/review/planning skills.
-- Plugin execution is in-process; the current permission and manifest checks are not an operating-system sandbox.
+- Plugin source and manifests are verified before registration; plugin code is imported in a child process, not in the desktop process.
+- The default worker provides crash containment only and still runs with the desktop user's OS privileges.
+- Windows plugins may explicitly set `"execution_sandbox": "appcontainer"` in their manifest. For these plugins, both metadata discovery and every invocation run inside a no-network AppContainer with a package-SID ACL named-pipe broker; sandbox failures never fall back to the same-user worker.
+- The initial AppContainer pilot is intentionally narrow: the JSON formatter is the first opted-in plugin, and the current broker supports only policy-approved filesystem reads. Plugins with unsupported imports, capabilities or permissions are rejected from AppContainer execution rather than silently downgraded.
 
 ### 5. Scheduling and automation
 - Create and inspect scheduled jobs from the desktop assistant; interval recurrence accepts integer minutes from 1 through 525,600 and rejects coercive or out-of-range values.
@@ -70,7 +73,8 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 
 ### 8. Current limitations to understand
 - The desktop application must be running for mobile connectivity and scheduled jobs; the mobile app does not independently execute desktop tools.
-- This repository does not yet provide an OS-level plugin sandbox.
+- AppContainer enforcement is currently a per-plugin Windows pilot, not a blanket sandbox for every plugin. Plugins without an explicit AppContainer manifest declaration still use the same-user crash-contained worker and retain the desktop user's OS permissions.
+- The AppContainer pilot currently supports a narrow low-dependency plugin set and policy-approved filesystem reads; remaining broker capabilities and plugin dependency migrations are not complete.
 - Windows GUI, microphone/speaker, Ollama lifecycle, physical Android/iOS behavior and real private-LAN/TLS deployment require target-environment validation.
 - CI mobile artifacts are validation/development artifacts, not production-signed distribution packages.
 - Key retirement is not secure erasure from old backups, recovery kits, snapshots or storage media. Stop the desktop and all runtime writers before migration or key retirement.

@@ -48,7 +48,10 @@ class AppContainerPluginRunner:
         arguments: dict[str, Any],
         permissions: list[str],
         timeout_seconds: int = 30,
+        mode: str = "execute",
     ) -> dict[str, Any]:
+        if mode not in {"execute", "describe"}:
+            return {"ok": False, "error_code": "unsupported_worker_mode"}
         if os.name != "nt":
             return {"ok": False, "error_code": "appcontainer_unavailable"}
         original_entry = Path(entry)
@@ -66,6 +69,9 @@ class AppContainerPluginRunner:
             return {"ok": False, "error_code": "plugin_digest_mismatch"}
         if not isinstance(arguments, dict):
             return {"ok": False, "error_code": "invalid_arguments"}
+        normalized_permissions = [str(item).strip().lower() for item in (permissions or []) if str(item).strip()]
+        if mode == "execute" and normalized_permissions and self.policy is None:
+            return {"ok": False, "error_code": "host_policy_unavailable"}
 
         try:
             inventory = inspect_source(
@@ -84,11 +90,25 @@ class AppContainerPluginRunner:
             item for item in inventory.get("warnings", [])
             if item.startswith(("dynamic_code_execution:", "dynamic_import", "native_or_COM_API:"))
         ]
-        if unsupported_imports or risky_warnings:
+        declared_permissions = set(normalized_permissions)
+        observed_capabilities = set(inventory.get("observed_capabilities") or [])
+        undeclared_capabilities = sorted(observed_capabilities - declared_permissions)
+        unsupported_capabilities = sorted(observed_capabilities - {"filesystem:read"})
+        unsupported_permissions = sorted(declared_permissions - {"filesystem:read"})
+        if (
+            unsupported_imports
+            or risky_warnings
+            or undeclared_capabilities
+            or unsupported_capabilities
+            or unsupported_permissions
+        ):
             return {
                 "ok": False,
                 "error_code": "plugin_not_appcontainer_compatible",
                 "unsupported_imports": unsupported_imports,
+                "undeclared_capabilities": undeclared_capabilities,
+                "unsupported_capabilities": unsupported_capabilities,
+                "unsupported_permissions": unsupported_permissions,
                 "warnings": risky_warnings,
             }
 
@@ -131,15 +151,15 @@ class AppContainerPluginRunner:
                 raise ValueError("staged plugin checksum changed")
 
             broker_config = None
-            if permissions:
-                broker = PluginCapabilityBroker(self.policy, tool_name, permissions)
+            if mode == "execute" and normalized_permissions:
+                broker = PluginCapabilityBroker(self.policy, tool_name, normalized_permissions)
                 broker_config = broker.start_named_pipe(sid_text)
 
             request_path = work / "request.json"
             response_path = work / "response.json"
             request = {
                 "protocol_version": 1,
-                "mode": "execute",
+                "mode": mode,
                 "entry": str(staged_entry),
                 "sha256": actual_digest,
                 "class_name": str(class_name),
@@ -193,9 +213,13 @@ class AppContainerPluginRunner:
 
             stage = "launch_appcontainer_worker"
             worker_path = staging / "agent" / "plugin_worker.py"
+            # -I ignores Python environment overrides and user site-packages;
+            # -S prevents sitecustomize/.pth startup code from running. The
+            # trusted worker clears inherited environment variables before it
+            # imports the plugin and reconstructs only the broker credentials.
             exit_code = run_appcontainer_command(
                 Path(sys.executable),
-                ["-I", str(worker_path), "--file-ipc", str(request_path), str(response_path)],
+                ["-I", "-S", str(worker_path), "--file-ipc", str(request_path), str(response_path)],
                 profile_name=profile_name,
                 timeout_seconds=timeout_seconds,
                 appcontainer_sid=sid,
@@ -235,3 +259,22 @@ class AppContainerPluginRunner:
                 userenv.DeleteAppContainerProfile(profile_name)
                 advapi32.FreeSid(sid)
             shutil.rmtree(root, ignore_errors=True)
+
+    def describe(
+        self,
+        entry: Path,
+        sha256: str,
+        permissions: list[str] | None = None,
+        timeout_seconds: int = 15,
+    ) -> dict[str, Any]:
+        """Import and inspect plugin metadata inside AppContainer, never in the host worker."""
+        return self.execute(
+            entry=entry,
+            sha256=sha256,
+            class_name="",
+            tool_name=Path(entry).stem,
+            arguments={},
+            permissions=list(permissions or []),
+            timeout_seconds=timeout_seconds,
+            mode="describe",
+        )

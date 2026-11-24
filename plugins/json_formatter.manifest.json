@@ -8,5 +8,6 @@
     "json_formatter"
   ],
   "permissions": [],
-  "checksum_sha256": "179f629d1a67d73ef0585d65fcbcfcff3ed92a1ba6b2cceb17c47d7fb0761aa5"
+  "checksum_sha256": "179f629d1a67d73ef0585d65fcbcfcff3ed92a1ba6b2cceb17c47d7fb0761aa5",
+  "execution_sandbox": "appcontainer"
 }
