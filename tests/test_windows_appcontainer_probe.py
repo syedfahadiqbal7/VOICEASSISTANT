@@ -41,15 +41,22 @@ def test_appcontainer_cannot_read_host_file_without_explicit_package_acl():
         # dedicated output directory.
         _grant_acl(root, sid_text, "(X)")
         _grant_acl(shared, sid_text, "(OI)(CI)M")
-        command = f'type "{secret}" > "{output}" 2>&1'
-        exit_code = run_appcontainer_command(
-            executable,
-            ["/d", "/c", command],
-            profile_name=profile_name,
-            timeout_seconds=15,
-            appcontainer_sid=sid,
+        write_command = f"echo APP_CONTAINER_OK > {output}"
+        write_exit = run_appcontainer_command(
+            executable, ["/d", "/c", write_command],
+            profile_name=profile_name, timeout_seconds=15, appcontainer_sid=sid,
         )
-        assert exit_code != 0
+        assert write_exit == 0
+        assert output.is_file()
+        assert "APP_CONTAINER_OK" in output.read_text(encoding="utf-8", errors="replace")
+
+        output.unlink()
+        read_command = f"type {secret} > {output} 2>&1"
+        read_exit = run_appcontainer_command(
+            executable, ["/d", "/c", read_command],
+            profile_name=profile_name, timeout_seconds=15, appcontainer_sid=sid,
+        )
+        assert read_exit != 0
         assert output.is_file()
         observed = output.read_text(encoding="utf-8", errors="replace")
         assert "THIS_MUST_NOT_BE_READ" not in observed
