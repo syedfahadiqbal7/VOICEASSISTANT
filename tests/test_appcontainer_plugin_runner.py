@@ -32,7 +32,7 @@ def test_json_formatter_plugin_runs_inside_appcontainer(tmp_path):
         permissions=[],
         timeout_seconds=20,
     )
-    assert response["ok"] is True
+    assert response["ok"] is True, response
     assert response["result"]["content"] == '{\n  "hello": "appcontainer",\n  "ok": true\n}'
     assert response["worker_exit_code"] == 0
 
