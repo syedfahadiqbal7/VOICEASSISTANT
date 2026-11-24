@@ -89,10 +89,18 @@ def _dotted_name(node: ast.AST) -> str:
     return ".".join(reversed(parts))
 
 
-def inspect_source(source_path: Path, manifest: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Inspect Python syntax without importing or executing plugin code."""
+def inspect_source(
+    source_path: Path,
+    manifest: dict[str, Any] | None = None,
+    source_bytes: bytes | None = None,
+) -> dict[str, Any]:
+    """Inspect Python syntax without importing or executing plugin code.
+
+    Callers that already verified/read the source may pass those exact bytes to
+    avoid a second filesystem read and close a small TOCTOU window.
+    """
     source_path = Path(source_path)
-    raw = source_path.read_bytes()
+    raw = source_bytes if source_bytes is not None else source_path.read_bytes()
     digest = hashlib.sha256(raw).hexdigest()
     tree = ast.parse(raw.decode("utf-8-sig"), filename=str(source_path))
 

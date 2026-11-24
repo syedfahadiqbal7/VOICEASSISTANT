@@ -21,6 +21,25 @@ MAX_REQUEST_BYTES = 1024 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
 
 
+class _DiscardTextWriter:
+    """Discard plugin output without opening the Windows NUL device."""
+
+    encoding = "utf-8"
+    errors = "replace"
+
+    def write(self, value: str) -> int:
+        return len(value)
+
+    def flush(self) -> None:
+        return None
+
+    def isatty(self) -> bool:
+        return False
+
+    def writable(self) -> bool:
+        return True
+
+
 def _emit(payload: dict[str, Any]) -> None:
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if len(encoded) > MAX_RESPONSE_BYTES:
@@ -37,11 +56,11 @@ def _emit(payload: dict[str, Any]) -> None:
 def _load_plugin(entry: Path, expected_sha256: str):
     from tools.base import BaseTool
 
-    root = entry.parent.resolve(strict=True)
-    if entry.is_symlink() or entry.resolve(strict=True).parent != root:
-        raise ValueError("plugin source path is not a safe regular file")
-    if not entry.is_file():
-        raise ValueError("plugin source is not a regular file")
+    # The AppContainer runner stages a host-verified regular file in a
+    # read-only directory. Avoid resolving the parent directory here: AppContainer
+    # ACLs intentionally grant traversal/read without broad directory ownership.
+    if not entry.is_absolute() or entry.is_symlink() or not entry.is_file():
+        raise ValueError("plugin source is not a safe regular file")
     digest = hashlib.sha256(entry.read_bytes()).hexdigest()
     if digest.lower() != str(expected_sha256).lower():
         raise ValueError("plugin source changed after host verification")
@@ -54,20 +73,20 @@ def _load_plugin(entry: Path, expected_sha256: str):
     sys.modules[module_name] = module
 
     # Plugin stdout/stderr must never corrupt the host's machine-readable IPC.
-    with open(os.devnull, "w", encoding="utf-8") as sink:
-        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-            spec.loader.exec_module(module)
-            exported = [
-                (name, cls) for name, cls in inspect.getmembers(module, inspect.isclass)
-                if issubclass(cls, BaseTool) and cls is not BaseTool
-                and cls.__module__ == module.__name__
-            ]
-            instances = [(class_name, cls, cls()) for class_name, cls in exported]
-            for _, _, instance in instances:
-                # Force metadata evaluation inside the worker, not the host.
-                _ = instance.name
-                _ = instance.description
-                _ = instance.parameters
+    sink = _DiscardTextWriter()
+    with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+        spec.loader.exec_module(module)
+        exported = [
+            (name, cls) for name, cls in inspect.getmembers(module, inspect.isclass)
+            if issubclass(cls, BaseTool) and cls is not BaseTool
+            and cls.__module__ == module.__name__
+        ]
+        instances = [(class_name, cls, cls()) for class_name, cls in exported]
+        for _, _, instance in instances:
+            # Force metadata evaluation inside the worker, not the host.
+            _ = instance.name
+            _ = instance.description
+            _ = instance.parameters
     return instances
 
 
@@ -115,9 +134,9 @@ def _main(request: dict[str, Any]) -> dict[str, Any]:
     ]
     if len(selected) != 1:
         raise ValueError("requested plugin tool identity did not match one exported tool")
-    with open(os.devnull, "w", encoding="utf-8") as sink:
-        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-            result = selected[0].execute(**arguments)
+    sink = _DiscardTextWriter()
+    with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+        result = selected[0].execute(**arguments)
     if not isinstance(result, dict):
         raise TypeError("plugin execute() must return a dictionary")
     # Enforce JSON-only IPC and reject opaque Python objects.
@@ -125,25 +144,110 @@ def _main(request: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "result": result}
 
 
-def main() -> int:
-    raw = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
+def _process_request(raw: bytes, include_diagnostics: bool = False) -> tuple[dict[str, Any], int]:
     if not raw or len(raw) > MAX_REQUEST_BYTES:
-        _emit({"ok": False, "error_code": "invalid_request", "error": "Invalid or oversized worker request."})
-        return 2
+        return {
+            "ok": False,
+            "error_code": "invalid_request",
+            "error": "Invalid or oversized worker request.",
+        }, 2
     try:
         request = json.loads(raw.decode("utf-8"))
-        response = _main(request)
-        _emit(response)
-        return 0
+        return _main(request), 0
     except BaseException as error:
-        # Do not return tracebacks or plugin-controlled exception strings to the
-        # desktop process; keep the protocol response categorical and bounded.
-        _emit({
+        # Keep normal worker IPC categorical. The private AppContainer file-IPC
+        # path may include bounded OS diagnostics to make sandbox integration
+        # failures actionable without exposing full tracebacks.
+        failure = {
             "ok": False,
             "error_code": "plugin_worker_failed",
             "error": type(error).__name__,
-        })
-        return 1
+        }
+        if include_diagnostics:
+            failure["detail"] = str(error)[:160]
+            cause = error.__cause__
+            if cause is not None:
+                failure["cause"] = type(cause).__name__
+                failure["cause_errno"] = getattr(cause, "errno", None)
+            filename = getattr(error, "filename", None)
+            if filename:
+                failure["resource"] = Path(str(filename)).name[:120]
+        return failure, 1
+
+
+def _encode_response(response: dict[str, Any]) -> bytes:
+    encoded = json.dumps(response, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(encoded) > MAX_RESPONSE_BYTES:
+        encoded = json.dumps({
+            "ok": False,
+            "error_code": "response_too_large",
+            "error": "Plugin worker response exceeded the configured size limit.",
+        }, separators=(",", ":")).encode("utf-8")
+    return encoded
+
+
+def main() -> int:
+    if len(sys.argv) == 4 and sys.argv[1] == "--file-ipc":
+        request_path = Path(sys.argv[2])
+        response_path = Path(sys.argv[3])
+        try:
+            raw = request_path.read_bytes()
+            # File-IPC mode is used by the AppContainer runner. Remove inherited
+            # host secrets before plugin import, then restore only the minimum
+            # Windows/Python environment and the SID-ACL broker credentials.
+            try:
+                request_for_environment = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                request_for_environment = {}
+            system_root = os.environ.get("SYSTEMROOT") or os.environ.get("WINDIR") or r"C:\\Windows"
+            python_directory = str(Path(sys.executable).resolve().parent)
+            safe_path = os.pathsep.join([
+                str(Path(system_root) / "System32"),
+                system_root,
+                python_directory,
+            ])
+            work_directory = str(request_path.resolve().parent)
+            os.environ.clear()
+            os.environ.update({
+                "SYSTEMROOT": system_root,
+                "WINDIR": system_root,
+                "PATH": safe_path,
+                "TEMP": work_directory,
+                "TMP": work_directory,
+                "PYTHONIOENCODING": "utf-8",
+            })
+            broker = request_for_environment.get("broker") if isinstance(request_for_environment, dict) else None
+            if broker is not None:
+                if (
+                    not isinstance(broker, dict)
+                    or set(broker) != {"pipe", "token"}
+                    or not isinstance(broker.get("pipe"), str)
+                    or not isinstance(broker.get("token"), str)
+                ):
+                    raise ValueError("invalid host broker configuration")
+                os.environ["VOICEASSISTANT_BROKER_PIPE"] = broker["pipe"]
+                os.environ["VOICEASSISTANT_BROKER_TOKEN"] = broker["token"]
+            response, exit_code = _process_request(raw, include_diagnostics=True)
+            encoded = _encode_response(response)
+            temporary = response_path.with_suffix(response_path.suffix + ".tmp")
+            temporary.write_bytes(encoded)
+            os.replace(temporary, response_path)
+            return exit_code
+        except BaseException as error:
+            try:
+                response_path.write_bytes(_encode_response({
+                    "ok": False,
+                    "error_code": "worker_file_ipc_failed",
+                    "error": type(error).__name__,
+                }))
+            except Exception:
+                pass
+            return 3
+
+    raw = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
+    response, exit_code = _process_request(raw)
+    _emit(response)
+    return exit_code
 
 
 if __name__ == "__main__":
