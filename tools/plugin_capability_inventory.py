@@ -138,6 +138,8 @@ def inspect_source(
                     record(capability, "call:" + name)
             if leaf in {"eval", "exec", "compile"}:
                 warnings.add("dynamic_code_execution:" + leaf)
+            if leaf == "__import__":
+                warnings.add("dynamic_import")
             if leaf in {"connect", "urlopen", "request", "get", "post", "put", "delete"}:
                 if any(part in name.lower() for part in ("requests", "httpx", "urllib", "socket", "aiohttp")):
                     record("network:read" if leaf not in {"post", "put", "delete"} else "network:write", "call:" + name)
