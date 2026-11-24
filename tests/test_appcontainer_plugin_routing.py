@@ -46,7 +46,7 @@ def test_manifest_rejects_unknown_or_non_string_execution_sandbox():
 
 def test_manifest_builder_preserves_default_and_emits_explicit_sandbox(tmp_path):
     entry = tmp_path / "sample.py"
-    entry.write_text("# sample plugin\\n", encoding="utf-8")
+    entry.write_text("# sample plugin\n", encoding="utf-8")
     default_manifest = build_manifest_for_file(entry, tools=["sample"])
     assert "execution_sandbox" not in default_manifest
 
@@ -133,16 +133,16 @@ def test_registry_appcontainer_plugin_uses_host_read_broker_after_policy_attachm
 
     entry = plugins / "broker_reader.py"
     entry.write_text(
-        "from tools.base import BaseTool\\n"
-        "from tools.plugin_capability_client import read_text\\n"
-        "class BrokerReaderTool(BaseTool):\\n"
-        "    @property\\n"
-        "    def name(self): return 'broker_reader'\\n"
-        "    @property\\n"
-        "    def description(self): return 'Read through the host capability broker'\\n"
-        "    @property\\n"
-        "    def parameters(self): return {'type': 'object', 'properties': {'path': {'type': 'string'}}}\\n"
-        "    def execute(self, path): return {'content': read_text(path), 'is_error': False}\\n",
+        "from tools.base import BaseTool\n"
+        "from tools.plugin_capability_client import read_text\n"
+        "class BrokerReaderTool(BaseTool):\n"
+        "    @property\n"
+        "    def name(self): return 'broker_reader'\n"
+        "    @property\n"
+        "    def description(self): return 'Read through the host capability broker'\n"
+        "    @property\n"
+        "    def parameters(self): return {'type': 'object', 'properties': {'path': {'type': 'string'}}}\n"
+        "    def execute(self, path): return {'content': read_text(path), 'is_error': False}\n",
         encoding="utf-8",
     )
     manifest = {
