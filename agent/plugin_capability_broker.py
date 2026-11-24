@@ -37,6 +37,8 @@ class PluginCapabilityBroker:
         self._token = secrets.token_urlsafe(32)
         self._server = None
         self._thread = None
+        self._seen_request_ids = set()
+        self._seen_lock = threading.Lock()
 
     def start(self) -> dict[str, Any]:
         if self._server is not None:
@@ -73,6 +75,14 @@ class PluginCapabilityBroker:
                 if not isinstance(supplied_token, str) or not hmac.compare_digest(supplied_token, broker._token):
                     self._reply({"ok": False, "request_id": request_id, "error_code": "unauthorized"})
                     return
+                with broker._seen_lock:
+                    if request_id in broker._seen_request_ids:
+                        self._reply({"ok": False, "request_id": request_id, "error_code": "replayed_request"})
+                        return
+                    if len(broker._seen_request_ids) >= 4096:
+                        self._reply({"ok": False, "request_id": request_id, "error_code": "request_limit_reached"})
+                        return
+                    broker._seen_request_ids.add(request_id)
                 arguments = request.get("arguments")
                 if not isinstance(arguments, dict):
                     self._reply({"ok": False, "request_id": request_id, "error_code": "invalid_arguments"})
