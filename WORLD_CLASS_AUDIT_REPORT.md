@@ -9,9 +9,9 @@
 
 Voice Assistant is a local-first Windows AI desktop agent with a Flutter companion, a structured planner/executor, registered tools and plugins, local persistence, scheduling, audio I/O, and a FastAPI/WebSocket bridge. It has undergone multi-phase security, reliability, privacy, mobile and desktop UX hardening. It is a hardened development build, not yet a production-certified enterprise application.
 
-The repository now includes mobile per-device identity and revocation, server-enforced mobile RBAC and approval routing, fail-closed policy gates, plugin manifest/permission/archive enforcement, encrypted local runtime stores, DPAPI-backed Windows key protection, portable encrypted backup/restore, protected keyring bootstrap/rotation, explicit resumable VAENC1-to-VAENC2 migration, offline recovery kits, guarded retained-key retirement, structured redacted diagnostics, and opt-in retention controls. The README now has a user-facing feature catalogue.
+The repository now includes mobile per-device identity and revocation, server-enforced mobile RBAC and approval routing, fail-closed policy gates, plugin manifest/permission/archive enforcement, a Windows AppContainer pilot with package-SID named-pipe broker and explicit per-plugin registry routing, encrypted local runtime stores, DPAPI-backed Windows key protection, portable encrypted backup/restore, protected keyring bootstrap/rotation, explicit resumable VAENC1-to-VAENC2 migration, offline recovery kits, guarded retained-key retirement, structured redacted diagnostics, and opt-in retention controls. The README has a user-facing feature catalogue and documents the remaining per-plugin sandbox boundary.
 
-Latest fully green cross-platform CI run is [#44333839694](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/44333839694) for commit `3505b58b4db3a53fe2408411d85783667f070fb8`. Python Windows compile/regression/smoke checks, Flutter analysis/tests/Android release APK build, and unsigned iOS build all completed successfully. The current Python suite reports **192 passed** plus **16 Phase 0 smoke checks**. This supersedes the historical #44332948180 status below. Real Windows GUI/audio/Ollama operation and physical Android/iOS behavior still require target-environment validation.
+Latest fully green cross-platform CI run is [#45396454585](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45396454585) for the AppContainer registry-integration branch. Windows compile/regression/smoke checks, Flutter analysis/tests/Android APK build, and unsigned iOS build all completed successfully: **342 Python tests passed**, **16 Phase 0 smoke checks passed**, and all mobile validation builds passed. The AppContainer pilot is still pending merge at the time of this report update. Real Windows GUI/audio/Ollama operation and physical Android/iOS behavior still require target-environment validation.
 
 ## Phase completion map
 
@@ -19,7 +19,7 @@ Latest fully green cross-platform CI run is [#44333839694](https://github.com/sy
 |---|---|---|---|
 | 0.1–0.3 | Security baseline | Complete for scoped source controls | Ongoing threat-model review |
 | 1 | Reliability and recovery | Implemented and regression-tested | Full real-desktop end-to-end validation |
-| 2 | Plugin and integration hardening | Core manifest, permissions, installer and registry hardening complete | Plugins remain in-process; no OS sandbox or verified publisher signing |
+| 2 | Plugin and integration hardening | Manifest, permissions, installer, crash-contained worker, broker and opt-in AppContainer pilot implemented | JSON formatter is the first AppContainer plugin; other plugins remain same-user workers; broader broker capabilities, publisher signing and independent review remain outstanding |
 | 3 | Persistence and privacy | Encrypted stores, backup/restore and opt-in retention implemented | No secure erasure or in-app privacy dashboard |
 | 4 | Mobile companion | Flutter app, API, identity, RBAC and approval routing implemented; CI builds | Physical-device, real LAN and signed distribution testing |
 | 5 | Desktop UI/UX and lifecycle | Source-level hardening implemented | Interactive Windows GUI, audio and Ollama runtime validation |
@@ -158,7 +158,7 @@ The initial enforcement pass found mismatches between plugin manifest `tools` va
 
 Registry registration is atomic. A plugin is registered only when its complete exported tool-name set matches its manifest and no existing tool name conflicts. Plugins with no capability declarations are treated as privileged by default, with only the two built-in pure utilities explicitly allowlisted for an empty permission set.
 
-The installer does not claim cryptographic publisher authentication or OS-level sandboxing. SHA-256 checks integrity against the included manifest; a malicious publisher can replace both. The `author` field is unverified. Plugins still execute inside the desktop process.
+The installer does not claim cryptographic publisher authentication. SHA-256 checks integrity against the included manifest; a malicious publisher can replace both. The `author` field is unverified. Plugins default to a same-user child worker; only plugins explicitly marked `execution_sandbox: appcontainer` use the Windows AppContainer pilot.
 
 ## 6. Verification performed
 
@@ -193,8 +193,8 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 - **TLS certificate lifecycle.** Direct `wss://` can be configured with a certificate/key or TLS reverse proxy, and the Flutter client relies on the operating-system trust store. Certificate provisioning/rotation, certificate pinning, per-device client certificates and an in-app token rotation workflow are not implemented. Per-device credentials, revocation and server-side device roles are implemented through the trusted desktop CLI. Plain `ws://` remains available after explicit confirmation and must be restricted to a trusted private LAN/VPN.
 - **Legacy shared-token compatibility.** The shared-token mode remains available only before a device registry is created and provides operator-level permissions without per-device attribution. Once the encrypted registry exists, per-device credentials and roles are mandatory. There is not yet a per-human identity provider, device certificate identity or in-app token rotation.
 - **Mobile release signing.** Android's release build currently uses the debug signing configuration and iOS CI uses `--no-codesign`. Configure protected Android signing material and Apple signing/provisioning before public distribution.
-- **Plugin sandboxing is absent.** Plugins execute in the desktop Python process with the user's OS permissions. Checksums are integrity checks, not cryptographic publisher signatures; the author field is unverified metadata.
-- **Permission declarations are not a sandbox.** Read-only policy blocks declared mutating permissions and missing permissions fail closed to `system:admin`, but a malicious plugin can understate its capabilities. Require code review and explicit trust before adding third-party plugins.
+- **Plugin isolation is partial and opt-in.** The JSON formatter is the first plugin routed through AppContainer for both metadata discovery and execution. Plugins in the default worker mode still run with the desktop user's OS permissions; checksums are integrity controls, not cryptographic publisher signatures, and the author field is unverified metadata.
+- **Permission declarations are not an OS boundary in default worker mode.** The AppContainer pilot enforces a no-network token and scoped ACLs for explicitly opted-in plugins, but currently supports only a narrow import/capability set and policy-approved filesystem reads. Continue code review and explicit trust for all third-party plugins.
 - **Command analysis remains heuristic.** The command analyzer is not a PowerShell sandbox. High-impact commands need OS-level least privilege and strong approval UX.
 
 ### P1/P2 — reliability and privacy
@@ -215,7 +215,7 @@ The installer does not claim cryptographic publisher authentication or OS-level 
 - Add structured task progress and cancellation-state visibility across desktop and mobile.
 - Add explicit time-zone handling for schedules and a user-controlled retry-now action for failed jobs.
 - Add a mobile connection diagnostics screen; secure credential persistence, reconnect handling and optional TLS/WSS configuration are implemented.
-- Add plugin dependency/version resolution, publisher signatures, hot-reload lifecycle and isolated worker-process sandboxing.
+- Add plugin dependency/version resolution, publisher signatures, hot-reload lifecycle, additional brokered capabilities, broader AppContainer-compatible dependency staging and staged migration of the remaining plugins.
 - Add accessibility, responsive layout, keyboard navigation and visual regression checks.
 - Replace remaining placeholder/starter project metadata and validate app branding/package identifiers before release.
 
@@ -318,7 +318,7 @@ The intermediate runs [#44326176355](https://github.com/syedfahadiqbal7/VOICEASS
 1. No real Windows end-to-end certification of desktop GUI, microphone/STT/TTS, Ollama lifecycle, device drivers or external application automation.
 2. No physical Android/iOS LAN pairing, secure-storage, reconnect and approval acceptance test; CI builds/tests are not device certification.
 3. No independent penetration test or formal cryptographic review. CI is regression evidence only.
-4. Plugin code executes in-process and is not OS-sandboxed; manifest checksums are integrity controls, not signed publisher identity.
+4. Plugins default to a same-user child worker with crash containment only; the first explicitly opted-in plugin uses AppContainer. Manifest checksums are integrity controls, not signed publisher identity.
 5. Direct remote `ws://` traffic is unencrypted; production remote access must use VPN or correctly configured TLS/WSS and firewall restrictions.
 6. Runtime key-store inventory is allow-list based. Every future encrypted store must be added to migration discovery, backup/restore allow-list, tests and the threat model.
 7. Ordinary runtime writers do not acquire the key-administration lock. Stop the application and all writer processes before migration or key retirement; if quiescence cannot be guaranteed, do not retire keys.
@@ -370,7 +370,7 @@ This section supersedes earlier statements in this report that the Android build
 1. **Windows desktop acceptance:** install from a clean checkout using supported Python 3.11, validate setup/upgrade, UI startup/shutdown, text chat, Ollama unavailable/restart/model states, microphone/STT, TTS, and representative tool/undo workflows.
 2. **Physical mobile acceptance:** install on real Android and iOS devices; verify secure credential storage, pairing, revocation, reconnect, WSS/TLS, role restrictions, approval routing, schedule state and disconnect cleanup.
 3. **Recovery exercise:** in an isolated test profile, verify portable backup authentication, restore to a clean destination, recovery-kit import, interrupted migration recovery, and keyring-loss handling. Never experiment on the user's live runtime data.
-4. **Security review:** independent review/penetration test remains outstanding. Plugin code is still in-process (no OS sandbox or signed publisher trust); direct remote WS is not encrypted; ordinary runtime writers do not participate in the key-administration lock.
+4. **Security review:** independent review/penetration test remains outstanding. Only the explicit AppContainer pilot is OS-isolated; default-worker plugins retain same-user privileges and publisher trust is unsigned. Direct remote WS is not encrypted; ordinary runtime writers do not participate in the key-administration lock.
 5. **Reliability/product backlog:** add operation-level idempotency for side-effecting scheduled handlers; continue typed-exception cleanup and malformed legacy-store recovery; add process-wide mobile registry/quota coordination; improve desktop/mobile progress, diagnostics, accessibility and release packaging/signing.
 6. **Release controls:** retain development/beta status until Windows and physical-device acceptance, recovery drill, security sign-off, and production signing/installer rollback are complete.
 
@@ -526,7 +526,7 @@ This addendum supersedes earlier pending-state notes where the corresponding wor
 
 1. **Windows desktop acceptance:** GUI layout, profile editor interaction, microphone/STT/TTS, Ollama lifecycle, Windows process/tool integrations and shutdown behavior still require testing on the target Windows machine.
 2. **Physical mobile acceptance:** Android/iOS pairing, secure-storage behavior, reconnect, approval routing, microphone permissions and real LAN/WSS behavior require physical-device tests.
-3. **Plugin isolation:** plugins still execute in-process. Manifest, permission, archive and checksum checks do not provide an OS sandbox or verified publisher identity.
+3. **Plugin isolation:** the default worker remains same-user crash containment, while the JSON formatter is explicitly AppContainer-isolated. Manifest, permission, archive and checksum checks alone do not provide an OS sandbox or verified publisher identity.
 4. **Network security lifecycle:** use VPN or TLS/WSS for remote access. Certificate provisioning/rotation, certificate pinning and per-device client certificates are not implemented.
 5. **Release signing:** Android CI artifacts remain debug-signed; iOS CI builds remain unsigned. Production distribution requires protected Android signing and Apple signing/provisioning plus a Windows installer/signing and rollback plan.
 6. **Scheduler guarantees:** built-in scheduled fast-path tools use a durable at-most-once invocation guard, but arbitrary callbacks/reminders remain at-least-once. External side-effecting integrations must enforce their own idempotency keys.
@@ -534,7 +534,7 @@ This addendum supersedes earlier pending-state notes where the corresponding wor
 
 ## Next engineering priority
 
-Continue source-level security hardening without weakening existing compatibility: review plugin execution boundaries and design an isolated worker process with a narrow, validated IPC contract before attempting to move arbitrary plugin code out of the desktop process. Do not describe a subprocess boundary as a complete OS sandbox; OS-level containment and least-privilege enforcement must be evaluated separately. Keep physical-device, Windows runtime, recovery-drill and independent-security-review items as explicit external acceptance gates.
+Continue source-level security hardening without weakening existing compatibility: complete the staged AppContainer rollout, expand only reviewed broker operations, verify ACL/profile cleanup and resource-exhaustion controls, and migrate compatible plugins individually. Do not describe the default subprocess worker as a complete OS sandbox. Keep physical-device, target-Windows runtime, recovery-drill and independent-security-review items as explicit external acceptance gates.
 
 
 ### Plugin worker crash-containment implementation — PR #32
@@ -564,3 +564,19 @@ Implement and test the host-owned capability broker, then implement Windows rest
 **Verification:** [PR #34](https://github.com/syedfahadiqbal7/VOICEASSISTANT/pull/34) merged as `d2b13f710b0d3456fb2d0a9a28e160b25dfe270c`. CI run [#45335729490](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45335729490) passed **312 Python regression tests**, **16 Phase 0 smoke checks**, Flutter analysis/tests, Android APK build and unsigned iOS build.
 
 **Remaining security gap:** Job Objects are process/resource controls, not an OS security boundary for file/network access. Workers still run as the desktop user. A restricted token/AppContainer, explicit ACL isolation, default-deny networking and broker-only resource access are still required before untrusted plugins can be supported.
+
+## AppContainer plugin pilot and registry routing — 2026-11-24
+
+**Implemented in the current development branch; PR #46 is awaiting merge.**
+
+- Added a Windows AppContainer runner with no network capabilities, scoped ACL grants for the Python runtime/staged plugin/private IPC directory, bounded file IPC, timeout and Job Object process/resource limits.
+- Added a package-SID ACL named-pipe transport and host-owned per-invocation capability broker. The broker currently exposes policy-approved filesystem reads only; unsupported operations remain default-deny.
+- Routed plugin metadata discovery and every invocation through AppContainer when the verified manifest declares `execution_sandbox: appcontainer`. Failure never falls back to the same-user worker.
+- Marked `json_formatter.py` as the first opted-in plugin. All other plugins retain the default same-user crash-contained worker until separately reviewed and migrated.
+- The AppContainer runner rejects unsupported imports, native/dynamic APIs, undeclared capabilities and permissions outside the current broker contract. Python starts with `-I -S`; the trusted worker clears inherited environment variables before importing plugin code.
+- Added regressions for manifest generation/validation, dynamic-import detection, no-fallback behavior, AppContainer metadata discovery and real plugin execution.
+
+**CI verification:** [run #45396454585](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45396454585) — **342 Python tests passed**, **16 Phase 0 smoke checks passed**, Flutter analysis/tests passed, Android APK build passed and unsigned iOS build passed.
+
+**Remaining gaps:** this is not blanket sandboxing. Additional plugins need dependency/capability migration; disk-exhaustion controls and ACL/profile cleanup verification need further hardening; publisher signatures and independent security review are outstanding. Validate on the target Windows machine before production use.
+
