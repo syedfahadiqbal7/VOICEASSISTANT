@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+from pathlib import Path
+
+import pytest
+
+import agent.tool_registry as registry_module
+from agent.plugin_marketplace import validate_manifest
+from agent.tool_registry import PluginWorkerTool
+
+
+def _manifest(entry: Path, sandbox: str = "appcontainer") -> dict:
+    return {
+        "name": entry.stem,
+        "version": "1.0.0",
+        "entry": entry.name,
+        "tools": ["json_formatter"],
+        "permissions": [],
+        "checksum_sha256": hashlib.sha256(entry.read_bytes()).hexdigest(),
+        "execution_sandbox": sandbox,
+    }
+
+
+def test_manifest_rejects_unknown_or_non_string_execution_sandbox():
+    valid = {
+        "name": "sample",
+        "version": "1.0.0",
+        "entry": "sample.py",
+        "tools": ["sample"],
+        "permissions": [],
+        "checksum_sha256": "0" * 64,
+    }
+    for value in ("unknown", [], {}, None):
+        candidate = dict(valid, execution_sandbox=value)
+        ok, errors = validate_manifest(candidate)
+        assert ok is False
+        assert any("execution_sandbox" in error for error in errors)
+
+
+def test_appcontainer_proxy_never_falls_back_to_same_user_worker(tmp_path, monkeypatch):
+    class FailingAppContainerRunner:
+        def __init__(self, policy):
+            self.policy = policy
+
+        def execute(self, **kwargs):
+            return {"ok": False, "error_code": "appcontainer_worker_timeout"}
+
+    def forbidden_fallback(*args, **kwargs):
+        pytest.fail("AppContainer failure must never fall back to the same-user worker")
+
+    monkeypatch.setattr(registry_module, "AppContainerPluginRunner", FailingAppContainerRunner)
+    monkeypatch.setattr(registry_module, "_run_plugin_worker", forbidden_fallback)
+
+    entry = tmp_path / "appcontainer_plugin.py"
+    entry.write_text("# manifest-backed test source\n", encoding="utf-8")
+    tool = PluginWorkerTool(
+        entry=entry,
+        sha256=hashlib.sha256(entry.read_bytes()).hexdigest(),
+        class_name="SampleTool",
+        metadata={"name": "appcontainer_sample"},
+        permissions=[],
+        sandbox_mode="appcontainer",
+    )
+    result = tool.execute()
+    assert result["is_error"] is True
+    assert result["error_code"] == "appcontainer_worker_timeout"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows AppContainer registry integration test")
+def test_tool_registry_uses_appcontainer_for_discovery_and_every_invocation(tmp_path, monkeypatch):
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    repo_root = Path(__file__).resolve().parents[1]
+    source = repo_root / "plugins" / "json_formatter.py"
+    entry = plugins / "json_formatter.py"
+    shutil.copy2(source, entry)
+    manifest = _manifest(entry)
+    (plugins / "json_formatter.manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+    monkeypatch.setattr(registry_module, "PLUGINS_DIR", plugins)
+
+    registry = registry_module.ToolRegistry()
+    tool = registry.get("json_formatter")
+    assert isinstance(tool, PluginWorkerTool)
+    assert tool._sandbox_mode == "appcontainer"
+
+    result = registry.execute(
+        "json_formatter",
+        {"json_string": '{"sandbox":"appcontainer","ok":true}'},
+    )
+    assert result["is_error"] is False
+    assert result["content"] == '{\n  "sandbox": "appcontainer",\n  "ok": true\n}'
