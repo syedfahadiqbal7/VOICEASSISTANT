@@ -154,7 +154,7 @@ def test_broker_rejects_replayed_request_id(tmp_path):
         responses = []
         for _ in range(2):
             with socket.create_connection((config["host"], config["port"]), timeout=5) as connection:
-                connection.sendall(json.dumps(request).encode("utf-8") + b"\\n")
+                connection.sendall(json.dumps(request).encode("utf-8") + bytes([10]))
                 responses.append(json.loads(connection.makefile("rb").readline().decode("utf-8")))
         assert responses[0]["ok"] is True
         assert responses[1]["ok"] is False
