@@ -58,5 +58,5 @@ def test_appcontainer_cannot_read_host_file_without_explicit_package_acl():
         _remove_acl(shared, sid_text)
         _remove_acl(root, sid_text)
         userenv.DeleteAppContainerProfile(profile_name)
-        kernel32.FreeSid(sid)
+        advapi32.FreeSid(sid)
         shutil.rmtree(root, ignore_errors=True)
