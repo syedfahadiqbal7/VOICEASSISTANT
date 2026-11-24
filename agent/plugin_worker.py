@@ -162,6 +162,41 @@ def main() -> int:
         response_path = Path(sys.argv[3])
         try:
             raw = request_path.read_bytes()
+            # File-IPC mode is used by the AppContainer runner. Remove inherited
+            # host secrets before plugin import, then restore only the minimum
+            # Windows/Python environment and the SID-ACL broker credentials.
+            try:
+                request_for_environment = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                request_for_environment = {}
+            system_root = os.environ.get("SYSTEMROOT") or os.environ.get("WINDIR") or r"C:\\Windows"
+            python_directory = str(Path(sys.executable).resolve().parent)
+            safe_path = os.pathsep.join([
+                str(Path(system_root) / "System32"),
+                system_root,
+                python_directory,
+            ])
+            work_directory = str(request_path.resolve().parent)
+            os.environ.clear()
+            os.environ.update({
+                "SYSTEMROOT": system_root,
+                "WINDIR": system_root,
+                "PATH": safe_path,
+                "TEMP": work_directory,
+                "TMP": work_directory,
+                "PYTHONIOENCODING": "utf-8",
+            })
+            broker = request_for_environment.get("broker") if isinstance(request_for_environment, dict) else None
+            if broker is not None:
+                if (
+                    not isinstance(broker, dict)
+                    or set(broker) != {"pipe", "token"}
+                    or not isinstance(broker.get("pipe"), str)
+                    or not isinstance(broker.get("token"), str)
+                ):
+                    raise ValueError("invalid host broker configuration")
+                os.environ["VOICEASSISTANT_BROKER_PIPE"] = broker["pipe"]
+                os.environ["VOICEASSISTANT_BROKER_TOKEN"] = broker["token"]
             response, exit_code = _process_request(raw)
             encoded = _encode_response(response)
             temporary = response_path.with_suffix(response_path.suffix + ".tmp")
