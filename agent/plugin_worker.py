@@ -56,10 +56,10 @@ def _emit(payload: dict[str, Any]) -> None:
 def _load_plugin(entry: Path, expected_sha256: str):
     from tools.base import BaseTool
 
-    root = entry.parent.resolve(strict=True)
-    if entry.is_symlink() or entry.resolve(strict=True).parent != root:
-        raise ValueError("plugin source path is not a safe regular file")
-    if not entry.is_file():
+    # The AppContainer runner stages a host-verified regular file in a
+    # read-only directory. Avoid resolving the parent directory here: AppContainer
+    # ACLs intentionally grant traversal/read without broad directory ownership.
+    if not entry.is_absolute() or not entry.is_file():
         raise ValueError("plugin source is not a regular file")
     digest = hashlib.sha256(entry.read_bytes()).hexdigest()
     if digest.lower() != str(expected_sha256).lower():
