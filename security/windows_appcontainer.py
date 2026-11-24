@@ -150,7 +150,7 @@ def _grant_acl(path: Path, sid_text: str, permission: str) -> None:
         [str(icacls), str(path), "/grant", f"*{sid_text}:{permission}"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
-        timeout=10,
+        timeout=30,
         check=False,
     )
     if result.returncode != 0:
