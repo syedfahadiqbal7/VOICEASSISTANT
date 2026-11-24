@@ -94,7 +94,7 @@ def validate_manifest(manifest: Dict[str, Any]) -> Tuple[bool, List[str]]:
     ):
         errors.append("tools must be a non-empty unique list of valid BaseTool.name values")
     execution_sandbox = manifest.get("execution_sandbox", "worker")
-    if execution_sandbox not in {"worker", "appcontainer"}:
+    if not isinstance(execution_sandbox, str) or execution_sandbox not in {"worker", "appcontainer"}:
         errors.append("execution_sandbox must be 'worker' or 'appcontainer'")
     permissions = manifest.get("permissions", [])
     if not isinstance(permissions, list) or not all(isinstance(x, str) and x.strip() for x in permissions):
