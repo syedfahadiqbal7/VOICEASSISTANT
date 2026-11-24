@@ -132,6 +132,7 @@ class AppContainerPluginRunner:
                 "class_name": str(class_name),
                 "tool_name": str(tool_name),
                 "arguments": arguments,
+                "broker": broker_config,
             }
             payload = json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             if len(payload) > MAX_REQUEST_BYTES:
@@ -161,18 +162,6 @@ class AppContainerPluginRunner:
             _grant_acl(work, sid_text, "(OI)(CI)M")
             granted.append(work)
 
-            environment = {}
-            for key in ("SYSTEMROOT", "WINDIR", "PATH"):
-                value = os.environ.get(key)
-                if value:
-                    environment[key] = value
-            environment["TEMP"] = str(work)
-            environment["TMP"] = str(work)
-            environment["PYTHONIOENCODING"] = "utf-8"
-            if broker_config:
-                environment["VOICEASSISTANT_BROKER_PIPE"] = broker_config["pipe"]
-                environment["VOICEASSISTANT_BROKER_TOKEN"] = broker_config["token"]
-
             stage = "launch_appcontainer_worker"
             worker_path = staging / "agent" / "plugin_worker.py"
             exit_code = run_appcontainer_command(
@@ -181,7 +170,6 @@ class AppContainerPluginRunner:
                 profile_name=profile_name,
                 timeout_seconds=timeout_seconds,
                 appcontainer_sid=sid,
-                environment=environment,
             )
             if not response_path.is_file():
                 return {"ok": False, "error_code": "appcontainer_no_response", "exit_code": exit_code}
