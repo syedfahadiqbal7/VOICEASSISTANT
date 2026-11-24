@@ -213,32 +213,16 @@ class AppContainerPluginRunner:
 
             stage = "launch_appcontainer_worker"
             worker_path = staging / "agent" / "plugin_worker.py"
-            system_root = os.environ.get("SYSTEMROOT") or os.environ.get("WINDIR") or r"C:\Windows"
-            python_directory = str(Path(sys.executable).resolve().parent)
-            safe_path = os.pathsep.join([
-                str(Path(system_root) / "System32"),
-                system_root,
-                python_directory,
-            ])
-            # Do not inherit the desktop process environment. In particular,
-            # API keys, cloud credentials, proxy secrets and Python startup
-            # overrides must never reach the AppContainer worker.
-            environment = {
-                "SYSTEMROOT": system_root,
-                "WINDIR": system_root,
-                "PATH": safe_path,
-                "TEMP": str(work),
-                "TMP": str(work),
-                "PYTHONIOENCODING": "utf-8",
-            }
+            # -I ignores Python environment overrides and user site-packages;
+            # -S prevents sitecustomize/.pth startup code from running. The
+            # trusted worker clears inherited environment variables before it
+            # imports the plugin and reconstructs only the broker credentials.
             exit_code = run_appcontainer_command(
                 Path(sys.executable),
-                ["-I", str(worker_path), "--file-ipc", str(request_path), str(response_path)],
+                ["-I", "-S", str(worker_path), "--file-ipc", str(request_path), str(response_path)],
                 profile_name=profile_name,
                 timeout_seconds=timeout_seconds,
                 appcontainer_sid=sid,
-                environment=environment,
-                current_directory=work,
             )
             if not response_path.is_file():
                 return {"ok": False, "error_code": "appcontainer_no_response", "exit_code": exit_code}
