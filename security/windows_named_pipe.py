@@ -12,7 +12,7 @@ import threading
 from ctypes import wintypes
 
 
-MAX_PIPE_MESSAGE_BYTES = 64 * 1024
+MAX_PIPE_MESSAGE_BYTES = 1024 * 1024
 ERROR_PIPE_CONNECTED = 535
 ERROR_BROKEN_PIPE = 109
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
