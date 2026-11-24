@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from agent.storage import atomic_write_json, load_json
 from agent.data_protection import DataProtectionError
+from agent.plugin_marketplace import SUPPORTED_PERMISSIONS
 
 try:
     from config import BASE_DIR
@@ -65,6 +66,11 @@ DEFAULT_POLICY: Dict[str, Any] = {
         "msedge.exe",
     ],
     "denied_tools": [],
+    "allowed_read_roots": [
+        "Desktop",
+        "Documents",
+        "Downloads",
+    ],
     "allowed_write_roots": [
         "Desktop",
         "Documents",
@@ -187,6 +193,100 @@ class PolicyEngine:
             "Path outside canonical allowed_write_roots "
             f"({', '.join(configured_roots)}). Refusing write to: {raw_path}"
         )
+
+    def evaluate_read_path(self, filepath: str) -> Tuple[bool, str]:
+        """Validate a read destination against canonical, configured roots."""
+        raw_path = (filepath or "").strip().strip('"').strip("'")
+        if not raw_path:
+            return False, "Empty filepath"
+        configured_roots = [
+            str(x).strip() for x in (self.data.get("allowed_read_roots") or [])
+            if str(x).strip()
+        ]
+        if not configured_roots:
+            return False, "No allowed_read_roots are configured; refusing file read by default"
+        try:
+            portable_path = raw_path.replace("\\", "/")
+            if portable_path.lower() == "desktop":
+                raw_path = str(Path.home() / "Desktop")
+            elif portable_path.lower().startswith("desktop/"):
+                raw_path = str(Path.home() / "Desktop" / portable_path.split("/", 1)[1])
+            candidate = Path(os.path.expandvars(os.path.expanduser(raw_path))).resolve(strict=True)
+            if not candidate.is_file():
+                return False, "Read target must be an existing regular file"
+            candidate_norm = os.path.normcase(str(candidate))
+            for root in configured_roots:
+                expanded = Path(os.path.expandvars(os.path.expanduser(root)))
+                if not expanded.is_absolute():
+                    expanded = Path.home() / expanded
+                allowed = expanded.resolve(strict=True)
+                allowed_norm = os.path.normcase(str(allowed))
+                try:
+                    if os.path.commonpath([candidate_norm, allowed_norm]) == allowed_norm:
+                        return True, "ok"
+                except ValueError:
+                    continue
+        except (OSError, RuntimeError, ValueError) as error:
+            return False, f"Could not safely canonicalize read path: {type(error).__name__}"
+        return False, f"Path is outside configured allowed_read_roots: {raw_path}"
+
+    def evaluate_capability_request(
+        self,
+        tool_name: str,
+        capability: str,
+        operation: str,
+        arguments: Optional[Dict[str, Any]] = None,
+        declared_permissions: Optional[List[str]] = None,
+        approved: bool = False,
+    ) -> Dict[str, Any]:
+        """Authorize one broker operation; default-deny unsupported operations.
+
+        This is the policy core for a future host-owned broker. It does not itself
+        perform I/O or prevent a same-user worker from bypassing the broker.
+        """
+        args = arguments if isinstance(arguments, dict) else {}
+        normalized = str(capability or "").strip().lower()
+        if self.is_tool_denied(tool_name):
+            return {"allowed": False, "require_gate": True, "reason": "Tool denied by policy"}
+        if normalized not in SUPPORTED_PERMISSIONS:
+            return {"allowed": False, "require_gate": True, "reason": "Unsupported capability"}
+        declared = {str(item).strip().lower() for item in (declared_permissions or [])}
+        if normalized not in declared:
+            return {"allowed": False, "require_gate": True, "reason": "Capability was not declared by this plugin"}
+        if normalized == "system:admin":
+            return {"allowed": False, "require_gate": True, "reason": "Generic system:admin broker access is prohibited"}
+
+        operations = {
+            "filesystem.read_text": "filesystem:read",
+            "filesystem.read_bytes": "filesystem:read",
+            "filesystem.write_text": "filesystem:write",
+            "filesystem.delete_file": "filesystem:delete",
+        }
+        if operations.get(operation) != normalized:
+            return {"allowed": False, "require_gate": True, "reason": "No broker handler is registered for this operation"}
+
+        mutating = normalized in {
+            "filesystem:write", "filesystem:delete", "network:write",
+            "process:execute", "process:terminate", "clipboard:write",
+            "registry:write", "system:environment:write", "email:send",
+            "messaging:send", "docker:control", "service:control",
+            "screen:control",
+        }
+        if self.role == "read_only" and mutating:
+            return {"allowed": False, "require_gate": True, "reason": "Role read_only blocks this capability"}
+
+        require_gate = mutating
+        if require_gate and not approved:
+            return {"allowed": False, "require_gate": True, "reason": "Explicit approval is required for this broker operation"}
+
+        path = str(args.get("path") or "")
+        if normalized == "filesystem:read":
+            allowed, reason = self.evaluate_read_path(path)
+        else:
+            allowed, reason = self.evaluate_write_path(path)
+        if not allowed:
+            return {"allowed": False, "require_gate": require_gate, "reason": reason}
+        return {"allowed": True, "require_gate": require_gate, "reason": "ok"}
 
     def evaluate_tool_call(
         self,
