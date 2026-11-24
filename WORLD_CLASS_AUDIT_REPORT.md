@@ -486,3 +486,52 @@ This is an at-most-once invocation guard for the built-in scheduled tool fast pa
 - Branch: `reliability/scheduled-execution-idempotency`.
 - New tests: `tests/test_scheduled_execution_ledger.py` and `tests/test_scheduled_tool_idempotency.py`; scheduler deferral/cancellation and UI waiting-state regressions were added to their existing suites.
 - Windows CI and Flutter CI are pending PR execution. No test pass or runtime acceptance is claimed yet.
+
+
+---
+
+# Continuation checkpoint — 2026-11-24
+
+This addendum supersedes earlier pending-state notes where the corresponding work has since been merged. It records repository evidence only; target-machine and physical-device acceptance remain external gates.
+
+## Merged changes since the 2026-11-20 checkpoint
+
+### Encrypted personal profile and preference management — PR #28
+
+- Added `agent/user_profile.py`: schema-validated, bounded and encrypted local preferences with OS-backed cross-process file locking.
+- Added an opt-in assistant-context projection limited to general interests, career targets, industries, news topics and language-learning preferences. Birthday, wardrobe and shopping-watchlist records are excluded from model context.
+- Added the desktop Profile editor and explicit refresh of the current conversation's system context after save.
+- Added profile and scheduler-execution-history stores to backup/restore and registered key-migration inventory.
+- Added optional retention windows for the profile and scheduler execution history; retention remains disabled by default.
+- Birthday entries store month/day only, without a birth year. The feature does not connect external accounts or synchronize profile data to mobile/cloud.
+
+**Verification:** PR #28 merged to `main` as `0f871e678c9b15ef6c74c1f89a26e7eb0fa28317`. CI run [#45328657247](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45328657247) passed **305 Python regression tests**, **16 Phase 0 smoke checks**, Flutter analysis/tests, Android APK build and unsigned iOS build. The first CI attempt exposed a missing test import; the import was fixed and the full workflow rerun passed.
+
+### Mobile registry symlink-path hardening — PR #29
+
+- The encrypted mobile-device registry and its OS-lock sidecar now reject symbolic links in every existing path component.
+- Paths are checked before and after lock acquisition to reduce redirection race exposure.
+- Added regression tests for symlinked registry-file and lock-sidecar paths. Existing encryption, process/thread locking, device RBAC and legacy compatibility remain unchanged.
+
+**Verification:** PR #29 merged to `main` as `b1d6c96d35cf35a569684b16a7db3bb7076246b3`. CI run [#45329401793](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45329401793) passed **307 Python regression tests**, **16 Phase 0 smoke checks**, Flutter analysis/tests, Android APK build and unsigned iOS build.
+
+## Current repository checkpoint
+
+- Source of truth: public GitHub repository `syedfahadiqbal7/VOICEASSISTANT`, branch `main`.
+- Latest verified main commit at this checkpoint: `b1d6c96d35cf35a569684b16a7db3bb7076246b3`.
+- The feature catalogue and setup guidance remain in the root README.
+- The original uploaded ZIP remains an older preserved snapshot and is not used as the implementation source.
+
+## Remaining acceptance and engineering boundaries
+
+1. **Windows desktop acceptance:** GUI layout, profile editor interaction, microphone/STT/TTS, Ollama lifecycle, Windows process/tool integrations and shutdown behavior still require testing on the target Windows machine.
+2. **Physical mobile acceptance:** Android/iOS pairing, secure-storage behavior, reconnect, approval routing, microphone permissions and real LAN/WSS behavior require physical-device tests.
+3. **Plugin isolation:** plugins still execute in-process. Manifest, permission, archive and checksum checks do not provide an OS sandbox or verified publisher identity.
+4. **Network security lifecycle:** use VPN or TLS/WSS for remote access. Certificate provisioning/rotation, certificate pinning and per-device client certificates are not implemented.
+5. **Release signing:** Android CI artifacts remain debug-signed; iOS CI builds remain unsigned. Production distribution requires protected Android signing and Apple signing/provisioning plus a Windows installer/signing and rollback plan.
+6. **Scheduler guarantees:** built-in scheduled fast-path tools use a durable at-most-once invocation guard, but arbitrary callbacks/reminders remain at-least-once. External side-effecting integrations must enforce their own idempotency keys.
+7. **Security assurance:** independent penetration testing and formal cryptographic review remain outstanding. CI demonstrates regression coverage, not certification.
+
+## Next engineering priority
+
+Continue source-level security hardening without weakening existing compatibility: review plugin execution boundaries and design an isolated worker process with a narrow, validated IPC contract before attempting to move arbitrary plugin code out of the desktop process. Do not describe a subprocess boundary as a complete OS sandbox; OS-level containment and least-privilege enforcement must be evaluated separately. Keep physical-device, Windows runtime, recovery-drill and independent-security-review items as explicit external acceptance gates.
