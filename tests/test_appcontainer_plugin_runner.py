@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -85,3 +86,41 @@ def test_appcontainer_runner_rejects_native_or_unsupported_plugin_imports(tmp_pa
     )
     assert response["ok"] is False
     assert response["error_code"] == "plugin_not_appcontainer_compatible"
+
+
+
+def test_appcontainer_selection_is_restricted_to_reviewed_no_permission_plugins():
+    from agent.tool_registry import _should_use_appcontainer
+
+    assert _should_use_appcontainer("json_formatter.py", [], platform_name="nt") is True
+    assert _should_use_appcontainer("example_hello_tool.py", [], platform_name="nt") is True
+    assert _should_use_appcontainer("json_formatter.py", ["filesystem:read"], platform_name="nt") is False
+    assert _should_use_appcontainer("file_reader.py", [], platform_name="nt") is False
+    assert _should_use_appcontainer("json_formatter.py", [], platform_name="posix") is False
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows AppContainer registry integration test")
+def test_tool_registry_discovers_and_executes_safe_builtin_inside_appcontainer(tmp_path, monkeypatch):
+    from agent.tool_registry import PluginWorkerTool, ToolRegistry
+    import agent.tool_registry as tool_registry_module
+
+    repo_root = Path(__file__).resolve().parents[1]
+    plugin_dir = tmp_path / "plugins"
+    plugin_dir.mkdir()
+    shutil.copy2(repo_root / "plugins" / "json_formatter.py", plugin_dir / "json_formatter.py")
+    shutil.copy2(
+        repo_root / "plugins" / "json_formatter.manifest.json",
+        plugin_dir / "json_formatter.manifest.json",
+    )
+    monkeypatch.setattr(tool_registry_module, "PLUGINS_DIR", plugin_dir)
+
+    registry = ToolRegistry()
+    registered = registry.get("json_formatter")
+    assert isinstance(registered, PluginWorkerTool)
+
+    result = registry.execute(
+        "json_formatter",
+        {"json_string": '{"safe_plugin":true,"execution":"appcontainer"}'},
+    )
+    assert result["is_error"] is False
+    assert result["content"] == '{\n  "safe_plugin": true,\n  "execution": "appcontainer"\n}'
