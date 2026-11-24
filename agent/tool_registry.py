@@ -15,6 +15,7 @@ from tools.pip_installer import PipInstallerTool
 from config import PLUGINS_DIR
 from agent.plugin_marketplace import verify_flat_plugin, SAFE_NO_PERMISSION_PLUGIN_FILES
 from agent.plugin_capability_broker import PluginCapabilityBroker
+from agent.appcontainer_plugin_runner import AppContainerPluginRunner
 
 # Plugins that must not load (name collision / superseded).
 # task_scheduler.py conflicted with agent JobScheduler; use list_windows_tasks instead.
@@ -216,7 +217,15 @@ def _run_plugin_worker(request: Dict[str, Any], timeout: int = PLUGIN_WORKER_TIM
 
 class PluginWorkerTool(BaseTool):
     """Host-side tool proxy; plugin code is imported/executed only in a child."""
-    def __init__(self, entry: Path, sha256: str, class_name: str, metadata: Dict[str, Any], permissions: List[str]):
+    def __init__(
+        self,
+        entry: Path,
+        sha256: str,
+        class_name: str,
+        metadata: Dict[str, Any],
+        permissions: List[str],
+        sandbox_mode: str = "worker",
+    ):
         self._entry = str(Path(entry).resolve())
         self._sha256 = str(sha256)
         self._class_name = str(class_name)
@@ -225,6 +234,7 @@ class PluginWorkerTool(BaseTool):
         self._parameters = metadata.get("parameters") or {"type": "object", "properties": {}}
         self._help = metadata.get("help") if isinstance(metadata.get("help"), dict) else {}
         self._permissions = list(permissions or [])
+        self._sandbox_mode = str(sandbox_mode or "worker").strip().lower()
         self._policy = None
 
     def set_policy(self, policy) -> None:
@@ -251,19 +261,30 @@ class PluginWorkerTool(BaseTool):
         }
 
     def execute(self, **kwargs) -> Dict[str, Any]:
-        broker = (
-            PluginCapabilityBroker(self._policy, self.name, self._permissions)
-            if self._policy is not None else None
-        )
-        response = _run_plugin_worker({
-            "protocol_version": 1,
-            "mode": "execute",
-            "entry": self._entry,
-            "sha256": self._sha256,
-            "class_name": self._class_name,
-            "tool_name": self.name,
-            "arguments": kwargs,
-        }, broker=broker)
+        if self._sandbox_mode == "appcontainer":
+            response = AppContainerPluginRunner(self._policy).execute(
+                entry=Path(self._entry),
+                sha256=self._sha256,
+                class_name=self._class_name,
+                tool_name=self.name,
+                arguments=kwargs,
+                permissions=self._permissions,
+                timeout_seconds=PLUGIN_WORKER_TIMEOUT_SECONDS,
+            )
+        else:
+            broker = (
+                PluginCapabilityBroker(self._policy, self.name, self._permissions)
+                if self._policy is not None else None
+            )
+            response = _run_plugin_worker({
+                "protocol_version": 1,
+                "mode": "execute",
+                "entry": self._entry,
+                "sha256": self._sha256,
+                "class_name": self._class_name,
+                "tool_name": self.name,
+                "arguments": kwargs,
+            }, broker=broker)
         if response.get("ok") is not True:
             return {
                 "content": "Plugin worker failed: " + str(response.get("error") or response.get("error_code") or "unknown error"),
@@ -351,10 +372,11 @@ class ToolRegistry:
         return help_list
 
     def _load_plugins(self):
-        """Verify plugins in the host; inspect/import them only in a child worker.
+        """Verify plugins in the host and inspect them in their declared execution boundary.
 
-        Worker subprocesses provide crash containment, not an OS security sandbox.
-        Plugins still run with the desktop user's privileges and remain trusted code.
+        The default worker is crash containment only. A manifest can explicitly
+        request AppContainer; metadata discovery and every invocation then use
+        AppContainer, and failures never fall back to the same-user worker.
         """
         if not PLUGINS_DIR.exists():
             return
@@ -379,14 +401,28 @@ class ToolRegistry:
                 manifest = verification.get("manifest") or {}
                 declared_tools = set(manifest.get("tools") or [])
                 ver = manifest.get("version", "?")
-                print(f"[Plugin] Verified {file.name} v{ver}")
+                permissions = list(manifest.get("permissions") or [])
+                if not permissions and file.name not in SAFE_NO_PERMISSION_PLUGIN_FILES:
+                    permissions = ["system:admin"]
+                sandbox_mode = str(manifest.get("execution_sandbox") or "worker").strip().lower()
+                if sandbox_mode not in {"worker", "appcontainer"}:
+                    raise ValueError("execution_sandbox must be 'worker' or 'appcontainer'")
+                print(f"[Plugin] Verified {file.name} v{ver} ({sandbox_mode})")
 
-                response = _run_plugin_worker({
-                    "protocol_version": 1,
-                    "mode": "describe",
-                    "entry": str(file.resolve()),
-                    "sha256": verification.get("sha256"),
-                }, timeout=15)
+                if sandbox_mode == "appcontainer":
+                    response = AppContainerPluginRunner(self._policy).describe(
+                        entry=file,
+                        sha256=verification.get("sha256"),
+                        permissions=permissions,
+                        timeout_seconds=15,
+                    )
+                else:
+                    response = _run_plugin_worker({
+                        "protocol_version": 1,
+                        "mode": "describe",
+                        "entry": str(file.resolve()),
+                        "sha256": verification.get("sha256"),
+                    }, timeout=15)
                 if response.get("ok") is not True:
                     raise ValueError("worker metadata inspection failed: " + str(response.get("error_code") or response.get("error")))
                 exported = response.get("tools")
@@ -408,10 +444,6 @@ class ToolRegistry:
                 conflicts = sorted(set(actual_names) & set(self._tools))
                 if conflicts:
                     raise ValueError("tool name conflict(s): " + ", ".join(conflicts))
-                permissions = list(manifest.get("permissions") or [])
-                if not permissions and file.name not in SAFE_NO_PERMISSION_PLUGIN_FILES:
-                    permissions = ["system:admin"]
-
                 # Build the full registration set before mutating the registry.
                 proxies = []
                 for item in exported:
@@ -419,10 +451,10 @@ class ToolRegistry:
                         raise ValueError("plugin tool parameters must be a JSON object")
                     proxies.append(PluginWorkerTool(
                         file, verification["sha256"], str(item.get("class_name") or ""),
-                        item, permissions=permissions,
+                        item, permissions=permissions, sandbox_mode=sandbox_mode,
                     ))
                 for proxy in proxies:
                     self.register(proxy, permissions=permissions)
-                    print(f"[Plugin] Worker registered: {proxy.name} (crash containment only)")
+                    print(f"[Plugin] Registered: {proxy.name} ({sandbox_mode})")
             except Exception as error:
                 print(f"[Plugin Error] Failed to load {file.name}: {type(error).__name__}: {error}")
