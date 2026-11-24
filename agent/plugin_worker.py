@@ -59,8 +59,8 @@ def _load_plugin(entry: Path, expected_sha256: str):
     # The AppContainer runner stages a host-verified regular file in a
     # read-only directory. Avoid resolving the parent directory here: AppContainer
     # ACLs intentionally grant traversal/read without broad directory ownership.
-    if not entry.is_absolute() or not entry.is_file():
-        raise ValueError("plugin source is not a regular file")
+    if not entry.is_absolute() or entry.is_symlink() or not entry.is_file():
+        raise ValueError("plugin source is not a safe regular file")
     digest = hashlib.sha256(entry.read_bytes()).hexdigest()
     if digest.lower() != str(expected_sha256).lower():
         raise ValueError("plugin source changed after host verification")
@@ -164,7 +164,11 @@ def _process_request(raw: bytes, include_diagnostics: bool = False) -> tuple[dic
             "error": type(error).__name__,
         }
         if include_diagnostics:
-            failure["detail"] = str(getattr(error, "strerror", None) or "")[:160]
+            failure["detail"] = str(error)[:160]
+            cause = error.__cause__
+            if cause is not None:
+                failure["cause"] = type(cause).__name__
+                failure["cause_errno"] = getattr(cause, "errno", None)
             filename = getattr(error, "filename", None)
             if filename:
                 failure["resource"] = Path(str(filename)).name[:120]
