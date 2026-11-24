@@ -1,10 +1,8 @@
-"""Windows AppContainer proof-of-concept helpers.
+"""Windows AppContainer helpers for the staged plugin sandbox pilot.
 
-This module is deliberately not wired into production plugin execution yet.
-It probes OS-enforced package isolation using a disposable profile and temporary
-ACL grants. A passing probe is not sufficient to sandbox the Python plugin
-runtime; its executable, DLLs, standard library and approved package files still
-need a carefully managed AppContainer-readable runtime.
+The launcher creates a no-capability package process, applies explicit runtime
+and staging ACLs, and enforces bounded lifetime/process-tree limits. The higher-
+level runner currently enables only reviewed no-permission built-in plugins.
 """
 from __future__ import annotations
 
