@@ -163,6 +163,7 @@ def run_appcontainer_command(
     arguments: list[str],
     profile_name: str | None = None,
     timeout_seconds: int = 15,
+    appcontainer_sid=None,
 ) -> int:
     """Run one process in a no-capability AppContainer; return its exit code.
 
@@ -172,7 +173,8 @@ def run_appcontainer_command(
     """
     kernel32, userenv, advapi32 = _windows_apis()
     profile_name = profile_name or ("VoiceAssistant.Probe." + uuid.uuid4().hex)
-    sid = _create_profile(userenv, profile_name)
+    owns_profile = appcontainer_sid is None
+    sid = _create_profile(userenv, profile_name) if owns_profile else appcontainer_sid
     attr_buffer = None
     attr_list = None
     process_info = _PROCESS_INFORMATION()
@@ -223,6 +225,7 @@ def run_appcontainer_command(
             kernel32.CloseHandle(process_info.hProcess)
         if attr_list:
             kernel32.DeleteProcThreadAttributeList(attr_list)
-        userenv.DeleteAppContainerProfile(profile_name)
-        if sid:
-            kernel32.FreeSid(sid)
+        if owns_profile:
+            userenv.DeleteAppContainerProfile(profile_name)
+            if sid:
+                kernel32.FreeSid(sid)
