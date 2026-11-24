@@ -54,6 +54,13 @@ class AppContainerPluginRunner:
             return {"ok": False, "error_code": "unsupported_worker_mode"}
         if mode == "describe" and permissions:
             return {"ok": False, "error_code": "describe_requires_no_permissions"}
+        unsupported_permissions = sorted(set(str(item).strip().lower() for item in permissions) - {"filesystem:read"})
+        if unsupported_permissions:
+            return {
+                "ok": False,
+                "error_code": "appcontainer_permission_not_supported",
+                "unsupported_permissions": unsupported_permissions,
+            }
         if os.name != "nt":
             return {"ok": False, "error_code": "appcontainer_unavailable"}
         original_entry = Path(entry)
@@ -85,16 +92,15 @@ class AppContainerPluginRunner:
             }
         imports = set(inventory.get("imports") or [])
         unsupported_imports = sorted(imports - set(sys.stdlib_module_names) - {"tools"})
-        risky_warnings = [
-            item for item in inventory.get("warnings", [])
-            if item.startswith(("dynamic_code_execution:", "dynamic_import", "native_or_COM_API:"))
-        ]
-        if unsupported_imports or risky_warnings:
+        warnings = list(inventory.get("warnings") or [])
+        undeclared_observed = list(inventory.get("undeclared_observed") or [])
+        if unsupported_imports or warnings or undeclared_observed:
             return {
                 "ok": False,
                 "error_code": "plugin_not_appcontainer_compatible",
                 "unsupported_imports": unsupported_imports,
-                "warnings": risky_warnings,
+                "undeclared_observed_capabilities": undeclared_observed,
+                "warnings": warnings,
             }
 
         kernel32, userenv, advapi32 = _windows_apis()
