@@ -78,7 +78,7 @@ def _main(request: dict[str, Any]) -> dict[str, Any]:
     if mode not in {"describe", "execute"}:
         raise ValueError("unsupported worker operation")
 
-    entry = Path(str(request.get("entry") or "")).resolve(strict=True)
+    entry = Path(os.path.abspath(str(request.get("entry") or "")))
     expected = str(request.get("sha256") or "")
     if len(expected) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in expected):
         raise ValueError("invalid expected plugin digest")
