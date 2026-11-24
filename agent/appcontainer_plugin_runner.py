@@ -122,6 +122,11 @@ class AppContainerPluginRunner:
             if hashlib.sha256(staged_entry.read_bytes()).hexdigest().lower() != actual_digest.lower():
                 raise ValueError("staged plugin checksum changed")
 
+            broker_config = None
+            if permissions:
+                broker = PluginCapabilityBroker(self.policy, tool_name, permissions)
+                broker_config = broker.start_named_pipe(sid_text)
+
             request_path = work / "request.json"
             response_path = work / "response.json"
             request = {
@@ -138,11 +143,6 @@ class AppContainerPluginRunner:
             if len(payload) > MAX_REQUEST_BYTES:
                 return {"ok": False, "error_code": "request_too_large"}
             request_path.write_bytes(payload)
-
-            broker_config = None
-            if permissions:
-                broker = PluginCapabilityBroker(self.policy, tool_name, permissions)
-                broker_config = broker.start_named_pipe(sid_text)
 
             stage = "grant_root_acl"
             _grant_acl(root, sid_text, "(X)")
