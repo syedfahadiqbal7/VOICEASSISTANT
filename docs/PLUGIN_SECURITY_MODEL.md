@@ -15,3 +15,8 @@ Plugin registration is all-or-nothing: the exported BaseTool.name set must exact
 ## Important isolation limitation
 
 Plugins are imported and execute inside the VoiceAssistant Python process. SHA-256 verification, permission metadata, and approval gates do not sandbox Python code and cannot prevent arbitrary code in a malicious plugin from using the process privileges. Install plugins only from sources you trust. A separate low-privilege worker process/container with a restricted IPC capability broker is required before claiming OS-level plugin sandboxing.
+
+
+## Planned isolation work
+
+The detailed target architecture, IPC contract, Windows containment requirements, rollout plan and release gates are documented in [Plugin Execution Isolation Design](PLUGIN_EXECUTION_ISOLATION_DESIGN.md). This is a design decision, not an implemented sandbox. Until the Windows restricted-worker and broker controls pass their negative security tests, all plugins must continue to be treated as trusted in-process code.
