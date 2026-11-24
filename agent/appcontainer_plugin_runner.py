@@ -238,6 +238,7 @@ class AppContainerPluginRunner:
                 timeout_seconds=timeout_seconds,
                 appcontainer_sid=sid,
                 environment=environment,
+                current_directory=work,
             )
             if not response_path.is_file():
                 return {"ok": False, "error_code": "appcontainer_no_response", "exit_code": exit_code}
