@@ -198,14 +198,13 @@ class WindowsNamedPipeServer:
     def close(self) -> None:
         self._stop.set()
         kernel32, _ = _apis()
-        # Connect once to wake a blocking ConnectNamedPipe call. The server
-        # notices the stop flag and closes this wake-up instance without dispatch.
+        # A zero-byte connection wakes ConnectNamedPipe. Do not write to a
+        # connection that the stopping server is about to close.
         if self._thread is not None and self._thread.is_alive():
             handle = kernel32.CreateFileW(
                 self.pipe_name, 0xC0000000, 0, None, 3, 0, None,
             )
             if handle != INVALID_HANDLE_VALUE:
-                _write_all(kernel32, handle, b"\n")
                 kernel32.CloseHandle(handle)
             self._thread.join(timeout=3)
         self._thread = None
