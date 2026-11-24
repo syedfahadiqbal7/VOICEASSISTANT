@@ -235,6 +235,8 @@ class PluginWorkerTool(BaseTool):
         self._help = metadata.get("help") if isinstance(metadata.get("help"), dict) else {}
         self._permissions = list(permissions or [])
         self._sandbox_mode = str(sandbox_mode or "worker").strip().lower()
+        if self._sandbox_mode not in {"worker", "appcontainer"}:
+            raise ValueError("sandbox_mode must be 'worker' or 'appcontainer'")
         self._policy = None
 
     def set_policy(self, policy) -> None:
