@@ -122,6 +122,7 @@ class WindowsNamedPipeServer:
         self.appcontainer_sid = appcontainer_sid
         self.on_message = on_message
         self._stop = threading.Event()
+        self._ready = threading.Event()
         self._thread = None
         self._error = None
 
@@ -130,6 +131,10 @@ class WindowsNamedPipeServer:
             raise RuntimeError("named pipe server already started")
         self._thread = threading.Thread(target=self._serve, name="PluginNamedPipeBroker", daemon=True)
         self._thread.start()
+        if not self._ready.wait(5):
+            raise TimeoutError("named-pipe broker did not become ready")
+        if self._error is not None:
+            raise self._error
 
     def _serve(self) -> None:
         kernel32, advapi32 = _apis()
@@ -142,6 +147,7 @@ class WindowsNamedPipeServer:
             sddl, 1, ctypes.byref(descriptor), None,
         ):
             self._error = OSError(ctypes.get_last_error(), "Could not create named-pipe security descriptor")
+            self._ready.set()
             return
         security = _SECURITY_ATTRIBUTES(ctypes.sizeof(_SECURITY_ATTRIBUTES), descriptor, False)
         try:
@@ -155,7 +161,9 @@ class WindowsNamedPipeServer:
                 )
                 if handle == INVALID_HANDLE_VALUE:
                     self._error = OSError(ctypes.get_last_error(), "CreateNamedPipeW failed")
+                    self._ready.set()
                     return
+                self._ready.set()
                 try:
                     connected = kernel32.ConnectNamedPipe(handle, None)
                     if not connected and ctypes.get_last_error() != ERROR_PIPE_CONNECTED:
