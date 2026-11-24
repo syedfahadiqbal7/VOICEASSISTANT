@@ -51,8 +51,14 @@ class AppContainerPluginRunner:
     ) -> dict[str, Any]:
         if os.name != "nt":
             return {"ok": False, "error_code": "appcontainer_unavailable"}
-        entry = Path(entry).resolve(strict=True)
-        if not entry.is_file() or entry.is_symlink():
+        original_entry = Path(entry)
+        if original_entry.is_symlink():
+            return {"ok": False, "error_code": "invalid_plugin_source"}
+        try:
+            entry = original_entry.resolve(strict=True)
+        except (OSError, RuntimeError):
+            return {"ok": False, "error_code": "invalid_plugin_source"}
+        if not entry.is_file():
             return {"ok": False, "error_code": "invalid_plugin_source"}
         actual_digest = hashlib.sha256(entry.read_bytes()).hexdigest()
         if actual_digest.lower() != str(sha256).lower():
