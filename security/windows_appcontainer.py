@@ -275,10 +275,10 @@ def run_appcontainer_command(
             for key, value in environment.items():
                 key = str(key)
                 value = str(value)
-                if not key or "=" in key or "\\x00" in key or "\\x00" in value:
+                if not key or "=" in key or "\x00" in key or "\x00" in value:
                     raise ValueError("invalid environment variable")
                 pairs.append((key, value))
-            block = "\\x00".join(f"{key}={value}" for key, value in sorted(pairs, key=lambda item: item[0].upper())) + "\\x00\\x00"
+            block = "\x00".join(f"{key}={value}" for key, value in sorted(pairs, key=lambda item: item[0].upper())) + "\x00\x00"
             environment_buffer = ctypes.create_unicode_buffer(block)
             environment_pointer = ctypes.cast(environment_buffer, ctypes.c_void_p)
             flags |= 0x00000400  # CREATE_UNICODE_ENVIRONMENT
