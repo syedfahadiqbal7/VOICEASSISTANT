@@ -30,13 +30,28 @@ _lock = threading.RLock()
 
 
 @contextmanager
+def _contains_symlink_component(path: Path) -> bool:
+    """Return true when the path or any existing parent component is a symlink."""
+    absolute = Path(os.path.abspath(str(path)))
+    current = Path(absolute.anchor)
+    for component in absolute.parts[1:]:
+        current = current / component
+        if current.is_symlink():
+            return True
+    return False
+
+
 def _interprocess_file_lock(lock_path: Path) -> Iterator[None]:
     """Acquire an exclusive advisory lock on a stable sidecar file.
 
     The lock file is intentionally not removed on release: deleting a lock file
     can let two processes lock different inodes/handles and enter concurrently.
     """
+    if _contains_symlink_component(lock_path):
+        raise ValueError("Mobile registry lock path must not contain symbolic links")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
+    if _contains_symlink_component(lock_path):
+        raise ValueError("Mobile registry lock path changed to a symbolic link")
     with lock_path.open("a+b") as handle:
         handle.seek(0, os.SEEK_END)
         if handle.tell() == 0:
@@ -76,15 +91,26 @@ class MobileDeviceRegistry:
         self._lock_path = self.path.with_name(self.path.name + ".lock")
 
     @contextmanager
+    def _assert_safe_paths(self) -> None:
+        # The encrypted registry and its lock sidecar are security-sensitive.
+        # Refuse symlinks in every existing path component to prevent following
+        # attacker-controlled links outside the trusted runtime data directory.
+        if _contains_symlink_component(self.path) or _contains_symlink_component(self._lock_path):
+            raise ValueError("Mobile device registry and lock paths must not contain symbolic links")
+
+    @contextmanager
     def _registry_lock(self) -> Iterator[None]:
         # Keep the in-process lock as well: it protects threads and avoids
         # needless OS lock contention between registry instances in one process.
         with _lock:
+            self._assert_safe_paths()
             with _interprocess_file_lock(self._lock_path):
+                self._assert_safe_paths()
                 yield
 
     def is_configured(self) -> bool:
         """A present registry is authoritative, even when all devices are revoked."""
+        self._assert_safe_paths()
         return self.path.exists()
 
     def _load(self) -> dict[str, Any]:
