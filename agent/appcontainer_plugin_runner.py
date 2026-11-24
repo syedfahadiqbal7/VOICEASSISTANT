@@ -93,8 +93,10 @@ class AppContainerPluginRunner:
         staging = root / "staging"
         work = root / "work"
         granted: list[Path] = []
+        stage = "create_profile"
         try:
             sid = _create_profile(userenv, profile_name)
+            stage = "stage_plugin_runtime"
             sid_text = _sid_string(kernel32, advapi32, sid)
             staging.mkdir()
             work.mkdir()
@@ -141,17 +143,21 @@ class AppContainerPluginRunner:
                 broker = PluginCapabilityBroker(self.policy, tool_name, permissions)
                 broker_config = broker.start_named_pipe(sid_text)
 
+            stage = "grant_root_acl"
             _grant_acl(root, sid_text, "(X)")
             granted.append(root)
             runtime_roots = sorted(
                 {Path(sys.base_prefix).resolve(), Path(sys.prefix).resolve()},
                 key=str,
             )
+            stage = "grant_python_runtime_acl"
             for runtime_root in runtime_roots:
                 _grant_acl(runtime_root, sid_text, "(OI)(CI)RX")
                 granted.append(runtime_root)
+            stage = "grant_staging_acl"
             _grant_acl(staging, sid_text, "(OI)(CI)RX")
             granted.append(staging)
+            stage = "grant_ipc_acl"
             _grant_acl(work, sid_text, "(OI)(CI)M")
             granted.append(work)
 
@@ -167,6 +173,7 @@ class AppContainerPluginRunner:
                 environment["VOICEASSISTANT_BROKER_PIPE"] = broker_config["pipe"]
                 environment["VOICEASSISTANT_BROKER_TOKEN"] = broker_config["token"]
 
+            stage = "launch_appcontainer_worker"
             worker_path = staging / "agent" / "plugin_worker.py"
             exit_code = run_appcontainer_command(
                 Path(sys.executable),
@@ -192,7 +199,15 @@ class AppContainerPluginRunner:
         except TimeoutError:
             return {"ok": False, "error_code": "appcontainer_worker_timeout"}
         except Exception as error:
-            return {"ok": False, "error_code": "appcontainer_worker_failed", "error": type(error).__name__}
+            return {
+                "ok": False,
+                "error_code": "appcontainer_worker_failed",
+                "error": type(error).__name__,
+                "stage": stage,
+                "winerror": getattr(error, "winerror", None),
+                "errno": getattr(error, "errno", None),
+                "detail": getattr(error, "strerror", None),
+            }
         finally:
             if broker is not None:
                 broker.close()
