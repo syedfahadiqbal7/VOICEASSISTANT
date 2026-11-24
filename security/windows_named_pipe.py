@@ -114,7 +114,7 @@ class WindowsNamedPipeServer:
     """Single-instance-at-a-time named-pipe server scoped to host and package SID."""
 
     def __init__(self, pipe_name: str, appcontainer_sid: str, on_message):
-        if not pipe_name.startswith(r"\\.\pipe\"):
+        if not pipe_name.startswith(chr(92) * 2 + "." + chr(92) + "pipe" + chr(92)):
             raise ValueError("pipe_name must use the local named-pipe namespace")
         if not appcontainer_sid.startswith("S-1-15-2-"):
             raise ValueError("an AppContainer package SID is required")
