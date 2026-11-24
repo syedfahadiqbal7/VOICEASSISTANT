@@ -199,3 +199,19 @@ The current worker:
 CI run [#45333862364](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45333862364) passed 311 Python regressions, 16 Phase 0 smoke checks, Flutter analysis/tests, Android build and unsigned iOS build.
 
 The next implementation stage is the host-owned capability broker and Windows OS-enforced worker containment. The release gates in this design remain mandatory; this checkpoint does not authorize untrusted plugins.
+
+
+## Windows worker process containment — implemented checkpoint
+
+PR #34 adds a Windows Job Object to each worker. The parent starts the worker and keeps it blocked on stdin, attaches it to the Job Object, then sends the JSON request. Current limits are:
+- Kill-on-job-close.
+- 16 active processes per job.
+- 2 GiB per-process memory.
+- 3 GiB aggregate job memory.
+- One-megabyte maximum worker stdout response, enforced while draining the pipe.
+
+On POSIX, the worker starts in a new process group and the group is terminated on timeout. A regression test verifies that a plugin-spawned child process does not outlive a timed-out worker.
+
+**Verified:** CI run [#45335729490](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45335729490), 312 Python tests and 16 smoke tests, plus Flutter and mobile builds.
+
+These controls improve crash containment and resource governance but do not restrict the worker's access to the user's files, credentials or network. They do not constitute an OS sandbox. Restricted-token/AppContainer and host-broker enforcement remain the next required implementation stage.

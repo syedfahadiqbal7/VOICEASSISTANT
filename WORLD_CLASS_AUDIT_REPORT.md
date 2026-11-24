@@ -551,3 +551,16 @@ Continue source-level security hardening without weakening existing compatibilit
 ## Next plugin security phase
 
 Implement and test the host-owned capability broker, then implement Windows restricted-token/AppContainer containment with explicit filesystem ACLs, network denial by default, process/resource limits and process-tree termination. The current subprocess worker is an intermediate compatibility/crash-containment step only. Do not enable untrusted third-party plugins until negative OS-boundary tests and independent security review pass.
+
+
+### Windows worker process/resource containment — PR #34
+
+- Windows plugin workers are attached to a Job Object while blocked on stdin, before the host releases the request and plugin code can run.
+- The Job Object enforces kill-on-close, a 16-process active-process limit, 2 GiB per-process memory and 3 GiB aggregate job memory.
+- POSIX workers run in a separate process group; timeout terminates the group.
+- Stdout is drained with a 1 MiB cap; an oversized response terminates the worker.
+- Added regression coverage proving timeout also terminates a child process spawned by a plugin.
+
+**Verification:** [PR #34](https://github.com/syedfahadiqbal7/VOICEASSISTANT/pull/34) merged as `d2b13f710b0d3456fb2d0a9a28e160b25dfe270c`. CI run [#45335729490](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45335729490) passed **312 Python regression tests**, **16 Phase 0 smoke checks**, Flutter analysis/tests, Android APK build and unsigned iOS build.
+
+**Remaining security gap:** Job Objects are process/resource controls, not an OS security boundary for file/network access. Workers still run as the desktop user. A restricted token/AppContainer, explicit ACL isolation, default-deny networking and broker-only resource access are still required before untrusted plugins can be supported.
