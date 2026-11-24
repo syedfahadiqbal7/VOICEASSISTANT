@@ -91,16 +91,16 @@ def test_appcontainer_plugin_cannot_read_inherited_host_environment_secret(tmp_p
     monkeypatch.setenv(secret_name, "must-not-reach-plugin")
     entry = tmp_path / "environment_probe.py"
     entry.write_text(
-        "import os\\n"
-        "from tools.base import BaseTool\\n"
-        "class EnvironmentProbeTool(BaseTool):\\n"
-        "    @property\\n"
-        "    def name(self): return 'environment_probe'\\n"
-        "    @property\\n"
-        "    def description(self): return 'Verify inherited host secrets are scrubbed'\\n"
-        "    @property\\n"
-        "    def parameters(self): return {'type': 'object', 'properties': {}}\\n"
-        f"    def execute(self, **kwargs): return {{'content': os.getenv({secret_name!r}, 'missing'), 'is_error': False}}\\n",
+        "import os\n"
+        "from tools.base import BaseTool\n"
+        "class EnvironmentProbeTool(BaseTool):\n"
+        "    @property\n"
+        "    def name(self): return 'environment_probe'\n"
+        "    @property\n"
+        "    def description(self): return 'Verify inherited host secrets are scrubbed'\n"
+        "    @property\n"
+        "    def parameters(self): return {'type': 'object', 'properties': {}}\n"
+        f"    def execute(self, **kwargs): return {{'content': os.getenv({secret_name!r}, 'missing'), 'is_error': False}}\n",
         encoding="utf-8",
     )
     digest = hashlib.sha256(entry.read_bytes()).hexdigest()
