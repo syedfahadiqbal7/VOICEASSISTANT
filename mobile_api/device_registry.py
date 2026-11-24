@@ -29,7 +29,6 @@ _DEVICE_ID = re.compile(r"^[0-9a-f]{32}$")
 _lock = threading.RLock()
 
 
-@contextmanager
 def _contains_symlink_component(path: Path) -> bool:
     """Return true when the path or any existing parent component is a symlink."""
     absolute = Path(os.path.abspath(str(path)))
@@ -41,6 +40,7 @@ def _contains_symlink_component(path: Path) -> bool:
     return False
 
 
+@contextmanager
 def _interprocess_file_lock(lock_path: Path) -> Iterator[None]:
     """Acquire an exclusive advisory lock on a stable sidecar file.
 
@@ -90,7 +90,6 @@ class MobileDeviceRegistry:
         self.path = Path(path) if path is not None else Path(HISTORY_DIR) / "mobile_devices.json"
         self._lock_path = self.path.with_name(self.path.name + ".lock")
 
-    @contextmanager
     def _assert_safe_paths(self) -> None:
         # The encrypted registry and its lock sidecar are security-sensitive.
         # Refuse symlinks in every existing path component to prevent following
