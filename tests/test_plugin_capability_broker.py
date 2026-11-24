@@ -93,7 +93,7 @@ def test_broker_bytes_operation_returns_exact_bytes(tmp_path, monkeypatch):
 
 
 def test_worker_plugin_can_call_host_broker_over_per_invocation_ipc(tmp_path):
-    from agent.tool_registry import _run_plugin_worker
+    from agent.tool_registry import PluginWorkerTool
 
     root = tmp_path / "Documents"
     root.mkdir()
@@ -116,18 +116,21 @@ def test_worker_plugin_can_call_host_broker_over_per_invocation_ipc(tmp_path):
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     policy = _policy(tmp_path)
     policy.data["allowed_read_roots"] = [str(root)]
-    broker = PluginCapabilityBroker(policy, "broker_read", ["filesystem:read"])
-    response = _run_plugin_worker({
-        "protocol_version": 1,
-        "mode": "execute",
-        "entry": str(source),
-        "sha256": digest,
-        "class_name": "BrokerReadTool",
-        "tool_name": "broker_read",
-        "arguments": {"path": str(target)},
-    }, broker=broker)
-    assert response["ok"] is True
-    assert response["result"]["content"] == "read through host broker"
+    tool = PluginWorkerTool(
+        source,
+        digest,
+        "BrokerReadTool",
+        {
+            "name": "broker_read",
+            "description": "Reads through the host broker",
+            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
+        },
+        permissions=["filesystem:read"],
+    )
+    tool.set_policy(policy)
+    response = tool.execute(path=str(target))
+    assert response["is_error"] is False
+    assert response["content"] == "read through host broker"
 
 
 def test_broker_rejects_replayed_request_id(tmp_path):
