@@ -10,6 +10,7 @@ import pytest
 
 import agent.tool_registry as registry_module
 from agent.plugin_marketplace import build_manifest_for_file, validate_manifest
+from agent.policy import PolicyEngine
 from tools.plugin_capability_inventory import inspect_source
 from agent.tool_registry import PluginWorkerTool
 
@@ -120,3 +121,56 @@ def test_tool_registry_uses_appcontainer_for_discovery_and_every_invocation(tmp_
     )
     assert result["is_error"] is False
     assert result["content"] == '{\n  "sandbox": "appcontainer",\n  "ok": true\n}'
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows AppContainer capability-broker integration test")
+def test_registry_appcontainer_plugin_uses_host_read_broker_after_policy_attachment(tmp_path, monkeypatch):
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    allowed_root = tmp_path / "allowed"
+    allowed_root.mkdir()
+    target = allowed_root / "source.txt"
+    target.write_text("read through the host broker", encoding="utf-8")
+
+    entry = plugins / "broker_reader.py"
+    entry.write_text(
+        "from tools.base import BaseTool\\n"
+        "from tools.plugin_capability_client import read_text\\n"
+        "class BrokerReaderTool(BaseTool):\\n"
+        "    @property\\n"
+        "    def name(self): return 'broker_reader'\\n"
+        "    @property\\n"
+        "    def description(self): return 'Read through the host capability broker'\\n"
+        "    @property\\n"
+        "    def parameters(self): return {'type': 'object', 'properties': {'path': {'type': 'string'}}}\\n"
+        "    def execute(self, path): return {'content': read_text(path), 'is_error': False}\\n",
+        encoding="utf-8",
+    )
+    manifest = {
+        "name": "broker_reader",
+        "version": "1.0.0",
+        "entry": entry.name,
+        "tools": ["broker_reader"],
+        "permissions": ["filesystem:read"],
+        "checksum_sha256": hashlib.sha256(entry.read_bytes()).hexdigest(),
+        "execution_sandbox": "appcontainer",
+    }
+    (plugins / "broker_reader.manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+    monkeypatch.setattr(registry_module, "PLUGINS_DIR", plugins)
+
+    # Registry metadata discovery happens before the application attaches its
+    # shared policy instance. Describe must not require or start a capability broker.
+    registry = registry_module.ToolRegistry()
+    tool = registry.get("broker_reader")
+    assert isinstance(tool, PluginWorkerTool)
+    assert tool._sandbox_mode == "appcontainer"
+
+    policy = PolicyEngine(path=tmp_path / "policy.json")
+    policy.data["allowed_read_roots"] = [str(allowed_root)]
+    registry.set_policy(policy)
+
+    result = registry.execute("broker_reader", {"path": str(target)})
+    assert result["is_error"] is False
+    assert result["content"] == "read through the host broker"
+
