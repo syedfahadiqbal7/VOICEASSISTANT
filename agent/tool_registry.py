@@ -14,6 +14,7 @@ from tools.powershell_executor import PowerShellExecutorTool
 from tools.pip_installer import PipInstallerTool
 from config import PLUGINS_DIR
 from agent.plugin_marketplace import verify_flat_plugin, SAFE_NO_PERMISSION_PLUGIN_FILES
+from agent.plugin_capability_broker import PluginCapabilityBroker
 
 # Plugins that must not load (name collision / superseded).
 # task_scheduler.py conflicted with agent JobScheduler; use list_windows_tasks instead.
@@ -110,7 +111,7 @@ def _close_windows_worker_job(job) -> None:
         kernel32.CloseHandle(handle)  # KILL_ON_JOB_CLOSE also terminates descendants.
 
 
-def _run_plugin_worker(request: Dict[str, Any], timeout: int = PLUGIN_WORKER_TIMEOUT_SECONDS) -> Dict[str, Any]:
+def _run_plugin_worker(request: Dict[str, Any], timeout: int = PLUGIN_WORKER_TIMEOUT_SECONDS, broker=None) -> Dict[str, Any]:
     """Run one plugin operation in a child process with bounded IPC and lifetime.
 
     Windows workers are assigned to a Job Object before plugin code is released:
@@ -151,6 +152,11 @@ def _run_plugin_worker(request: Dict[str, Any], timeout: int = PLUGIN_WORKER_TIM
             pass
 
     try:
+        if broker is not None:
+            broker_config = broker.start()
+            environment["VOICEASSISTANT_BROKER_HOST"] = broker_config["host"]
+            environment["VOICEASSISTANT_BROKER_PORT"] = str(broker_config["port"])
+            environment["VOICEASSISTANT_BROKER_TOKEN"] = broker_config["token"]
         process = subprocess.Popen(
             [sys.executable, "-I", str(worker_path)],
             stdin=subprocess.PIPE,
@@ -196,6 +202,8 @@ def _run_plugin_worker(request: Dict[str, Any], timeout: int = PLUGIN_WORKER_TIM
         return {"ok": False, "error_code": "worker_start_failed", "error": type(error).__name__}
     finally:
         _close_windows_worker_job(job)
+        if broker is not None:
+            broker.close()
 
     try:
         response = json.loads(bytes(output).decode("utf-8"))
@@ -208,7 +216,7 @@ def _run_plugin_worker(request: Dict[str, Any], timeout: int = PLUGIN_WORKER_TIM
 
 class PluginWorkerTool(BaseTool):
     """Host-side tool proxy; plugin code is imported/executed only in a child."""
-    def __init__(self, entry: Path, sha256: str, class_name: str, metadata: Dict[str, Any]):
+    def __init__(self, entry: Path, sha256: str, class_name: str, metadata: Dict[str, Any], permissions: List[str]):
         self._entry = str(Path(entry).resolve())
         self._sha256 = str(sha256)
         self._class_name = str(class_name)
@@ -216,6 +224,11 @@ class PluginWorkerTool(BaseTool):
         self._description = str(metadata.get("description") or "")
         self._parameters = metadata.get("parameters") or {"type": "object", "properties": {}}
         self._help = metadata.get("help") if isinstance(metadata.get("help"), dict) else {}
+        self._permissions = list(permissions or [])
+        self._policy = None
+
+    def set_policy(self, policy) -> None:
+        self._policy = policy
 
     @property
     def name(self) -> str:
@@ -238,6 +251,10 @@ class PluginWorkerTool(BaseTool):
         }
 
     def execute(self, **kwargs) -> Dict[str, Any]:
+        broker = (
+            PluginCapabilityBroker(self._policy, self.name, self._permissions)
+            if self._policy is not None else None
+        )
         response = _run_plugin_worker({
             "protocol_version": 1,
             "mode": "execute",
@@ -246,7 +263,7 @@ class PluginWorkerTool(BaseTool):
             "class_name": self._class_name,
             "tool_name": self.name,
             "arguments": kwargs,
-        })
+        }, broker=broker)
         if response.get("ok") is not True:
             return {
                 "content": "Plugin worker failed: " + str(response.get("error") or response.get("error_code") or "unknown error"),
@@ -263,6 +280,7 @@ class ToolRegistry:
     def __init__(self, dry_run: bool = False):
         self._tools: Dict[str, BaseTool] = {}
         self._tool_permissions: Dict[str, List[str]] = {}
+        self._policy = None
         self.dry_run = dry_run
         self._register_default_tools()
         self._load_plugins()
@@ -271,6 +289,13 @@ class ToolRegistry:
         self.register(FileWriterTool())
         self.register(PowerShellExecutorTool(dry_run=self.dry_run))
         self.register(PipInstallerTool())
+
+    def set_policy(self, policy) -> None:
+        """Attach the host-owned policy engine to every plugin proxy."""
+        self._policy = policy
+        for tool in self._tools.values():
+            if isinstance(tool, PluginWorkerTool):
+                tool.set_policy(policy)
 
     def set_dry_run(self, enabled: bool):
         """Enable or disable dry-run mode for PowerShell tool."""
@@ -393,7 +418,8 @@ class ToolRegistry:
                     if not isinstance(item.get("parameters"), dict):
                         raise ValueError("plugin tool parameters must be a JSON object")
                     proxies.append(PluginWorkerTool(
-                        file, verification["sha256"], str(item.get("class_name") or ""), item
+                        file, verification["sha256"], str(item.get("class_name") or ""),
+                        item, permissions=permissions,
                     ))
                 for proxy in proxies:
                     self.register(proxy, permissions=permissions)
