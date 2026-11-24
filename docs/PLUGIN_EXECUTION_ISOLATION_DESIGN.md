@@ -180,3 +180,22 @@ Do not claim plugin sandboxing or permit untrusted third-party plugins until all
 - The UI clearly distinguishes verified package integrity, publisher trust, worker crash isolation and OS-enforced sandbox status.
 
 Until then, the current documented warning remains in force: plugins execute with the desktop process privileges and must be installed only from trusted sources.
+
+
+---
+
+## Implementation checkpoint — 2026-11-24
+
+**Implemented:** initial one-shot worker process and host-side proxy (PR #32, merged as `8383c0dba99a35d5a11046fa0a136d3371867d63`).
+
+The current worker:
+- Imports plugin code and evaluates tool metadata in a child process, not the desktop process.
+- Revalidates the source SHA-256 digest immediately before import.
+- Uses a versioned JSON stdin/stdout protocol, 1 MiB request/response limits, sanitized categorical errors and a bounded execution timeout.
+- Preserves host-side manifest verification, tool-name parity, permission metadata and the existing `BaseTool` contract.
+
+**Not implemented:** restricted token/AppContainer, Job Object resource enforcement, network/filesystem isolation, broker-only resource access, process-tree containment, publisher identity or an OS sandbox. The worker has the desktop user's privileges and is only a crash-containment boundary. Host protocol byte limits do not prevent a hostile plugin from consuming worker memory/disk or using direct OS APIs.
+
+CI run [#45333862364](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45333862364) passed 311 Python regressions, 16 Phase 0 smoke checks, Flutter analysis/tests, Android build and unsigned iOS build.
+
+The next implementation stage is the host-owned capability broker and Windows OS-enforced worker containment. The release gates in this design remain mandatory; this checkpoint does not authorize untrusted plugins.
