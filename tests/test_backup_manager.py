@@ -7,7 +7,7 @@ import zipfile
 from agent.backup_manager import BackupManager
 from agent.data_protection import is_encrypted_bytes
 from agent.privacy_manager import PrivacyManager
-from agent.storage import load_json
+from agent.storage import atomic_write_json, load_json
 
 
 def _key(monkeypatch):
