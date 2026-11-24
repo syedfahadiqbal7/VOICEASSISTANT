@@ -153,6 +153,13 @@ class AppContainerPluginRunner:
             request_path.write_bytes(payload)
 
             stage = "grant_root_acl"
+            # AppContainer must be able to traverse every ancestor of its
+            # private staging root. Grant execute/traverse only (never list/read)
+            # on the user-temp path components; the unique SID is removed later.
+            ancestors = list(root.parents)
+            for ancestor in reversed(ancestors[:-1]):  # keep the volume root untouched
+                _grant_acl(ancestor, sid_text, "(X)")
+                granted.append(ancestor)
             _grant_acl(root, sid_text, "(X)")
             granted.append(root)
             runtime_roots = sorted(
