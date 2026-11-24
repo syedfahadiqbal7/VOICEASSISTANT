@@ -133,8 +133,8 @@ def test_worker_timeout_terminates_spawned_child_process_tree(tmp_path):
 
     marker = tmp_path / "spawned_child_pid.txt"
     source = _source(marker).replace(
-        "import os\\n",
-        "import os\\nimport subprocess\\nimport sys\\nimport time\\n",
+        "import os\n",
+        "import os\nimport subprocess\nimport sys\nimport time\n",
     ).replace(
         'return {"content": str(os.getpid()), "is_error": False}',
         f'child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(20)"]); Path({str(marker)!r}).write_text(str(child.pid), encoding="utf-8"); time.sleep(20); return {{"content": "late", "is_error": False}}',
