@@ -32,7 +32,7 @@ def test_json_formatter_plugin_runs_inside_appcontainer(tmp_path):
         permissions=[],
         timeout_seconds=20,
     )
-    assert response["ok"] is True, f"type={response.get('error')} stage={response.get('stage')} winerror={response.get('winerror')} errno={response.get('errno')} detail={response.get('detail')}"
+    assert response["ok"] is True, f"type={response.get('error')} stage={response.get('stage')} resource={response.get('resource')} detail={response.get('detail')} winerror={response.get('winerror')} errno={response.get('errno')}"
     assert response["result"]["content"] == '{\n  "hello": "appcontainer",\n  "ok": true\n}'
     assert response["worker_exit_code"] == 0
 
@@ -70,7 +70,7 @@ def test_appcontainer_plugin_uses_named_pipe_host_broker_for_file_read(tmp_path)
         permissions=["filesystem:read"],
         timeout_seconds=20,
     )
-    assert response["ok"] is True, response
+    assert response["ok"] is True, f"worker_error={response.get('error')} resource={response.get('resource')} detail={response.get('detail')} code={response.get('error_code')}"
     assert response["result"]["content"] == "read only through host broker"
     assert response["worker_exit_code"] == 0
 
