@@ -278,7 +278,17 @@ def run_appcontainer_command(
                 if not key or "=" in key or "\x00" in key or "\x00" in value:
                     raise ValueError("invalid environment variable")
                 pairs.append((key, value))
-            block = "\x00".join(f"{key}={value}" for key, value in sorted(pairs, key=lambda item: item[0].upper())) + "\x00\x00"
+            # Preserve Windows hidden per-drive current-directory entries.
+            # Omitting =C:=... from a custom block can make CreateProcessW fail
+            # with ERROR_ENVVAR_NOT_FOUND (203) on hosted Windows runners.
+            current_directory = os.getcwd()
+            drive, _ = os.path.splitdrive(current_directory)
+            special_entries = [f"={drive}={current_directory}"] if drive else []
+            ordinary_entries = [
+                f"{key}={value}"
+                for key, value in sorted(pairs, key=lambda item: item[0].upper())
+            ]
+            block = "\x00".join(special_entries + ordinary_entries) + "\x00\x00"
             environment_buffer = ctypes.create_unicode_buffer(block)
             environment_pointer = ctypes.cast(environment_buffer, ctypes.c_void_p)
             flags |= 0x00000400  # CREATE_UNICODE_ENVIRONMENT
