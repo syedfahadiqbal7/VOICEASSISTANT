@@ -262,9 +262,10 @@ class PluginWorkerTool(BaseTool):
         }
 
     def execute(self, **kwargs) -> Dict[str, Any]:
+        use_appcontainer = _should_use_appcontainer(self._entry, self._permissions)
         broker = (
             PluginCapabilityBroker(self._policy, self.name, self._permissions)
-            if self._policy is not None else None
+            if self._policy is not None and not use_appcontainer else None
         )
         request = {
             "protocol_version": 1,
@@ -275,7 +276,7 @@ class PluginWorkerTool(BaseTool):
             "tool_name": self.name,
             "arguments": kwargs,
         }
-        if _should_use_appcontainer(self._entry, self._permissions):
+        if use_appcontainer:
             # Fail closed: an AppContainer failure never falls back to the
             # same-user worker for a plugin selected for OS sandboxing.
             response = AppContainerPluginRunner(self._policy).execute(
@@ -403,16 +404,17 @@ class ToolRegistry:
                     continue
                 manifest = verification.get("manifest") or {}
                 declared_tools = set(manifest.get("tools") or [])
+                declared_permissions = list(manifest.get("permissions") or [])
                 ver = manifest.get("version", "?")
                 print(f"[Plugin] Verified {file.name} v{ver}")
 
-                if _should_use_appcontainer(file, permissions=[]):
+                if _should_use_appcontainer(file, permissions=declared_permissions):
                     # Metadata import is plugin code too; discover the tool
                     # contract inside the same AppContainer used for execution.
                     response = AppContainerPluginRunner(None).describe(
                         entry=file,
                         sha256=verification.get("sha256"),
-                        permissions=[],
+                        permissions=declared_permissions,
                         timeout_seconds=15,
                     )
                 else:
@@ -443,7 +445,7 @@ class ToolRegistry:
                 conflicts = sorted(set(actual_names) & set(self._tools))
                 if conflicts:
                     raise ValueError("tool name conflict(s): " + ", ".join(conflicts))
-                permissions = list(manifest.get("permissions") or [])
+                permissions = declared_permissions
                 if not permissions and file.name not in SAFE_NO_PERMISSION_PLUGIN_FILES:
                     permissions = ["system:admin"]
 
