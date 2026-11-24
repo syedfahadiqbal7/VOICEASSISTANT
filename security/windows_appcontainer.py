@@ -108,6 +108,16 @@ def _windows_apis():
     kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
     kernel32.TerminateProcess.restype = wintypes.BOOL
     kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.ResumeThread.restype = wintypes.DWORD
+    kernel32.ResumeThread.argtypes = [wintypes.HANDLE]
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.TerminateJobObject.restype = wintypes.BOOL
+    kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     return kernel32, userenv, advapi32
 
@@ -158,12 +168,69 @@ def _remove_acl(path: Path, sid_text: str) -> None:
     )
 
 
+class _IO_COUNTERS(ctypes.Structure):
+    _fields_ = [
+        ("ReadOperationCount", ctypes.c_ulonglong),
+        ("WriteOperationCount", ctypes.c_ulonglong),
+        ("OtherOperationCount", ctypes.c_ulonglong),
+        ("ReadTransferCount", ctypes.c_ulonglong),
+        ("WriteTransferCount", ctypes.c_ulonglong),
+        ("OtherTransferCount", ctypes.c_ulonglong),
+    ]
+
+
+class _JOB_BASIC_LIMIT(ctypes.Structure):
+    _fields_ = [
+        ("PerProcessUserTimeLimit", ctypes.c_longlong),
+        ("PerJobUserTimeLimit", ctypes.c_longlong),
+        ("LimitFlags", wintypes.DWORD),
+        ("MinimumWorkingSetSize", ctypes.c_size_t),
+        ("MaximumWorkingSetSize", ctypes.c_size_t),
+        ("ActiveProcessLimit", wintypes.DWORD),
+        ("Affinity", ctypes.c_size_t),
+        ("PriorityClass", wintypes.DWORD),
+        ("SchedulingClass", wintypes.DWORD),
+    ]
+
+
+class _JOB_EXTENDED_LIMIT(ctypes.Structure):
+    _fields_ = [
+        ("BasicLimitInformation", _JOB_BASIC_LIMIT),
+        ("IoInfo", _IO_COUNTERS),
+        ("ProcessMemoryLimit", ctypes.c_size_t),
+        ("JobMemoryLimit", ctypes.c_size_t),
+        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+        ("PeakJobMemoryUsed", ctypes.c_size_t),
+    ]
+
+
+def _assign_bounded_job(kernel32, process_handle):
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise OSError(ctypes.get_last_error(), "CreateJobObjectW failed")
+    limits = _JOB_EXTENDED_LIMIT()
+    limits.BasicLimitInformation.LimitFlags = 0x00000008 | 0x00000100 | 0x00000200 | 0x00002000
+    limits.BasicLimitInformation.ActiveProcessLimit = 16
+    limits.ProcessMemoryLimit = 2 * 1024 * 1024 * 1024
+    limits.JobMemoryLimit = 3 * 1024 * 1024 * 1024
+    if not kernel32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+        error = ctypes.get_last_error()
+        kernel32.CloseHandle(job)
+        raise OSError(error, "SetInformationJobObject failed")
+    if not kernel32.AssignProcessToJobObject(job, process_handle):
+        error = ctypes.get_last_error()
+        kernel32.CloseHandle(job)
+        raise OSError(error, "AssignProcessToJobObject failed")
+    return job
+
+
 def run_appcontainer_command(
     executable: Path,
     arguments: list[str],
     profile_name: str | None = None,
     timeout_seconds: int = 15,
     appcontainer_sid=None,
+    environment: dict[str, str] | None = None,
 ) -> int:
     """Run one process in a no-capability AppContainer; return its exit code.
 
@@ -178,6 +245,8 @@ def run_appcontainer_command(
     attr_buffer = None
     attr_list = None
     process_info = _PROCESS_INFORMATION()
+    job_handle = None
+    environment_buffer = None
     try:
         capabilities = _SECURITY_CAPABILITIES(sid, None, 0, 0)
         required = ctypes.c_size_t(0)
@@ -199,22 +268,39 @@ def run_appcontainer_command(
         startup.lpAttributeList = attr_list
         command_line = subprocess.list2cmdline([str(executable), *[str(x) for x in arguments]])
         mutable_command = ctypes.create_unicode_buffer(command_line)
-        flags = 0x00080000 | 0x08000000  # EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW
+        flags = 0x00080000 | 0x08000000 | 0x00000004  # EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW | CREATE_SUSPENDED
+        environment_pointer = None
+        if environment is not None:
+            pairs = []
+            for key, value in environment.items():
+                key = str(key)
+                value = str(value)
+                if not key or "=" in key or "\x00" in key or "\x00" in value:
+                    raise ValueError("invalid environment variable")
+                pairs.append((key, value))
+            block = "\x00".join(f"{key}={value}" for key, value in sorted(pairs, key=lambda item: item[0].upper())) + "\x00\x00"
+            environment_buffer = ctypes.create_unicode_buffer(block)
+            environment_pointer = ctypes.cast(environment_buffer, ctypes.c_void_p)
+            flags |= 0x00000400  # CREATE_UNICODE_ENVIRONMENT
         if not kernel32.CreateProcessW(
             str(executable), mutable_command, None, None, False, flags,
-            None, None, ctypes.byref(startup), ctypes.byref(process_info),
+            environment_pointer, None, ctypes.byref(startup), ctypes.byref(process_info),
         ):
             raise OSError(ctypes.get_last_error(), "CreateProcessW AppContainer launch failed")
+        job_handle = _assign_bounded_job(kernel32, process_info.hProcess)
+        resume_result = kernel32.ResumeThread(process_info.hThread)
+        if resume_result == 0xFFFFFFFF:
+            raise OSError(ctypes.get_last_error(), "ResumeThread failed")
 
         wait_result = kernel32.WaitForSingleObject(
             process_info.hProcess, max(1, int(timeout_seconds)) * 1000,
         )
         if wait_result == 0x00000102:  # WAIT_TIMEOUT
-            kernel32.TerminateProcess(process_info.hProcess, 124)
+            kernel32.TerminateJobObject(job_handle, 124)
             kernel32.WaitForSingleObject(process_info.hProcess, 5000)
             raise TimeoutError("AppContainer process timed out")
         if wait_result != 0:
-            kernel32.TerminateProcess(process_info.hProcess, 125)
+            kernel32.TerminateJobObject(job_handle, 125)
             kernel32.WaitForSingleObject(process_info.hProcess, 5000)
             raise OSError(ctypes.get_last_error(), "WaitForSingleObject failed")
         exit_code = wintypes.DWORD()
@@ -222,6 +308,11 @@ def run_appcontainer_command(
             raise OSError(ctypes.get_last_error(), "GetExitCodeProcess failed")
         return int(exit_code.value)
     finally:
+        if process_info.hProcess and job_handle is None:
+            kernel32.TerminateProcess(process_info.hProcess, 126)
+            kernel32.WaitForSingleObject(process_info.hProcess, 5000)
+        if job_handle:
+            kernel32.CloseHandle(job_handle)  # KILL_ON_JOB_CLOSE terminates any surviving descendants.
         if process_info.hThread:
             kernel32.CloseHandle(process_info.hThread)
         if process_info.hProcess:
