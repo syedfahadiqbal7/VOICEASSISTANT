@@ -34,7 +34,9 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Plugin permission declarations, integrity/checksum validation and archive/manifest validation.
 - Built-in plugin capabilities cover common development, Windows administration, document/data handling, browser workflows, productivity and reusable work skills.
 - Examples in the repository include Git/GitHub helpers, Docker/process/environment tools, file and PDF/Excel readers, document writing, email/Office helpers, browser and clipboard tools, and architecture/review/planning skills.
-- Plugin execution is in-process; the current permission and manifest checks are not an operating-system sandbox.
+- Plugins are verified and executed in bounded child workers rather than imported into the desktop process.
+- On Windows, the reviewed no-permission built-ins `example_hello_tool.py` and `json_formatter.py` are discovered and executed inside AppContainer with no network capabilities and explicit staging/runtime ACLs.
+- Other plugins remain in same-user crash-contained workers; process isolation and manifest checks do not make those plugins an OS security sandbox.
 
 ### 5. Scheduling and automation
 - Create and inspect scheduled jobs from the desktop assistant; interval recurrence accepts integer minutes from 1 through 525,600 and rejects coercive or out-of-range values.
@@ -70,7 +72,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 
 ### 8. Current limitations to understand
 - The desktop application must be running for mobile connectivity and scheduled jobs; the mobile app does not independently execute desktop tools.
-- This repository does not yet provide an OS-level plugin sandbox.
+- AppContainer rollout is currently limited to the two reviewed no-permission built-ins listed above. Third-party plugins and plugins requiring OS capabilities still run in same-user child workers and are not OS-sandboxed.
 - Windows GUI, microphone/speaker, Ollama lifecycle, physical Android/iOS behavior and real private-LAN/TLS deployment require target-environment validation.
 - CI mobile artifacts are validation/development artifacts, not production-signed distribution packages.
 - Key retirement is not secure erasure from old backups, recovery kits, snapshots or storage media. Stop the desktop and all runtime writers before migration or key retirement.
