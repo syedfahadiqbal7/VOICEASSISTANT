@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import agent.tool_registry as registry_module
-from agent.plugin_marketplace import validate_manifest
+from agent.plugin_marketplace import build_manifest_for_file, validate_manifest
 from agent.tool_registry import PluginWorkerTool
 
 
@@ -39,6 +39,22 @@ def test_manifest_rejects_unknown_or_non_string_execution_sandbox():
         ok, errors = validate_manifest(candidate)
         assert ok is False
         assert any("execution_sandbox" in error for error in errors)
+
+
+
+def test_manifest_builder_preserves_default_and_emits_explicit_sandbox(tmp_path):
+    entry = tmp_path / "sample.py"
+    entry.write_text("# sample plugin\\n", encoding="utf-8")
+    default_manifest = build_manifest_for_file(entry, tools=["sample"])
+    assert "execution_sandbox" not in default_manifest
+
+    appcontainer_manifest = build_manifest_for_file(
+        entry, tools=["sample"], execution_sandbox="appcontainer"
+    )
+    assert appcontainer_manifest["execution_sandbox"] == "appcontainer"
+
+    with pytest.raises(ValueError, match="execution_sandbox"):
+        build_manifest_for_file(entry, tools=["sample"], execution_sandbox="unsafe")
 
 
 def test_appcontainer_proxy_never_falls_back_to_same_user_worker(tmp_path, monkeypatch):
