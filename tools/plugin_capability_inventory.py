@@ -19,13 +19,13 @@ CAPABILITY_RULES = {
         "calls": {"open", "read_text", "read_bytes", "iterdir", "glob", "rglob", "listdir", "scandir", "walk"},
     },
     "filesystem:write": {
-        "calls": {"write_text", "write_bytes", "write", "mkdir", "makedirs", "copy", "copy2", "move", "replace"},
+        "calls": {"write_text", "write_bytes", "mkdir", "makedirs", "copy", "copy2", "move", "replace"},
     },
     "filesystem:delete": {
         "calls": {"unlink", "remove", "rmdir", "removedirs", "rmtree"},
     },
     "process:execute": {
-        "calls": {"Popen", "run", "call", "check_call", "check_output", "system", "startfile", "CreateProcess"},
+        "calls": {"Popen", "call", "check_call", "check_output", "system", "startfile", "CreateProcess"},
     },
     "process:read": {
         "calls": {"process_iter", "Process", "pids", "pid_exists"},
@@ -34,22 +34,22 @@ CAPABILITY_RULES = {
         "calls": {"terminate", "kill", "send_signal"},
     },
     "network:read": {
-        "calls": {"get", "head", "urlopen", "urlretrieve", "request", "fetch", "connect", "recv"},
+        "calls": {"get", "head", "urlopen", "urlretrieve", "recv"},
     },
     "network:write": {
-        "calls": {"post", "put", "patch", "delete", "send", "sendall"},
+        "calls": {"post", "put", "patch", "delete", "sendall"},
     },
-    "clipboard:read": {"calls": {"paste", "GetClipboardData", "OpenClipboard"}},
-    "clipboard:write": {"calls": {"copy", "clipboard_clear", "SetClipboardData", "EmptyClipboard"}},
+    "clipboard:read": {"calls": {"GetClipboardData", "OpenClipboard"}},
+    "clipboard:write": {"calls": {"clipboard_clear", "SetClipboardData", "EmptyClipboard"}},
     "registry:read": {"calls": {"OpenKey", "QueryValue", "QueryValueEx", "EnumKey", "EnumValue"}},
     "registry:write": {"calls": {"CreateKey", "SetValue", "SetValueEx", "DeleteKey", "DeleteValue"}},
     "screen:read": {"calls": {"screenshot", "grab", "pixel", "locateOnScreen"}},
-    "screen:control": {"calls": {"click", "doubleClick", "moveTo", "press", "hotkey", "write"}},
-    "email:read": {"calls": {"login", "select", "search", "fetch", "list", "uid"}},
+    "screen:control": {"calls": {"doubleClick", "moveTo", "hotkey"}},
+    "email:read": {"calls": {"uid"}},
     "email:send": {"calls": {"sendmail", "send_message", "send_message_async"}},
     "messaging:send": {"calls": {"send_message", "send_text", "send_chat_message"}},
     "service:control": {"calls": {"StartService", "StopService", "ChangeServiceConfig", "OpenSCManager"}},
-    "docker:control": {"calls": {"containers", "images", "run", "exec_run", "stop", "remove"}},
+    "docker:control": {"calls": {"containers", "images", "exec_run"}},
     "system:environment:write": {"calls": {"putenv", "unsetenv"}},
 }
 
