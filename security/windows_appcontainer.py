@@ -231,7 +231,6 @@ def run_appcontainer_command(
     timeout_seconds: int = 15,
     appcontainer_sid=None,
     environment: dict[str, str] | None = None,
-    current_directory: Path | str | None = None,
 ) -> int:
     """Run one process in a no-capability AppContainer; return its exit code.
 
@@ -271,7 +270,6 @@ def run_appcontainer_command(
         mutable_command = ctypes.create_unicode_buffer(command_line)
         flags = 0x00080000 | 0x08000000 | 0x00000004  # EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW | CREATE_SUSPENDED
         environment_pointer = None
-        launch_directory = str(Path(current_directory).resolve()) if current_directory is not None else None
         if environment is not None:
             pairs = []
             for key, value in environment.items():
@@ -280,12 +278,39 @@ def run_appcontainer_command(
                 if not key or "=" in key or "\x00" in key or "\x00" in value:
                     raise ValueError("invalid environment variable")
                 pairs.append((key, value))
-            # The custom environment intentionally contains no inherited host
-            # variables. Add only the hidden drive-current-directory entry that
-            # matches the explicit working directory, when running on Windows.
-            effective_directory = launch_directory or os.getcwd()
-            drive, _ = os.path.splitdrive(effective_directory)
-            special_entries = [f"={drive}={effective_directory}"] if drive else []
+            # Preserve Windows hidden per-drive current-directory entries.
+            # Omitting =C:=... from a custom block can make CreateProcessW fail
+            # with ERROR_ENVVAR_NOT_FOUND (203) on hosted Windows runners.
+            current_directory = os.getcwd()
+            kernel32.GetEnvironmentStringsW.restype = ctypes.c_void_p
+            kernel32.FreeEnvironmentStringsW.argtypes = [ctypes.c_void_p]
+            environment_address = kernel32.GetEnvironmentStringsW()
+            if not environment_address:
+                raise OSError(ctypes.get_last_error(), "GetEnvironmentStringsW failed")
+            special_entries = []
+            try:
+                characters = ctypes.cast(
+                    environment_address, ctypes.POINTER(ctypes.c_wchar)
+                )
+                current_entry = []
+                for index in range(32767):
+                    character = characters[index]
+                    if character == "\x00":
+                        if not current_entry:
+                            break
+                        entry = "".join(current_entry)
+                        if entry.startswith("="):
+                            special_entries.append(entry)
+                        current_entry = []
+                    else:
+                        current_entry.append(character)
+            finally:
+                kernel32.FreeEnvironmentStringsW(environment_address)
+            drive, _ = os.path.splitdrive(current_directory)
+            drive_key = f"={drive}"
+            if drive and not any(item.startswith(drive_key + "=") for item in special_entries):
+                special_entries.append(f"={drive}={current_directory}")
+            special_entries.sort(key=str.upper)
             ordinary_entries = [
                 f"{key}={value}"
                 for key, value in sorted(pairs, key=lambda item: item[0].upper())
@@ -296,7 +321,7 @@ def run_appcontainer_command(
             flags |= 0x00000400  # CREATE_UNICODE_ENVIRONMENT
         if not kernel32.CreateProcessW(
             str(executable), mutable_command, None, None, False, flags,
-            environment_pointer, launch_directory, ctypes.byref(startup), ctypes.byref(process_info),
+            environment_pointer, None, ctypes.byref(startup), ctypes.byref(process_info),
         ):
             raise OSError(ctypes.get_last_error(), "CreateProcessW AppContainer launch failed")
         job_handle = _assign_bounded_job(kernel32, process_info.hProcess)
