@@ -1,8 +1,4 @@
-"""Client for the host-owned VoiceAssistant plugin capability broker.
-
-Only typed, versioned JSON requests are supported. The client does not grant
-permissions; the host rechecks manifest declaration and local policy per call.
-"""
+"""Client for the host-owned VoiceAssistant plugin capability broker."""
 from __future__ import annotations
 
 import json
@@ -23,13 +19,15 @@ class PluginCapabilityError(RuntimeError):
 def request_capability(operation: str, capability: str, arguments: dict[str, Any]) -> dict[str, Any]:
     host = os.environ.get("VOICEASSISTANT_BROKER_HOST")
     port_text = os.environ.get("VOICEASSISTANT_BROKER_PORT")
+    pipe_name = os.environ.get("VOICEASSISTANT_BROKER_PIPE")
     token = os.environ.get("VOICEASSISTANT_BROKER_TOKEN")
-    if not host or not port_text or not token:
+    if not token or (not pipe_name and (not host or not port_text)):
         raise PluginCapabilityError("Host capability broker is unavailable")
     try:
-        port = int(port_text)
+        port = int(port_text) if port_text else 0
     except ValueError as error:
         raise PluginCapabilityError("Host capability broker configuration is invalid") from error
+
     request_id = secrets.token_hex(16)
     request = {
         "protocol_version": 1,
@@ -42,20 +40,26 @@ def request_capability(operation: str, capability: str, arguments: dict[str, Any
     payload = json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
     if len(payload) > MAX_REQUEST_BYTES:
         raise PluginCapabilityError("Capability request exceeds the size limit")
+
     try:
-        with socket.create_connection((host, port), timeout=5) as connection:
-            connection.settimeout(5)
-            connection.sendall(payload)
-            response = bytearray()
-            while len(response) <= MAX_RESPONSE_BYTES:
-                chunk = connection.recv(min(65536, MAX_RESPONSE_BYTES + 1 - len(response)))
-                if not chunk:
-                    break
-                response.extend(chunk)
-                if b"\n" in chunk:
-                    break
-    except OSError as error:
+        if pipe_name:
+            from security.windows_named_pipe import send_named_pipe_message
+            response = bytearray(send_named_pipe_message(pipe_name, payload, timeout_ms=5000))
+        else:
+            with socket.create_connection((host, port), timeout=5) as connection:
+                connection.settimeout(5)
+                connection.sendall(payload)
+                response = bytearray()
+                while len(response) <= MAX_RESPONSE_BYTES:
+                    chunk = connection.recv(min(65536, MAX_RESPONSE_BYTES + 1 - len(response)))
+                    if not chunk:
+                        break
+                    response.extend(chunk)
+                    if b"\n" in chunk:
+                        break
+    except (OSError, RuntimeError) as error:
         raise PluginCapabilityError("Host capability broker connection failed") from error
+
     if len(response) > MAX_RESPONSE_BYTES or not response.endswith(b"\n"):
         raise PluginCapabilityError("Host capability broker returned an invalid response")
     try:
