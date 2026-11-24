@@ -144,7 +144,7 @@ def _main(request: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "result": result}
 
 
-def _process_request(raw: bytes) -> tuple[dict[str, Any], int]:
+def _process_request(raw: bytes, include_diagnostics: bool = False) -> tuple[dict[str, Any], int]:
     if not raw or len(raw) > MAX_REQUEST_BYTES:
         return {
             "ok": False,
@@ -155,13 +155,20 @@ def _process_request(raw: bytes) -> tuple[dict[str, Any], int]:
         request = json.loads(raw.decode("utf-8"))
         return _main(request), 0
     except BaseException as error:
-        # Do not return tracebacks or plugin-controlled exception strings to the
-        # desktop process; keep the protocol response categorical and bounded.
-        return {
+        # Keep normal worker IPC categorical. The private AppContainer file-IPC
+        # path may include bounded OS diagnostics to make sandbox integration
+        # failures actionable without exposing full tracebacks.
+        failure = {
             "ok": False,
             "error_code": "plugin_worker_failed",
             "error": type(error).__name__,
-        }, 1
+        }
+        if include_diagnostics:
+            failure["detail"] = str(getattr(error, "strerror", None) or "")[:160]
+            filename = getattr(error, "filename", None)
+            if filename:
+                failure["resource"] = Path(str(filename)).name[:120]
+        return failure, 1
 
 
 def _encode_response(response: dict[str, Any]) -> bytes:
@@ -216,7 +223,7 @@ def main() -> int:
                     raise ValueError("invalid host broker configuration")
                 os.environ["VOICEASSISTANT_BROKER_PIPE"] = broker["pipe"]
                 os.environ["VOICEASSISTANT_BROKER_TOKEN"] = broker["token"]
-            response, exit_code = _process_request(raw)
+            response, exit_code = _process_request(raw, include_diagnostics=True)
             encoded = _encode_response(response)
             temporary = response_path.with_suffix(response_path.suffix + ".tmp")
             temporary.write_bytes(encoded)
