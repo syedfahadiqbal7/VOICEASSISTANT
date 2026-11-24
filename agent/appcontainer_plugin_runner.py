@@ -231,6 +231,17 @@ class AppContainerPluginRunner:
                 "errno": getattr(error, "errno", None),
                 "detail": str(error)[:240],
             }
+        finally:
+            if broker is not None:
+                broker.close()
+            if sid_text:
+                for path in reversed(granted):
+                    _remove_acl(path, sid_text)
+            if sid is not None:
+                userenv.DeleteAppContainerProfile(profile_name)
+                advapi32.FreeSid(sid)
+            shutil.rmtree(root, ignore_errors=True)
+
     def describe(
         self,
         entry: Path,
@@ -249,14 +260,3 @@ class AppContainerPluginRunner:
             timeout_seconds=timeout_seconds,
             mode="describe",
         )
-
-        finally:
-            if broker is not None:
-                broker.close()
-            if sid_text:
-                for path in reversed(granted):
-                    _remove_acl(path, sid_text)
-            if sid is not None:
-                userenv.DeleteAppContainerProfile(profile_name)
-                advapi32.FreeSid(sid)
-            shutil.rmtree(root, ignore_errors=True)
