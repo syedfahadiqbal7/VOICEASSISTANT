@@ -76,17 +76,17 @@ def _load_plugin(entry: Path, expected_sha256: str):
     sink = _DiscardTextWriter()
     with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
         spec.loader.exec_module(module)
-            exported = [
-                (name, cls) for name, cls in inspect.getmembers(module, inspect.isclass)
-                if issubclass(cls, BaseTool) and cls is not BaseTool
-                and cls.__module__ == module.__name__
-            ]
-            instances = [(class_name, cls, cls()) for class_name, cls in exported]
-            for _, _, instance in instances:
-                # Force metadata evaluation inside the worker, not the host.
-                _ = instance.name
-                _ = instance.description
-                _ = instance.parameters
+        exported = [
+            (name, cls) for name, cls in inspect.getmembers(module, inspect.isclass)
+            if issubclass(cls, BaseTool) and cls is not BaseTool
+            and cls.__module__ == module.__name__
+        ]
+        instances = [(class_name, cls, cls()) for class_name, cls in exported]
+        for _, _, instance in instances:
+            # Force metadata evaluation inside the worker, not the host.
+            _ = instance.name
+            _ = instance.description
+            _ = instance.parameters
     return instances
 
 
