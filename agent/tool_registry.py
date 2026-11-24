@@ -1,8 +1,10 @@
 # agent/tool_registry.py
 import json
 import os
+import signal
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Dict, List, Any
 
@@ -25,9 +27,94 @@ PLUGIN_WORKER_MAX_REQUEST_BYTES = 1024 * 1024
 PLUGIN_WORKER_MAX_RESPONSE_BYTES = 1024 * 1024
 
 
-def _run_plugin_worker(request: Dict[str, Any], timeout: int = PLUGIN_WORKER_TIMEOUT_SECONDS) -> Dict[str, Any]:
-    """Run one plugin operation in a child process (crash containment only).
+def _create_windows_worker_job(process):
+    """Assign a waiting worker to a bounded Job Object before sending its request.
 
+    The worker blocks reading stdin until assignment completes, preventing plugin
+    code from spawning descendants before the job is attached. This is resource
+    and process-tree containment, not a filesystem/network security sandbox.
+    """
+    if os.name != "nt":
+        return None
+
+    import ctypes
+    from ctypes import wintypes
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class BASIC_LIMIT(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class EXTENDED_LIMIT(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", BASIC_LIMIT),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise OSError(ctypes.get_last_error(), "CreateJobObjectW failed")
+
+    limits = EXTENDED_LIMIT()
+    limits.BasicLimitInformation.LimitFlags = 0x00000008 | 0x00000100 | 0x00000200 | 0x00002000
+    limits.BasicLimitInformation.ActiveProcessLimit = 16
+    limits.ProcessMemoryLimit = 2 * 1024 * 1024 * 1024
+    limits.JobMemoryLimit = 3 * 1024 * 1024 * 1024
+
+    if not kernel32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+        error = ctypes.get_last_error()
+        kernel32.CloseHandle(job)
+        raise OSError(error, "SetInformationJobObject failed")
+    if not kernel32.AssignProcessToJobObject(job, wintypes.HANDLE(int(process._handle))):
+        error = ctypes.get_last_error()
+        kernel32.CloseHandle(job)
+        raise OSError(error, "AssignProcessToJobObject failed")
+    return (kernel32, job)
+
+
+def _close_windows_worker_job(job) -> None:
+    if job is not None:
+        kernel32, handle = job
+        kernel32.CloseHandle(handle)  # KILL_ON_JOB_CLOSE also terminates descendants.
+
+
+def _run_plugin_worker(request: Dict[str, Any], timeout: int = PLUGIN_WORKER_TIMEOUT_SECONDS) -> Dict[str, Any]:
+    """Run one plugin operation in a child process with bounded IPC and lifetime.
+
+    Windows workers are assigned to a Job Object before plugin code is released:
+    max 16 active processes, 2 GiB per process, 3 GiB per job, and kill-on-close.
     This is not a sandbox: the child retains the desktop user's OS privileges.
     """
     worker_path = Path(__file__).with_name("plugin_worker.py").resolve()
@@ -40,25 +127,78 @@ def _run_plugin_worker(request: Dict[str, Any], timeout: int = PLUGIN_WORKER_TIM
         if value:
             environment[key] = value
     environment["PYTHONIOENCODING"] = "utf-8"
+
+    process = None
+    job = None
+    output = bytearray()
+    overflow = threading.Event()
+
+    def drain_stdout():
+        try:
+            while True:
+                chunk = process.stdout.read(65536)
+                if not chunk:
+                    break
+                if len(output) + len(chunk) > PLUGIN_WORKER_MAX_RESPONSE_BYTES:
+                    overflow.set()
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass
+                elif not overflow.is_set():
+                    output.extend(chunk)
+        except (OSError, ValueError):
+            pass
+
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             [sys.executable, "-I", str(worker_path)],
-            input=payload,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             cwd=str(worker_path.parent.parent),
             env=environment,
-            timeout=max(1, int(timeout)),
-            check=False,
+            start_new_session=(os.name != "nt"),
         )
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error_code": "worker_timeout", "error": "Plugin worker timed out and was terminated."}
+        # Child is blocked on stdin until the parent sends EOF. Attach OS
+        # process-tree/resource controls before any plugin code can run.
+        job = _create_windows_worker_job(process)
+        reader = threading.Thread(target=drain_stdout, name="PluginWorkerOutput", daemon=True)
+        reader.start()
+        try:
+            process.stdin.write(payload)
+            process.stdin.flush()
+        finally:
+            process.stdin.close()
+        try:
+            process.wait(timeout=max(1, int(timeout)))
+        except subprocess.TimeoutExpired:
+            if os.name == "nt":
+                process.kill()
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except OSError:
+                    process.kill()
+            process.wait()
+            reader.join(timeout=5)
+            return {"ok": False, "error_code": "worker_timeout", "error": "Plugin worker timed out and was terminated."}
+        reader.join(timeout=5)
+        if reader.is_alive():
+            process.kill()
+            return {"ok": False, "error_code": "invalid_worker_response", "error": "Plugin worker output did not close."}
+        if overflow.is_set():
+            return {"ok": False, "error_code": "response_too_large", "error": "Plugin worker response exceeded the size limit."}
     except OSError as error:
+        if process is not None and process.poll() is None:
+            process.kill()
+            process.wait()
         return {"ok": False, "error_code": "worker_start_failed", "error": type(error).__name__}
-    if len(completed.stdout) > PLUGIN_WORKER_MAX_RESPONSE_BYTES:
-        return {"ok": False, "error_code": "response_too_large", "error": "Plugin worker response exceeded the size limit."}
+    finally:
+        _close_windows_worker_job(job)
+
     try:
-        response = json.loads(completed.stdout.decode("utf-8"))
+        response = json.loads(bytes(output).decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         return {"ok": False, "error_code": "invalid_worker_response", "error": "Plugin worker returned an invalid response."}
     if not isinstance(response, dict) or response.get("ok") is not True:

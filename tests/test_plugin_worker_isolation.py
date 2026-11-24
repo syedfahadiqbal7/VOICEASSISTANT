@@ -125,3 +125,40 @@ def test_worker_rejects_symlinked_plugin_source(tmp_path):
     })
     assert response["ok"] is False
     assert response["error_code"] == "plugin_worker_failed"
+
+
+def test_worker_timeout_terminates_spawned_child_process_tree(tmp_path):
+    import time
+    import psutil
+
+    marker = tmp_path / "spawned_child_pid.txt"
+    source = _source(marker).replace(
+        "import os\n",
+        "import os\nimport subprocess\nimport sys\nimport time\n",
+    ).replace(
+        'return {"content": str(os.getpid()), "is_error": False}',
+        f'child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(20)"]); Path({str(marker)!r}).write_text(str(child.pid), encoding="utf-8"); time.sleep(20); return {{"content": "late", "is_error": False}}',
+    )
+    entry = _write_plugin(tmp_path / "plugins", source)
+    digest = hashlib.sha256(entry.read_bytes()).hexdigest()
+    response = _run_plugin_worker({
+        "protocol_version": 1,
+        "mode": "execute",
+        "entry": str(entry),
+        "sha256": digest,
+        "class_name": "WorkerEchoTool",
+        "tool_name": "worker_echo",
+        "arguments": {},
+    }, timeout=2)
+    assert response["error_code"] == "worker_timeout"
+    assert marker.is_file()
+    child_pid = int(marker.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and psutil.pid_exists(child_pid):
+        try:
+            if psutil.Process(child_pid).status() == psutil.STATUS_ZOMBIE:
+                break
+        except psutil.NoSuchProcess:
+            break
+        time.sleep(0.1)
+    assert not psutil.pid_exists(child_pid) or psutil.Process(child_pid).status() == psutil.STATUS_ZOMBIE
