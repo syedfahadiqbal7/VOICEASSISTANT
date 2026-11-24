@@ -13,7 +13,7 @@ Before enabling LAN access:
 - Keep at least one active admin device enrolled. The CLI refuses to demote or revoke the last active admin.
 - Prefer a VPN or TLS-terminating reverse proxy (`wss://`) on networks you do not fully trust.
 - Do not run the application with unnecessary administrator privileges.
-- Review every plugin before enabling it; plugins execute in the desktop process and are not OS-sandboxed.
+- Review every plugin before enabling it. Plugins run in child workers. On Windows, only the reviewed no-permission built-ins `example_hello_tool.py` and `json_formatter.py` are currently executed inside AppContainer; all other plugins remain same-user crash-contained workers and are not OS-sandboxed.
 - Protect local history, memory, audit and undo files using Windows account permissions and disk encryption.
 
 ## Reporting a vulnerability
@@ -22,7 +22,7 @@ Please use GitHub's **Report a vulnerability** feature (Security tab) if private
 
 ## Important limitations
 
-Plugin manifests and checksums provide integrity checks, not cryptographic publisher signatures or sandbox isolation. Command analysis is heuristic and is not a PowerShell sandbox. Direct `ws://` LAN mode does not encrypt traffic. Review the engineering audit for additional limitations before production deployment.
+Plugin manifests and checksums provide integrity checks, not cryptographic publisher signatures. The Windows AppContainer pilot is restricted to the two no-permission built-ins named above; it does not yet sandbox arbitrary third-party plugins or plugins with filesystem/network/process capabilities. Those plugins run in same-user child workers, which provide crash/resource containment but not an OS security boundary. Command analysis is heuristic and is not a PowerShell sandbox. Direct `ws://` LAN mode does not encrypt traffic. Review the engineering audit for additional limitations before production deployment.
 
 
 ## Data encryption, backup and key recovery
