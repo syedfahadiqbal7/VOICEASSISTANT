@@ -229,7 +229,7 @@ PR #46 wires the existing AppContainer runner into the verified plugin manifest 
 - The JSON formatter is the first opted-in plugin. Other plugins remain on the same-user worker until individually reviewed and migrated.
 - A failure in AppContainer metadata discovery or execution is returned as a failure; there is no same-user fallback.
 
-**Verified CI:** run [#45396454585](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45396454585) passed 342 Python regressions, 16 Phase 0 smoke checks, Flutter analysis/tests, Android APK build and unsigned iOS build.
+**Verified CI:** run [#45399119080](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45399119080) passed 344 Python regressions, 16 Phase 0 smoke checks, Flutter analysis/tests, Android APK build and unsigned iOS build.
 
 **Remaining gates:** independent security review, target Windows machine validation, resource/disk-exhaustion controls, cleanup verification, publisher signing, and migration of additional plugin dependencies/capabilities. This remains a narrow opt-in pilot, not authorization for untrusted third-party plugins.
 
