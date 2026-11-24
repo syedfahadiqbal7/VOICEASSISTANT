@@ -22,7 +22,8 @@ def test_inventory_uses_ast_without_importing_plugin(tmp_path):
     assert not marker.exists()
     assert "filesystem:read" in result["observed_capabilities"]
     assert "process:execute" in result["observed_capabilities"]
-    assert "process:execute" in result["undeclared_observed"]\n    assert "filesystem:write" in result["undeclared_observed"]
+    assert "process:execute" in result["undeclared_observed"]
+    assert "filesystem:write" in result["undeclared_observed"]
 
 
 def test_inventory_reports_manifest_checksum_mismatch_and_missing_permissions(tmp_path):
