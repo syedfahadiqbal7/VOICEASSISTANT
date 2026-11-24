@@ -1,6 +1,6 @@
 # Plugin Execution Isolation — Architecture and Delivery Plan
 
-**Status:** Architecture decision / implementation gate  
+**Status:** Architecture decision with an opt-in Windows AppContainer pilot  
 **Review date:** 2026-11-24  
 **Applies to:** Windows desktop agent, plugin registry, policy engine and future plugin marketplace
 
@@ -15,9 +15,11 @@ The current plugin pipeline performs useful package-level checks:
 - Registration is all-or-nothing and duplicate names are rejected.
 - Missing capability declarations fail closed to `system:admin`, except for two built-in pure utilities.
 
-These controls protect package integrity and reduce accidental privilege. They do **not** make Python code safe. `agent/tool_registry.py` imports each plugin module with `exec_module` and constructs its tool classes in the main VoiceAssistant process. A malicious or compromised plugin can execute arbitrary Python during import or call OS APIs directly during execution. The permission list is metadata consumed by the host policy path; it is not an OS reference monitor.
+These controls protect package integrity and reduce accidental privilege, but they do not make every plugin safe. The default `execution_sandbox: worker` mode imports and executes plugin code in a one-shot child process with the desktop user's OS privileges; this is crash containment, not a security sandbox.
 
-**Decision:** Do not describe the current system as sandboxed. Treat every installed plugin as trusted code running with the desktop user's privileges until an OS-enforced boundary is implemented and independently tested.
+An opt-in Windows AppContainer path is now implemented for plugins whose verified manifest sets `execution_sandbox: appcontainer`. Both metadata discovery and each invocation use a no-network AppContainer process, scoped ACL grants and a package-SID ACL named-pipe broker. The JSON formatter is the first opted-in plugin. The pilot currently supports only standard-library plus staged `tools` imports and policy-approved `filesystem:read`; unsupported capabilities fail closed without falling back to the same-user worker.
+
+**Decision:** Describe only explicitly opted-in plugins as AppContainer-isolated. Continue treating every default-worker plugin as trusted code. The pilot is not blanket sandboxing or independent security certification; publisher signing, broader capability migration, target-machine validation and independent review remain outstanding.
 
 ## 2. Goals
 
@@ -116,7 +118,7 @@ Required controls before calling the worker sandboxed:
 - Safe DLL/Python import search paths and no writable import directory preceding trusted runtime libraries.
 - Worker startup handshake confirms the expected protocol, plugin identity and content digest before tool calls are accepted.
 
-The exact Windows primitive combination must be proven on supported Windows 10/11 builds. If the restricted token/AppContainer setup cannot be established, the worker must remain marked **isolated for crash containment only**, not sandboxed.
+The AppContainer pilot has passed Windows CI integration checks for filesystem denial, loopback denial, Python startup, SID-ACL named-pipe IPC, plugin metadata discovery and plugin execution. This proves the tested CI image path, not every Windows 10/11 edition or the user's target machine. If AppContainer setup cannot be established for a selected plugin, that plugin must fail closed and must not fall back to the same-user worker.
 
 ### Other platforms
 
@@ -215,3 +217,19 @@ On POSIX, the worker starts in a new process group and the group is terminated o
 **Verified:** CI run [#45335729490](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45335729490), 312 Python tests and 16 smoke tests, plus Flutter and mobile builds.
 
 These controls improve crash containment and resource governance but do not restrict the worker's access to the user's files, credentials or network. They do not constitute an OS sandbox. Restricted-token/AppContainer and host-broker enforcement remain the next required implementation stage.
+
+## Current implementation checkpoint — 2026-11-24 (registry integration)
+
+PR #46 wires the existing AppContainer runner into the verified plugin manifest and ToolRegistry lifecycle:
+
+- `execution_sandbox` is validated and defaults to `worker`; only an explicit `appcontainer` declaration selects the OS boundary.
+- Metadata discovery and tool execution both occur inside AppContainer for opted-in plugins.
+- AppContainer startup uses isolated Python flags (`-I -S`) so user site packages, `.pth` files and `sitecustomize` do not run before the trusted worker clears inherited environment variables and loads plugin code.
+- The runner rejects dynamic/native imports, undeclared capabilities and permissions beyond the current `filesystem:read` broker operation.
+- The JSON formatter is the first opted-in plugin. Other plugins remain on the same-user worker until individually reviewed and migrated.
+- A failure in AppContainer metadata discovery or execution is returned as a failure; there is no same-user fallback.
+
+**Verified CI:** run [#45396454585](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45396454585) passed 342 Python regressions, 16 Phase 0 smoke checks, Flutter analysis/tests, Android APK build and unsigned iOS build.
+
+**Remaining gates:** independent security review, target Windows machine validation, resource/disk-exhaustion controls, cleanup verification, publisher signing, and migration of additional plugin dependencies/capabilities. This remains a narrow opt-in pilot, not authorization for untrusted third-party plugins.
+
