@@ -60,16 +60,24 @@ class AppContainerPluginRunner:
             return {"ok": False, "error_code": "invalid_plugin_source"}
         if not entry.is_file():
             return {"ok": False, "error_code": "invalid_plugin_source"}
-        actual_digest = hashlib.sha256(entry.read_bytes()).hexdigest()
+        source_bytes = entry.read_bytes()
+        actual_digest = hashlib.sha256(source_bytes).hexdigest()
         if actual_digest.lower() != str(sha256).lower():
             return {"ok": False, "error_code": "plugin_digest_mismatch"}
         if not isinstance(arguments, dict):
             return {"ok": False, "error_code": "invalid_arguments"}
 
         try:
-            inventory = inspect_source(entry, {"permissions": permissions})
+            inventory = inspect_source(
+                entry, {"permissions": permissions}, source_bytes=source_bytes
+            )
         except Exception as error:
-            return {"ok": False, "error_code": "plugin_static_inspection_failed", "error": type(error).__name__}
+            return {
+                "ok": False,
+                "error_code": "plugin_static_inspection_failed",
+                "error": type(error).__name__,
+                "detail": str(error)[:240],
+            }
         imports = set(inventory.get("imports") or [])
         unsupported_imports = sorted(imports - set(sys.stdlib_module_names) - {"tools"})
         risky_warnings = [
