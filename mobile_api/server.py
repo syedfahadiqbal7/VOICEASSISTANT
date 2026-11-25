@@ -68,9 +68,12 @@ def _is_loopback_request(request: Request) -> bool:
 
 
 def _require_loopback(request: Request) -> None:
-    if not _is_loopback_request(request):
+    # Reject browser-originated calls as well as remote clients. The API currently
+    # has permissive CORS for the companion app; pairing administration must not
+    # become a localhost CSRF primitive for arbitrary websites.
+    if not _is_loopback_request(request) or request.headers.get("origin"):
         from fastapi import HTTPException
-        raise HTTPException(status_code=403, detail="Pairing administration is available only on the desktop")
+        raise HTTPException(status_code=403, detail="Pairing administration is available only to the local desktop process")
 
 
 @app.post("/pairing/sessions")
