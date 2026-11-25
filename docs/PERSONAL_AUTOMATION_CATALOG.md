@@ -52,7 +52,7 @@ This document describes the current declarative catalog in `agent/automation_cat
 | `sunday_family_tasks` | Deadlines, replies and family to-dos | Sunday | Family task source plus calendar or email |
 | `daily_inbox_offers` | Inbox offers, savings and catches | Daily | Email connector |
 
-Times are intentionally not hard-coded. Users choose local delivery times and timezone in the automation setup flow; the current catalog only captures cadence and weekday constraints.
+Local delivery times and timezone are not configured in this phase. A future setup flow must let users choose them; the current catalog only captures cadence and weekday constraints.
 
 ## Connector identifiers
 
