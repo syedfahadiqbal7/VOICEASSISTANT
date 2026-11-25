@@ -276,6 +276,20 @@ class WebSocketService extends ChangeNotifier {
               credentials["device_token"] is! String) {
             throw const FormatException("Desktop returned invalid device credentials");
           }
+          final socketEndpoint = endpoint.replace(scheme: "wss", path: "/ws");
+          final deviceId = credentials["device_id"] as String;
+          final deviceToken = credentials["device_token"] as String;
+
+          // Persist the received credential before acknowledging it. If the
+          // app is terminated immediately after the acknowledgement, the user
+          // can still reconnect without having to enroll a ghost device again.
+          await _secureStorage.write(key: "desktop_host", value: socketEndpoint.toString());
+          await _secureStorage.write(key: "mobile_token", value: deviceToken);
+          await _secureStorage.write(key: "mobile_device_id", value: deviceId);
+          await _secureStorage.write(key: "auto_connect", value: "false");
+          hasSavedConnection = true;
+          notifyListeners();
+
           // Acknowledge receipt before connecting. If this response is lost,
           // retrying the acknowledgement is safe and idempotent.
           Map<String, dynamic>? completion;
@@ -295,13 +309,13 @@ class WebSocketService extends ChangeNotifier {
           if (completion?["status"] != "completed") {
             throw StateError("Desktop did not confirm credential receipt");
           }
-          final socketEndpoint = endpoint.replace(scheme: "wss", path: "/ws");
+          await _secureStorage.write(key: "auto_connect", value: "true");
           isPairing = false;
           notifyListeners();
           connect(
             socketEndpoint.toString(),
-            deviceId: credentials["device_id"] as String,
-            token: credentials["device_token"] as String,
+            deviceId: deviceId,
+            token: deviceToken,
           );
           return;
         }
