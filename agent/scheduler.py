@@ -126,10 +126,63 @@ class JobScheduler:
                         job["last_error"] = f"Invalid persisted recurrence metadata: {error}; manual review required"
                         recovered = True
                 if job["status"] == "running":
-                    job["status"] = "pending"
-                    job["enabled"] = True
+                    execution_id = str(job.get("execution_id") or "")
+                    try:
+                        interrupted = self.history.recover_interrupted(execution_id) if self.history else None
+                    except Exception as history_error:
+                        interrupted = None
+                        self.history_error = type(history_error).__name__
                     job["recovered_after_crash"] = True
                     recovered = True
+                    history_status = interrupted.get("status") if interrupted else None
+                    if history_status == "succeeded":
+                        # The side effect and history checkpoint succeeded; reconcile the
+                        # scheduler checkpoint so the completed occurrence is not replayed.
+                        job["last_run"] = interrupted.get("finished_at") or _now().isoformat()
+                        job["attempts"] = 0
+                        job.pop("started_at", None)
+                        repeat_rule = job.get("repeat")
+                        interval = (repeat_rule or {}).get("every_minutes") if isinstance(repeat_rule, dict) else None
+                        if interval is not None:
+                            try:
+                                interval = _validated_interval(interval)
+                                job["run_at"] = (_now() + timedelta(minutes=interval)).isoformat()
+                                job["execution_id"] = str(uuid.uuid4())
+                                job["status"] = "pending"
+                                job["enabled"] = True
+                            except ValueError:
+                                job["status"] = "failed"
+                                job["enabled"] = False
+                                job["last_error"] = "Invalid recurrence after interrupted success; manual review required"
+                        elif isinstance(repeat_rule, dict) and repeat_rule.get("type") == "calendar":
+                            job["run_at"] = next_calendar_occurrence(repeat_rule, datetime.now().astimezone()).isoformat()
+                            job["execution_id"] = str(uuid.uuid4())
+                            job["status"] = "pending"
+                            job["enabled"] = True
+                        else:
+                            job["status"] = "completed"
+                            job["enabled"] = False
+                    elif history_status == "retrying":
+                        # Handler had already returned a retryable failure; resume its retry.
+                        job["status"] = "pending"
+                        job["enabled"] = True
+                        job.pop("started_at", None)
+                    elif history_status == "deferred":
+                        # The execution ledger will determine whether the other owner is
+                        # still alive; keep the same execution_id and retry after a short wait.
+                        job["status"] = "pending"
+                        job["enabled"] = True
+                        job["execution_waiting"] = True
+                        job["run_at"] = (_now() + timedelta(minutes=1)).isoformat()
+                        job.pop("started_at", None)
+                    else:
+                        # A started/missing/uncertain/terminal-failure record cannot prove
+                        # that replay is safe. Stop and require explicit operator review.
+                        job["status"] = "failed"
+                        job["enabled"] = False
+                        job["execution_waiting"] = False
+                        job["last_error"] = "Interrupted execution outcome is uncertain; automatic replay blocked. Review execution history before rescheduling."
+                        job.pop("started_at", None)
                 if job["status"] not in {"pending", "running", "completed", "failed", "cancelled"}:
                     job["status"] = "failed"
                     job["enabled"] = False
