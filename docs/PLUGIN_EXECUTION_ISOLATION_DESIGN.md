@@ -238,7 +238,7 @@ PR #46 wires the existing AppContainer runner into the verified plugin manifest 
 ## 11. AppContainer resource and cleanup hardening (2026-11-25)
 
 - Reduced the Job Object ceilings to 512 MiB per process, 1 GiB per job and eight active processes. Wall-clock timeout is strictly validated from 1 to 120 seconds.
-- The AppContainer can traverse/read the private work directory but cannot create arbitrary files there. The host pre-creates the request, response and response-temporary IPC files and grants write access only to the latter two.
+- The AppContainer needs modify access to the private work directory for Windows atomic response-file replacement. That directory ACE is not inheritable; the host pre-creates request/response/temporary IPC files and applies explicit read/modify grants to them. A watchdog bounds the flat directory to three files, 1 MiB per file and 2 MiB total.
 - A 50 ms watchdog samples the flat IPC workspace, rejecting more than three files, any file over 1 MiB or aggregate usage over 2 MiB. Overshoot between samples is possible; this is not a hard filesystem quota.
 - Source files are rejected above 5 MiB before reading/staging. Response size is checked from file metadata before loading it into host memory.
 - ACL removal retries and reports failures. Broker shutdown, each ACL removal, profile deletion, SID release and workspace deletion are isolated so one cleanup failure does not skip subsequent cleanup.
