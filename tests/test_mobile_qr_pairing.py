@@ -236,3 +236,20 @@ def test_approved_but_undelivered_device_is_revoked_when_session_expires():
     now[0] += 121
     assert coordinator.pending_requests() == []
     assert registry.revoked == [registry.created[0]["device_id"]]
+
+
+
+def test_challenge_lockout_revokes_provisionally_approved_device():
+    registry = FakeRegistry()
+    registry.revoked = []
+    registry.revoke = lambda device_id: registry.revoked.append(device_id) or True
+    coordinator = PairingCoordinator(registry)
+    session_id, secret = _session(coordinator)
+    coordinator.submit_request(session_id, secret, "Phone")
+    request_id = coordinator.pending_requests()[0]["request_id"]
+    assert coordinator.approve(request_id) is True
+
+    for _ in range(5):
+        with pytest.raises(PairingError):
+            coordinator.poll_result(session_id, "wrong-secret")
+    assert registry.revoked == [registry.created[0]["device_id"]]
