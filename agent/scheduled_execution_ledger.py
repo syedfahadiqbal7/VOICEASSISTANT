@@ -18,7 +18,7 @@ from agent.storage import atomic_write_json, load_json
 
 LEDGER_FILE = BASE_DIR / "history" / "scheduled_execution_ledger.json"
 MAX_ENTRIES = 20000
-_ACTIVE_EXECUTIONS: set[str] = set()
+_ACTIVE_EXECUTIONS: set[tuple[str, str]] = set()
 _ACTIVE_EXECUTIONS_LOCK = threading.RLock()
 
 
@@ -121,6 +121,9 @@ class ScheduledExecutionLedger:
                 raise ValueError("scheduled execution ledger contains an invalid entry")
             if entry.get("status") not in {"started", "succeeded", "uncertain"}:
                 raise ValueError("scheduled execution ledger contains an unknown state")
+            tool_name = entry.get("tool")
+            if not isinstance(tool_name, str) or not tool_name.strip() or len(tool_name) > 128:
+                raise ValueError("scheduled execution ledger contains an invalid tool binding")
         return entries
 
     @staticmethod
@@ -146,6 +149,9 @@ class ScheduledExecutionLedger:
         except (TypeError, ValueError):
             return False
 
+    def _active_key(self, execution_id: str) -> tuple[str, str]:
+        return (str(self.path.resolve()), execution_id)
+
     def claim(self, execution_id: str, tool_name: str) -> str:
         """Return claimed, succeeded, in_progress or uncertain.
 
@@ -156,16 +162,21 @@ class ScheduledExecutionLedger:
         if not key or len(key) > 128 or not tool or len(tool) > 128:
             raise ScheduledExecutionLedgerError("A valid execution ID and tool name are required")
 
+        active_key = self._active_key(key)
         with self._guard():
             self._entries = self._read_entries()
             existing = self._entries.get(key)
             if existing:
+                if existing.get("tool") != tool:
+                    raise ScheduledExecutionLedgerError(
+                        "Execution ID is already bound to a different tool"
+                    )
                 status = existing.get("status")
                 if status == "succeeded":
                     return "succeeded"
                 if status == "started":
                     with _ACTIVE_EXECUTIONS_LOCK:
-                        active_here = key in _ACTIVE_EXECUTIONS
+                        active_here = active_key in _ACTIVE_EXECUTIONS
                     owner_pid = int(existing.get("owner_pid", -1))
                     if active_here or (owner_pid != _CURRENT_PID and self._owner_is_alive(existing)):
                         return "in_progress"
@@ -207,19 +218,20 @@ class ScheduledExecutionLedger:
                     f"Could not persist scheduled execution claim: {error}"
                 ) from error
             with _ACTIVE_EXECUTIONS_LOCK:
-                _ACTIVE_EXECUTIONS.add(key)
+                _ACTIVE_EXECUTIONS.add(active_key)
             return "claimed"
 
     def complete(self, execution_id: str, *, success: bool, detail: str = "") -> None:
         """Durably record success or an uncertain outcome and release ownership."""
         key = str(execution_id or "").strip()
+        active_key = self._active_key(key)
         with self._guard():
             self._entries = self._read_entries()
             entry = self._entries.get(key)
             if (
                 not entry
                 or entry.get("status") != "started"
-                or key not in _ACTIVE_EXECUTIONS
+                or active_key not in _ACTIVE_EXECUTIONS
                 or int(entry.get("owner_pid", -1)) != _CURRENT_PID
             ):
                 raise ScheduledExecutionLedgerError(
@@ -242,7 +254,7 @@ class ScheduledExecutionLedger:
                 ) from error
             finally:
                 with _ACTIVE_EXECUTIONS_LOCK:
-                    _ACTIVE_EXECUTIONS.discard(key)
+                    _ACTIVE_EXECUTIONS.discard(active_key)
 
     def get(self, execution_id: str) -> Optional[Dict[str, Any]]:
         with self._guard():
