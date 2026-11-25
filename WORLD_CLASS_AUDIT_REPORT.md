@@ -199,7 +199,7 @@ The installer does not claim cryptographic publisher authentication. SHA-256 che
 
 ### P1/P2 — reliability and privacy
 
-- **Scheduler delivery semantics.** A durable Pending/Running/Completed/Failed/Cancelled state machine and crash recovery are implemented. Delivery is at-least-once: if the process crashes after a handler performs an external side effect but before the completion checkpoint is persisted, the handler may run again after restart. Handlers that create files, send messages or otherwise mutate external state still need operation-level idempotency keys/duplicate detection before unattended production use.
+- **Scheduler delivery semantics.** The scheduler state machine and retries are at-least-once for arbitrary callbacks/reminders. Built-in scheduled tool fast paths additionally use a durable at-most-once invocation ledger: stable occurrence IDs survive retries/restarts, completed IDs are no-ops, and ambiguous started IDs fail closed instead of being replayed. This is not exactly-once external effect delivery; third-party integrations must enforce the execution ID at their own side-effect boundary.
 - **Key recovery and rotation.** Windows DPAPI key material is bound to the current Windows user profile. Losing the DPAPI key file/profile makes raw encrypted runtime files unrecoverable. Portable backups can be restored on another machine using their separate passphrase, but key rotation for an existing live data set is not implemented. Explicit Markdown/text conversation exports remain plaintext and must be stored securely.
 - **Retention and deletion semantics.** User-configurable retention is available through `privacy_cli.py` for conversation history, memory, audit entries and terminal scheduled jobs. It is manual and opt-in; undo snapshots, custom skills, exports and policy data are not covered. Deletion is not secure erasure, and there is no in-app privacy dashboard.
 - **Backup transaction boundary.** Restore validates the full archive before writing and atomically replaces each file, but the set of files is not committed as one filesystem transaction. Take a fresh backup before restore.
@@ -371,7 +371,7 @@ This section supersedes earlier statements in this report that the Android build
 2. **Physical mobile acceptance:** install on real Android and iOS devices; verify secure credential storage, pairing, revocation, reconnect, WSS/TLS, role restrictions, approval routing, schedule state and disconnect cleanup.
 3. **Recovery exercise:** in an isolated test profile, verify portable backup authentication, restore to a clean destination, recovery-kit import, interrupted migration recovery, and keyring-loss handling. Never experiment on the user's live runtime data.
 4. **Security review:** independent review/penetration test remains outstanding. Only the explicit AppContainer pilot is OS-isolated; default-worker plugins retain same-user privileges and publisher trust is unsigned. Direct remote WS is not encrypted; ordinary runtime writers do not participate in the key-administration lock.
-5. **Reliability/product backlog:** add operation-level idempotency for side-effecting scheduled handlers; continue typed-exception cleanup and malformed legacy-store recovery; add process-wide mobile registry/quota coordination; improve desktop/mobile progress, diagnostics, accessibility and release packaging/signing.
+5. **Reliability/product backlog:** propagate stable execution IDs into third-party side-effecting integrations and add external reconciliation; continue typed-exception cleanup and malformed legacy-store recovery; add process-wide mobile registry/quota coordination; improve desktop/mobile progress, diagnostics, accessibility and release packaging/signing.
 6. **Release controls:** retain development/beta status until Windows and physical-device acceptance, recovery drill, security sign-off, and production signing/installer rollback are complete.
 
 ### Current recommendation
@@ -589,3 +589,14 @@ Implement and test the host-owned capability broker, then implement Windows rest
 - The current documented enrollment flow uses device credentials administered on the trusted desktop. A QR-based desktop-to-mobile pairing flow is not currently documented or confirmed as implemented.
 - A future QR flow must carry only a short-lived, single-use pairing challenge and a non-secret endpoint descriptor; it must not embed long-lived device credentials. The desktop must explicitly approve enrollment, issue device-specific credentials, and support revocation. Cross-network connectivity still requires a reachable endpoint or relay; QR scanning alone cannot traverse NAT/firewalls.
 - Recommended future architecture: retain direct LAN and user-managed VPN/WSS, and add an optional hosted or self-hosted relay using outbound authenticated TLS connections from both endpoints. Relay payloads should be end-to-end authenticated/encrypted where feasible, with no relay access to desktop authorization decisions or stored assistant data.
+
+
+## Continuation checkpoint — scheduled execution ledger identity hardening (2026-11-25)
+
+- Scoped the in-memory active-claim set by canonical ledger path plus execution ID, so separate ledger files cannot accidentally treat each other's claims as active.
+- Bound each execution ID to the original tool name; reuse with a different tool now fails closed.
+- Ledger loading rejects entries without a valid tool binding rather than interpreting malformed metadata permissively.
+- Added regression tests for independent ledgers sharing an ID, tool-binding mismatch and malformed ledger entries.
+- Added [Scheduled Execution Reliability](SCHEDULED_EXECUTION_RELIABILITY.md) documenting at-most-once invocation, at-least-once callback behavior, ambiguous crash outcomes and the manual reconciliation boundary.
+
+**Remaining:** this ledger is local to one desktop profile and has a 20,000-entry fail-closed capacity. It is not a distributed idempotency service. External plugins must propagate the stable execution ID to their provider or implement their own reconciliation.
