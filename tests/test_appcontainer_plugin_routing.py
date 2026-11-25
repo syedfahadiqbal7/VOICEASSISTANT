@@ -174,3 +174,48 @@ def test_registry_appcontainer_plugin_uses_host_read_broker_after_policy_attachm
     assert result["is_error"] is False
     assert result["content"] == "read through the host broker"
 
+
+
+
+def test_example_hello_manifest_opts_in_appcontainer():
+    repo_root = Path(__file__).resolve().parents[1]
+    manifest_path = repo_root / "plugins" / "example_hello_tool.manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    ok, errors = validate_manifest(manifest)
+    assert ok is True, errors
+    assert manifest["entry"] == "example_hello_tool.py"
+    assert manifest["permissions"] == []
+    assert manifest["execution_sandbox"] == "appcontainer"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows AppContainer example plugin integration test")
+def test_tool_registry_executes_hello_example_inside_appcontainer(tmp_path, monkeypatch):
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    repo_root = Path(__file__).resolve().parents[1]
+    source = repo_root / "plugins" / "example_hello_tool.py"
+    entry = plugins / "example_hello_tool.py"
+    shutil.copy2(source, entry)
+    manifest = {
+        "name": "example_hello_tool",
+        "version": "1.0.0",
+        "entry": entry.name,
+        "tools": ["say_hello"],
+        "permissions": [],
+        "checksum_sha256": hashlib.sha256(entry.read_bytes()).hexdigest(),
+        "execution_sandbox": "appcontainer",
+    }
+    (plugins / "example_hello_tool.manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+    monkeypatch.setattr(registry_module, "PLUGINS_DIR", plugins)
+
+    registry = registry_module.ToolRegistry()
+    tool = registry.get("say_hello")
+    assert isinstance(tool, PluginWorkerTool)
+    assert tool._sandbox_mode == "appcontainer"
+
+    result = registry.execute("say_hello", {"name": "Fahad"})
+    assert result["is_error"] is False
+    assert result["content"] == "Hello Fahad! This message came from a custom plugin tool."
