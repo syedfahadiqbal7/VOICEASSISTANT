@@ -17,14 +17,15 @@ Cross-network reachability currently depends on an operator-provided VPN or a pu
 
 ## 3. Recommended topology
 
-Use an outbound-only persistent connection from the desktop to a relay. The mobile app opens an outbound TLS/WSS connection to the same relay. The relay associates the two live connections and forwards bounded opaque application frames.
+Use WebRTC DataChannels between the Windows desktop and Flutter mobile app, with an authenticated signaling service and a TURN relay for NAT traversal. Both endpoints initiate outbound network traffic. When a direct ICE path is impossible, TURN forwards encrypted WebRTC packets; it does not terminate the peer DTLS session.
 
 - Desktop remains the trusted execution and authorization authority.
 - Mobile continues to authenticate as its enrolled device.
-- Desktop initiates the relay connection; no inbound port on the PC is required.
-- Relay is optional and must be independently deployable by the user or organization.
-- Direct LAN/VPN/WSS remains preferred when available.
-- Do not implement UDP hole punching or peer-to-peer fallback in the first release; those paths complicate firewall behavior and security review.
+- Desktop initiates signaling and ICE connectivity outbound; no inbound PC listener or router port-forwarding is required.
+- Signaling carries only authenticated session descriptions, ICE candidates and short-lived setup metadata. It must not carry application payloads.
+- TURN is an optional packet relay, independently deployable by the user or organization. Direct LAN/VPN paths remain preferred when available.
+- WebRTC DataChannels are encrypted with DTLS by the protocol; TURN forwards encrypted packets and cannot read channel contents.
+- Keep the current WebSocket transport as a separate direct path during rollout; do not replace it until parity and recovery tests pass.
 
 ## 4. Trust boundaries and security invariants
 
@@ -32,7 +33,7 @@ Use an outbound-only persistent connection from the desktop to a relay. The mobi
 2. **Desktop policy remains authoritative:** every command and approval is re-authorized by the desktop using its existing device registry, RBAC, rate limits and approval flow.
 3. **End-to-end protection:** use an authenticated, forward-secret desktop↔mobile session above the relay transport. The relay forwards ciphertext and routing metadata only; it must not receive plaintext prompts, transcripts, tool arguments, files, approvals or model output.
 4. **No permanent QR secret:** QR pairing remains the current short-lived, one-time challenge flow. Relay enrollment is a separate authenticated operation after device pairing.
-5. **Short-lived relay tickets:** desktop-issued, audience-bound, expiring, single-session tickets; bind them to desktop identity, device identity, role, session ID and protocol version. Relay tickets never replace the desktop's own authorization checks.
+5. **Short-lived signaling/TURN credentials:** desktop-issued, audience-bound, expiring, single-session tickets; bind them to desktop identity, device identity, role, session ID and protocol version. TURN credentials authorize packet relay only and never replace desktop authorization.
 6. **No public desktop listener:** desktop connects outbound to relay over TLS. Do not require router port forwarding or a public inbound desktop port.
 7. **Fail closed:** invalid signatures, expired/replayed tickets, unknown devices, protocol mismatch, oversized frames, rate-limit violations or failed cryptographic handshakes terminate the session.
 8. **Least data:** relay stores no conversation history, files, prompts or durable message payloads. In-memory queues are bounded and cleared on disconnect.
@@ -41,48 +42,49 @@ Use an outbound-only persistent connection from the desktop to a relay. The mobi
 
 ## 5. Session establishment (proposed)
 
-1. User selects **Remote connection (Relay)** in the desktop/mobile connection settings. Direct connection remains unchanged.
-2. Desktop authenticates to the configured relay using a relay-specific credential or mutually authenticated TLS identity. This credential grants transport registration only.
-3. Desktop registers a random, high-entropy, short-lived rendezvous identifier and publishes a signed, expiring session descriptor. Do not expose a stable desktop identifier in public discovery.
-4. The already-paired mobile authenticates to the relay using a short-lived desktop-issued ticket bound to its device ID and current role.
-5. Mobile and desktop perform an authenticated ephemeral key agreement. The desktop proves possession of its enrolled desktop identity; the mobile proves possession of its device identity. Derive directional AEAD keys and sequence spaces.
-6. Relay binds the two live sockets to the rendezvous session and forwards only bounded encrypted frames.
-7. Desktop validates every decrypted application message against the existing WebSocket command schema, device role, approval policy, rate limiter and active-session state.
-8. On disconnect, revoke the rendezvous ticket and destroy ephemeral keys. Reconnection creates a new ticket and fresh ephemeral keys; never resume an old cryptographic session by replaying prior frames.
+1. User selects **Remote connection** in the desktop/mobile connection settings. Existing direct LAN/VPN WebSocket remains available.
+2. Desktop and mobile authenticate to a minimal signaling service using short-lived credentials issued after normal desktop-approved device enrollment.
+3. Desktop publishes a random, high-entropy, short-lived rendezvous ID and its WebRTC offer. Mobile retrieves the offer only after proving its enrolled device identity.
+4. Signaling exchanges the offer, answer and ICE candidates. Every signaling envelope is authenticated and bound to the enrolled desktop/device identities, session ID, expiry and protocol version. The desktop's DTLS certificate fingerprint must be bound to a desktop identity key that the phone pinned during a trusted enrollment step. Mobile's answer/fingerprint must likewise be authenticated to the desktop. A signaling server must not be able to substitute either fingerprint.
+5. Both peers create a WebRTC RTCPeerConnection and a reliable, ordered RTCDataChannel. ICE first attempts direct connectivity; if unavailable, it uses short-lived TURN credentials. Do not require the desktop to accept inbound connections.
+6. WebRTC performs its standard DTLS handshake. DataChannel application payloads are encrypted peer-to-peer; the TURN service forwards encrypted packets only. The signaling service never sees DataChannel payloads.
+7. The desktop maps the authenticated peer connection to the existing device registry entry and validates every received application message against the existing command schema, role, approval policy, rate limiter and active-session state. Do not trust the signaling server's role claims.
+8. On disconnect, expire the rendezvous/tickets and close the peer connection. Reconnection creates fresh credentials, ICE state and DTLS keys; never replay commands or resume an old transport session.
 
-The exact cryptographic handshake must use a reviewed, maintained protocol/library (for example, a Noise protocol pattern with pinned identity keys), not bespoke cryptography. Select the concrete pattern and key lifecycle during implementation review.
+Use maintained WebRTC implementations and the standards-defined DTLS/SCTP DataChannel security rather than inventing an application cryptographic handshake. The exact identity binding and signaling envelope format remain mandatory security-review items.
 
-## 6. Relay protocol requirements
+## 6. Signaling and TURN service requirements
 
-- TLS 1.2+ (prefer TLS 1.3), hostname verification, certificate validation and optional mTLS for desktop-to-relay registration.
-- Explicit protocol version and message type allowlist.
-- Strict maximum frame size, bounded per-session queue, bounded concurrent sessions, connection quotas and idle timeout.
-- Per-connection and per-device rate limits; abuse controls must not rely only on IP addresses.
-- Backpressure: if either peer cannot keep up, stop reading or close the session; never accumulate unbounded memory.
-- No payload logging. Operational logs may include random session IDs, event codes, byte counts, duration and failure category, but no tokens, keys or ciphertext-derived content.
-- Relay health endpoints expose only service health and aggregate capacity metrics.
-- Relay has no route to the desktop's LAN, filesystem, process table or local API. Do not implement a generic TCP proxy or arbitrary URL forwarding.
+- Separate signaling from TURN packet forwarding. Signaling exchanges only SDP and ICE metadata; TURN carries encrypted WebRTC packets.
+- Use WebRTC-compliant STUN/TURN (for example, coturn) with authenticated, short-lived TURN REST credentials. Never enable anonymous TURN or the dangerous server-relay mode.
+- Offer TURN/UDP first and TURN/TCP or TURN/TLS fallback for restrictive networks. Validate actual client support for `turns:` on every target platform; do not claim port 443 fallback until device/network tests pass.
+- Enforce authenticated rendezvous, high-entropy session IDs, protocol versioning, expiry, anti-replay and per-device rate limits.
+- Bound concurrent peer sessions, candidate counts, signaling payload sizes, TURN allocations, bandwidth and session lifetime.
+- Apply backpressure and close unhealthy sessions; never queue application commands for an offline desktop.
+- No SDP, ICE candidate, TURN credential, token or private key in routine logs. Redact network metadata where practical.
+- Health endpoints expose service health and aggregate capacity metrics only.
+- TURN has no route to desktop LAN resources, filesystem, process table or local API. Signaling has no application command execution path.
 
 ## 7. Desktop and mobile integration
 
 ### Desktop
 - Add a transport abstraction so current direct WebSocket transport remains intact.
-- Add a relay client that dials outbound and reconnects with bounded exponential backoff and jitter.
+- Add an aiortc peer-connection adapter and authenticated signaling client; use bounded reconnect/backoff and explicit lifecycle cleanup.
 - Keep device registry, RBAC, approvals, audit and command handling in the desktop process.
 - Surface connection mode, relay health, peer presence and reconnect status in the UI.
 - Allow owner to disable remote access and revoke all relay sessions.
 - Never start remote access automatically without explicit owner configuration.
 
 ### Flutter
-- Add a separate Relay connection mode and relay URL / organization configuration.
-- Use platform secure storage for relay credentials and identity private keys.
+- Add a separate Remote connection mode and signaling/TURN configuration.
+- Use flutter_webrtc DataChannels and platform secure storage for device identity material and short-lived signaling credentials.
 - Keep existing QR pairing and direct connection paths.
 - Display desktop identity, connection mode and role; provide disconnect and forget-device controls.
 - Reconnect only with fresh session tickets and fresh cryptographic handshakes.
 
 ### Relay service
-- Prefer a small separately deployable service with a documented container deployment, health checks, resource limits and TLS termination.
-- Support self-hosted operation without a vendor account.
+- Prefer a separately deployable signaling service plus a standard TURN server (for example, coturn), with documented container deployment, health checks and resource limits.
+- Support self-hosted operation without a vendor account. Keep signaling replaceable and TURN standards-compliant.
 - Hosted relay, if offered later, must be opt-in and clearly disclose metadata, region, retention and operational access.
 - Relay should be replaceable; no proprietary protocol dependency in desktop/mobile core.
 
@@ -112,17 +114,17 @@ The exact cryptographic handshake must use a reviewed, maintained protocol/libra
 - Approve trust boundaries, identity/key lifecycle, ticket claims, cryptographic handshake and relay threat model.
 - Review protocol with an independent security reviewer before production use.
 
-### R1 — Relay service transport prototype
-- Implement bounded rendezvous and opaque frame forwarding only.
-- Add unit, protocol, fuzz, load, resource-exhaustion and disconnect tests.
-- Prove the relay cannot decode payloads and cannot reach desktop LAN resources.
+### R1 — Signaling and TURN deployment prototype
+- Deploy authenticated signaling and coturn with short-lived credentials, bounded quotas and telemetry.
+- Add protocol, authorization, abuse, load, resource-exhaustion and disconnect tests.
+- Prove signaling cannot substitute authenticated DTLS fingerprints and TURN cannot decode DataChannel payloads.
 
-### R2 — Desktop outbound client
-- Add opt-in configuration, authenticated outbound connection, bounded reconnect, session registration and shutdown cleanup.
+### R2 — Desktop WebRTC adapter
+- Add opt-in aiortc peer connection, authenticated signaling, bounded reconnect and shutdown cleanup.
 - Verify no inbound firewall rule or port-forwarding is required.
 
-### R3 — Flutter relay mode
-- Add relay connection UI, secure identity storage, session ticket exchange and end-to-end handshake.
+### R3 — Flutter WebRTC mode
+- Add flutter_webrtc DataChannel transport, connection UI, secure device identity storage and authenticated signaling.
 - Preserve existing direct QR pairing and direct transport behavior.
 
 ### R4 — End-to-end acceptance
@@ -147,7 +149,39 @@ The exact cryptographic handshake must use a reviewed, maintained protocol/libra
 ## 12. Open implementation decisions
 
 These are implementation choices, not blockers to the architecture:
-- Exact reviewed Noise pattern / library and desktop identity key storage.
-- Relay authentication model for self-hosted deployments (mTLS versus signed bootstrap credential).
-- Relay deployment runtime and packaging aligned with the existing Python project.
+- Exact signaling envelope format and signature algorithm, including desktop identity key provisioning and rotation.
+- Whether signaling is implemented inside the existing FastAPI service or as a separately deployable component.
+- coturn deployment topology, TURN REST secret rotation, UDP relay port range and TLS fallback configuration.
 - Whether hosted relay is a later commercial service; it is not required for self-hosted functionality.
+
+
+## 13. Transport and library evaluation (2026-11-25)
+
+### Decision: prefer WebRTC DataChannels + STUN/TURN over a bespoke Noise-over-WebSocket tunnel
+
+The initial design left the application cryptographic handshake and relay framing open. A current library review found a better fit: WebRTC already standardizes ICE/NAT traversal, DTLS-protected DataChannels and TURN packet relaying. This avoids inventing a new cross-platform cryptographic handshake and a proprietary tunnel protocol.
+
+Evidence reviewed:
+- The official Flutter WebRTC package documents DataChannel and End-to-End Encryption support on Android, iOS, Windows, macOS and Linux. Current published package is 1.6.3. See https://pub.dev/packages/flutter_webrtc and https://pub.dev/packages/flutter_webrtc/changelog.
+- aiortc is a production/stable Python WebRTC implementation. Current published release 1.16.0 requires Python 3.11+, aligning with the repository CI Python 3.11 baseline. Its changelog documents DataChannel fixes and TURN support; its current ICE transport implementation parses `turns:` URLs and configures TLS transport. See https://pypi.org/project/aiortc/ and https://aiortc.readthedocs.io/en/latest/changelog.html.
+- WebRTC's security architecture requires DataChannels to be protected with DTLS. See RFC 8827: https://www.rfc-editor.org/rfc/rfc8827.html.
+- TURN relays encrypted WebRTC packets; it does not terminate the peer DTLS channel. See https://developers.cloudflare.com/realtime/turn/faq/.
+- coturn supports authenticated TURN operation and TLS listeners. Its configuration must be hardened and current source documentation must be used rather than the explicitly outdated wiki page. See https://github.com/coturn/coturn.
+
+### Important caveats before implementation
+
+- This is a preferred technical direction, not a security certification. aiortc and flutter_webrtc versions must be pinned and reviewed; run Windows 11, Android and iOS integration builds in CI.
+- The aiortc adapter must be tested for TURN/UDP, TURN/TCP and TURN/TLS. In particular, validate the selected `turns:` URI, TLS certificate validation and restrictive-network behavior. Do not promise universal 443 traversal before testing.
+- Signaling is a critical trust boundary. SDP/DTLS fingerprints must be cryptographically bound to the desktop identity and enrolled mobile identity. An authenticated signaling channel alone does not prevent a malicious signaling service from attempting a man-in-the-middle substitution.
+- Provision and pin desktop identity during trusted desktop-approved pairing; add enrolled mobile public-key identity to the device registry. Define rotation, revocation and recovery before enabling remote access.
+- aiortc currently supports a single TURN server in its ICE configuration path; the adapter must handle server selection/fallback deliberately and test it.
+- TURN-only paths, relay-to-relay behavior, CGNAT, double NAT, UDP-blocked networks, mobile backgrounding and reconnect must be proven in an actual two-network test matrix.
+- Do not add the low-adoption Dart Noise package or the older Python `noiseprotocol` dependency as a production cryptographic foundation without an independent audit. Do not write a custom handshake.
+
+### Proposed dependency candidates (not yet added)
+
+- Desktop: `aiortc==1.16.0` (Python >=3.11; confirm Windows wheel/dependency compatibility in CI before adoption).
+- Flutter: `flutter_webrtc: ^1.6.3` (verify lockfile resolution and Android/iOS native builds).
+- Relay: coturn, deployed and configured independently from the app process; signaling service can reuse the existing FastAPI stack if isolation and rate limiting are sufficient.
+
+No runtime dependency has been added in this design-only PR. Implementation starts only after the identity-binding threat model and signaling protocol are reviewed.
