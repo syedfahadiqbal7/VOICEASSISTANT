@@ -106,3 +106,22 @@ GitHub Actions validates both the Android release variant and an unsigned iOS re
 ### Concurrent mobile connection limit
 
 The WebSocket server accepts at most five concurrent clients by default. Set `VOICEASSISTANT_MOBILE_MAX_CONNECTIONS` to an integer from 1 through 32 to adjust the ceiling. Capacity is reserved before awaiting the WebSocket handshake, preventing simultaneous connection attempts from exceeding the configured limit. Excess connections are rejected with a retry-later close code. This process-local capacity cap is independent of the per-device authentication registry.
+
+
+## Desktop-approved QR pairing (backend foundation)
+
+The pairing backend now supports a short-lived QR challenge lifecycle:
+
+1. The trusted desktop creates a pairing session through the loopback-only `POST /pairing/sessions` endpoint, supplying the public HTTPS API origin. The response contains a versioned QR payload with a random one-time challenge and a two-minute expiry by default.
+2. The mobile app submits the scanned challenge to `POST /pairing/request` with a user-visible device name.
+3. The desktop reads pending requests from loopback-only `GET /pairing/pending` and explicitly approves or denies the device through loopback-only `POST /pairing/approve` or `POST /pairing/deny`.
+4. On approval, the server creates a normal device-registry entry (operator by default). The phone polls `POST /pairing/result` and receives the device ID/token exactly once after proving possession of the QR challenge.
+5. The phone stores those credentials using its existing secure-storage path and connects using the normal authenticated WebSocket protocol.
+
+Security properties:
+- The QR never contains a long-lived device token.
+- QR challenges expire, are single-use, are rate-limited to five invalid attempts and are held only in memory; restarting the desktop invalidates them.
+- Pairing administration endpoints accept loopback clients only.
+- QR pairing cannot grant the `admin` role; owner-admin enrollment remains a trusted local operation.
+- The endpoint supplied in the QR must be a clean HTTPS origin with a trusted certificate. A public relay or NAT traversal service is not included in this backend phase.
+- This is the backend foundation only. The desktop QR display / approval UI and mobile camera scanner are separate integration steps and are not yet available in this phase.
