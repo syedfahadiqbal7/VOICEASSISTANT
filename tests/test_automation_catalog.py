@@ -145,3 +145,10 @@ def test_inbox_delivery_return_and_renewal_checks_are_separate_workflows():
     assert renewals.required_integrations == ("email",)
     family = get_automation("sunday_family_tasks")
     assert "deadlines, replies" in family.description
+
+def test_desktop_catalog_cadence_labels_match_schedule_rules():
+    from ui.automation_catalog_viewer import AutomationCatalogViewer
+
+    assert AutomationCatalogViewer._cadence(get_automation("job_search_mon_thu")) == "Weekly (Mon, Thu)"
+    assert AutomationCatalogViewer._cadence(get_automation("sunday_family_tasks")) == "Weekly (Sun)"
+    assert AutomationCatalogViewer._cadence(get_automation("birthday_gift_planning")) == "Event-driven (30 days before)"
