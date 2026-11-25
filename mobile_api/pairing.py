@@ -228,6 +228,14 @@ class PairingCoordinator:
             item["state"] = "completed"
             return True
 
+    def session_state(self, session_id: str) -> str:
+        """Return a non-secret status for the trusted desktop approval UI."""
+        identifier = str(session_id or "").strip().lower()
+        with self._lock:
+            self._purge_expired()
+            item = self._sessions.get(identifier)
+            return str(item.get("state")) if item is not None else "expired"
+
     def cancel(self, session_id: str) -> bool:
         identifier = str(session_id or "").strip().lower()
         with self._lock:
