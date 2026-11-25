@@ -32,6 +32,7 @@ from ui.undo_viewer import open_undo_viewer
 from ui.policy_viewer import open_policy_viewer
 from ui.skill_author import open_skill_author
 from ui.profile_viewer import open_profile_viewer
+from ui.automation_catalog_viewer import open_automation_catalog_viewer
 from agent.app_restart import restart_app
 
 logger = logging.getLogger("voiceassistant.ui")
@@ -152,6 +153,7 @@ class AgenticVoiceAssistant(ctk.CTk):
         self.clear_history_btn = _tb("Clear", "#5D6D7E", "#34495E", self._clear_history, 70)
         self.schedules_btn = _tb("Schedules", "#148F77", "#0E6655", self._show_scheduler, 90)
         self.profile_btn = _tb("Profile", "#2874A6", "#1F618D", self._show_profile, 80)
+        self.automations_btn = _tb("Automations", "#7D3C98", "#633974", self._show_automation_catalog, 105)
         self.undo_hist_btn = _tb("Undo History", "#1E8449", "#196F3D", self._show_undo_history, 110)
         self.policy_btn = _tb("Policy", "#6C3483", "#5B2C6F", self._show_policy, 80)
         self.skill_author_btn = _tb("Skill Author", "#CA6F1E", "#A04000", self._show_skill_author, 100)
@@ -995,6 +997,19 @@ class AgenticVoiceAssistant(ctk.CTk):
         except Exception as error:
             logger.exception("Profile editor failed to open", extra={"event": "profile.editor_open_failed"})
             self.update_transcript(f"[Profile] Could not open editor: {error}")
+
+    def _show_automation_catalog(self):
+        if self._closing:
+            return
+        profile = getattr(self.conversation, "profile", None)
+        if profile is None:
+            self.update_transcript("[Automations] Profile storage is unavailable; catalog cannot load.")
+            return
+        try:
+            open_automation_catalog_viewer(self, profile)
+        except Exception as error:
+            logger.exception("Automation catalog failed to open", extra={"event": "automation.catalog_open_failed"})
+            self.update_transcript(f"[Automations] Could not open catalog: {type(error).__name__}")
 
     def _show_scheduler(self):
         try:

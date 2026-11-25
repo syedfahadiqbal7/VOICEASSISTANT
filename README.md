@@ -25,6 +25,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - CustomTkinter Windows desktop interface for conversations and agent interaction.
 - Operational viewers for audit events, policy, scheduler jobs, undo history and file diffs.
 - Encrypted local profile editor for interests, career targets, preferred locations, content tastes, language-learning level, lifestyle preferences, wardrobe items, favorite stores, product watchlists and birthday reminders.
+- Desktop Automation Catalog lists 34 requested recurring workflows with their cadence and setup requirements. It is read-only in this phase: no workflow is enabled or scheduled until its real integration and execution handler are implemented and validated.
 - Assistant profile context is opt-in and includes only selected general preferences; birthday dates store month/day only, and profile validation rejects secret-like values. Profile data is not synchronized to mobile or cloud by this feature.
 - Help and skill-authoring interfaces.
 - Desktop lifecycle/restart handling and structured, redacted diagnostics.
@@ -41,6 +42,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 
 ### 5. Scheduling and automation
 - Create and inspect scheduled jobs from the desktop assistant; interval recurrence accepts integer minutes from 1 through 525,600 and rejects coercive or out-of-range values.
+- Declarative personal-automation catalog: recurring news, career, learning, lifestyle, local-discovery, shopping, email and family workflows are described with cadence, profile prerequisites and connector requirements. All catalog entries default to disabled; a workflow is not enableable until its real handler, required profile data and integrations are present. Catalog metadata alone does not run jobs or imply an account is connected.
 - The scheduler engine also exposes a calendar recurrence API for daily, selected-weekday weekly, and selected-day monthly jobs using IANA timezone names; interval jobs remain backward compatible. Calendar occurrences are stored as offset-aware ISO-8601 instants. A nonexistent DST wall time shifts forward to the first valid local minute; a repeated fall-back time uses the earlier occurrence (fold=0). Monthly dates absent from a month (for example, day 31 in February) are skipped rather than clamped.
 - Recover malformed recurrence metadata by disabling the affected job for manual review instead of silently coercing its interval. Mobile schedule entries retain the full ISO-8601 timestamp and explicit UTC offset.
 - Persist job state and recover eligible work after restart.
@@ -85,7 +87,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 ## Repository layout
 
 - `main.py`, `ui/` — Windows desktop application and operational viewers.
-- `agent/` — conversation orchestration, planner/executor, policy, verification, undo, memory, history, scheduler, skills and LLM client.
+- `agent/` — conversation orchestration, planner/executor, policy, verification, undo, memory, history, scheduler, personal automation catalog, skills and LLM client.
 - `tools/`, `plugins/` — built-in tools and manifest-verified plugin tools.
 - `audio/` — microphone capture, Faster-Whisper speech-to-text and pyttsx3 text-to-speech.
 - `mobile_api/` — local FastAPI/WebSocket bridge.
@@ -163,7 +165,7 @@ By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. 
 ## Tests
 
 ```powershell
-python -m pytest -q tests/test_security_reliability_regressions.py tests/test_user_profile.py tests/test_mobile_device_identity.py tests/test_mobile_rbac.py tests/test_mobile_approval_routing.py tests/test_scheduler_reliability.py tests/test_scheduler_ui_state.py tests/test_scheduled_execution_ledger.py tests/test_scheduled_tool_idempotency.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_keyring.py tests/test_data_protection_v2.py tests/test_key_migration.py tests/test_key_migration_cli.py tests/test_key_rotation.py tests/test_key_recovery.py tests/test_key_retirement.py tests/test_scheduled_write_undo_safety.py tests/test_backup_manager.py tests/test_privacy_manager.py tests/test_observability.py
+python -m pytest -q tests/test_security_reliability_regressions.py tests/test_user_profile.py tests/test_automation_catalog.py tests/test_mobile_device_identity.py tests/test_mobile_rbac.py tests/test_mobile_approval_routing.py tests/test_scheduler_reliability.py tests/test_scheduler_ui_state.py tests/test_scheduled_execution_ledger.py tests/test_scheduled_tool_idempotency.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_keyring.py tests/test_data_protection_v2.py tests/test_key_migration.py tests/test_key_migration_cli.py tests/test_key_rotation.py tests/test_key_recovery.py tests/test_key_retirement.py tests/test_scheduled_write_undo_safety.py tests/test_backup_manager.py tests/test_privacy_manager.py tests/test_observability.py
 python tests/phase0_smoke_tests.py
 ```
 
