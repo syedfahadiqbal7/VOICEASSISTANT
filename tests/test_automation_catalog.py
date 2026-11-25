@@ -49,7 +49,7 @@ def _profile():
 
 def test_catalog_has_unique_stable_ids_and_all_entries_start_disabled():
     ids = [item.id for item in AUTOMATION_CATALOG]
-    assert len(ids) == 32
+    assert len(ids) == 34
     assert len(ids) == len(set(ids))
     assert set(ids) == set(AUTOMATION_BY_ID)
     assert all(item.default_enabled is False for item in AUTOMATION_CATALOG)
@@ -135,3 +135,13 @@ def test_readiness_rejects_unknown_automation():
             profile=_profile(),
             master_enabled=True,
         )
+
+def test_inbox_delivery_return_and_renewal_checks_are_separate_workflows():
+    delivery = get_automation("daily_package_tracking")
+    returns = get_automation("return_deadline_reminders")
+    renewals = get_automation("renewal_reminders")
+    assert delivery.required_integrations == ("email", "carrier_tracking")
+    assert returns.required_integrations == ("email",)
+    assert renewals.required_integrations == ("email",)
+    family = get_automation("sunday_family_tasks")
+    assert "deadlines, replies" in family.description
