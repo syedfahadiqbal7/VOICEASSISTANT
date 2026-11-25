@@ -27,6 +27,13 @@ Use WebRTC DataChannels between the Windows desktop and Flutter mobile app, with
 - WebRTC DataChannels are encrypted with DTLS by the protocol; TURN forwards encrypted packets and cannot read channel contents.
 - Keep the current WebSocket transport as a separate direct path during rollout; do not replace it until parity and recovery tests pass.
 
+### ICE connectivity policy
+
+- Default `all` policy: let the maintained WebRTC ICE implementation try direct host/server-reflexive paths first and use TURN when direct connectivity fails. This is standards-based ICE connectivity, not custom application NAT traversal.
+- Optional `relay-only` policy: send relay candidates only and force all peer traffic through TURN. This hides endpoint host/server-reflexive candidates from the peer but increases TURN bandwidth, latency and operating cost.
+- The owner or organization must be able to select `relay-only` where peer-to-peer address disclosure is unacceptable. Do not silently change this policy or downgrade from a required relay-only session.
+- No custom UDP hole-punching code is to be written; all candidate gathering, connectivity checks and consent freshness are delegated to the selected WebRTC implementation.
+
 ## 4. Trust boundaries and security invariants
 
 1. **No relay authority:** the relay cannot approve plans, authorize tools, elevate roles, mint device credentials, or decide whether an action is safe.
@@ -141,7 +148,7 @@ Use maintained WebRTC implementations and the standards-defined DTLS/SCTP DataCh
 
 - No public inbound desktop port or router port forwarding.
 - No generic VPN replacement or arbitrary TCP tunnel.
-- No peer-to-peer UDP hole punching.
+- No custom application-level UDP hole-punching implementation outside the standards-based WebRTC ICE stack.
 - No command queueing while desktop is offline.
 - No cloud execution, cloud conversation storage or relay-side AI processing.
 - No change to desktop RBAC, approval policy or execution engine.
