@@ -276,6 +276,25 @@ class WebSocketService extends ChangeNotifier {
               credentials["device_token"] is! String) {
             throw const FormatException("Desktop returned invalid device credentials");
           }
+          // Acknowledge receipt before connecting. If this response is lost,
+          // retrying the acknowledgement is safe and idempotent.
+          Map<String, dynamic>? completion;
+          for (var attempt = 0; attempt < 3; attempt++) {
+            try {
+              completion = await _postPairingJson(
+                client,
+                endpoint.replace(path: "/pairing/complete"),
+                {"session_id": sessionId, "secret": secret},
+              );
+              break;
+            } catch (_) {
+              if (attempt == 2 || !DateTime.now().isBefore(expiresAt)) rethrow;
+              await Future.delayed(const Duration(seconds: 1));
+            }
+          }
+          if (completion?["status"] != "completed") {
+            throw StateError("Desktop did not confirm credential receipt");
+          }
           final socketEndpoint = endpoint.replace(scheme: "wss", path: "/ws");
           isPairing = false;
           notifyListeners();
