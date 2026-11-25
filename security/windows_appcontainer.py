@@ -412,6 +412,15 @@ def run_appcontainer_command(
                 kernel32.TerminateJobObject(job_handle, 127)
                 kernel32.WaitForSingleObject(process_info.hProcess, 5000)
                 raise OSError("AppContainer writable workspace exceeded its size/file limit")
+        # Check once more after process exit so a very fast final write cannot
+        # escape the polling interval immediately before termination.
+        if monitored_directory is not None and _workspace_exceeds_limits(
+            Path(monitored_directory),
+            max_bytes=max_workspace_bytes,
+            max_files=max_workspace_files,
+            max_file_bytes=max_workspace_file_bytes,
+        ):
+            raise OSError("AppContainer writable workspace exceeded its size/file limit")
         exit_code = wintypes.DWORD()
         if not kernel32.GetExitCodeProcess(process_info.hProcess, ctypes.byref(exit_code)):
             raise OSError(ctypes.get_last_error(), "GetExitCodeProcess failed")
