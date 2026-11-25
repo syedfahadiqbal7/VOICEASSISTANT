@@ -479,7 +479,7 @@ def test_running_job_without_history_is_failed_closed(tmp_path, monkeypatch):
     recovered = restarted.list_jobs()[0]
     assert recovered["status"] == "failed"
     assert recovered["enabled"] is False
-    assert "uncertain" in recovered["last_error"].lower()
+    assert "cannot be verified" in recovered["last_error"].lower()
 
 def test_interrupted_success_reconciles_recurring_job_without_replay(tmp_path, monkeypatch):
     scheduler, _ = _scheduler(tmp_path, monkeypatch)
