@@ -201,18 +201,32 @@ class PairingCoordinator:
             item = self._get_session(session_id, secret)
             state = item["state"]
             if state == "approved":
-                if item["result_consumed"]:
-                    raise PairingError("Pairing credentials have already been delivered")
-                result = {"status": "approved", "credentials": dict(item["credentials"])}
-                item["result_consumed"] = True
-                self._sessions.pop(str(session_id).strip().lower(), None)
-                return result
+                # Re-deliver to the same challenge holder until the client
+                # acknowledges receipt. This avoids orphaning credentials if
+                # the HTTP response is lost in transit.
+                return {"status": "approved", "credentials": dict(item["credentials"] or {})}
+            if state == "completed":
+                return {"status": "completed"}
             if state == "denied":
                 self._sessions.pop(str(session_id).strip().lower(), None)
                 return {"status": "denied"}
             if state == "pending_approval":
                 return {"status": "pending_approval"}
             return {"status": "waiting"}
+
+    def complete_result(self, session_id: str, secret: str) -> bool:
+        """Acknowledge credential receipt; repeated acknowledgements are idempotent."""
+        with self._lock:
+            self._purge_expired()
+            item = self._get_session(session_id, secret)
+            if item["state"] == "completed":
+                return True
+            if item["state"] != "approved" or not item.get("credentials"):
+                raise PairingError("Pairing credentials are not ready to acknowledge")
+            item["result_consumed"] = True
+            item["credentials"] = None
+            item["state"] = "completed"
+            return True
 
     def cancel(self, session_id: str) -> bool:
         identifier = str(session_id or "").strip().lower()
