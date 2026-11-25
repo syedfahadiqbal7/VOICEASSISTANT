@@ -16,10 +16,12 @@ class TLSCertificateError(RuntimeError):
 
 def _dns_name_matches(host: str, pattern: str) -> bool:
     host = host.encode("idna").decode("ascii").lower().rstrip(".")
-    pattern = pattern.encode("idna").decode("ascii").lower().rstrip(".")
+    pattern = pattern.lower().rstrip(".")
     if pattern.startswith("*."):
-        suffix = pattern[1:]
-        return host.endswith(suffix) and host.count(".") == pattern.count(".")
+        # Encode only the DNS suffix; the wildcard character is not an IDNA label.
+        suffix = pattern[2:].encode("idna").decode("ascii").lower()
+        return host.endswith("." + suffix) and host.count(".") == suffix.count(".") + 1
+    pattern = pattern.encode("idna").decode("ascii").lower()
     return host == pattern
 
 
