@@ -6,6 +6,7 @@ Port 8765 pe chalega.
 
 import asyncio
 import hmac
+import ipaddress
 import logging
 import os
 import threading
@@ -273,6 +274,19 @@ def _validate_job_id(data: dict) -> str:
     return job_id.strip()
 
 
+def _trusted_proxy_ips_from_env() -> str:
+    raw = os.environ.get("VOICEASSISTANT_TRUSTED_PROXY_IPS", "127.0.0.1,::1")
+    values = [item.strip() for item in raw.split(",") if item.strip()]
+    if not values or "*" in values:
+        raise RuntimeError("VOICEASSISTANT_TRUSTED_PROXY_IPS must contain explicit proxy IPs/CIDRs; wildcard is forbidden")
+    for value in values:
+        try:
+            ipaddress.ip_network(value, strict=False)
+        except ValueError as error:
+            raise RuntimeError(f"Invalid trusted proxy IP/CIDR: {value}") from error
+    return ",".join(values)
+
+
 def _tls_options_from_env() -> dict:
     certfile = os.environ.get("VOICEASSISTANT_TLS_CERTFILE", "").strip()
     keyfile = os.environ.get("VOICEASSISTANT_TLS_KEYFILE", "").strip()
@@ -522,6 +536,7 @@ def start_server(host: str = "127.0.0.1", port: int = 8765):
     bridge.set_event_loop(loop)
 
     tls_options = _tls_options_from_env()
+    trusted_proxy_ips = _trusted_proxy_ips_from_env()
     config = uvicorn.Config(
         app,
         host=host,
@@ -532,6 +547,8 @@ def start_server(host: str = "127.0.0.1", port: int = 8765):
         ws_ping_interval=20,
         ws_ping_timeout=20,
         timeout_graceful_shutdown=2,
+        proxy_headers=True,
+        forwarded_allow_ips=trusted_proxy_ips,
         **tls_options,
     )
     server = uvicorn.Server(config)
