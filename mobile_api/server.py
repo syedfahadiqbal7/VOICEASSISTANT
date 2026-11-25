@@ -6,6 +6,7 @@ Port 8765 pe chalega.
 
 import asyncio
 import hmac
+import ipaddress
 import logging
 import os
 import threading
@@ -19,6 +20,7 @@ from mobile_api.device_registry import registry as mobile_devices
 from mobile_api.authorization import is_allowed
 from mobile_api.rate_limiter import DeviceRateLimiter
 from mobile_api.pairing import PairingCoordinator, PairingError
+from mobile_api.tls_config import TLSCertificateError, validate_tls_certificate
 
 logger = logging.getLogger("voiceassistant.mobile_api")
 _server_lock = threading.Lock()
@@ -272,15 +274,54 @@ def _validate_job_id(data: dict) -> str:
     return job_id.strip()
 
 
+def _trusted_proxy_ips_from_env() -> str:
+    raw = os.environ.get("VOICEASSISTANT_TRUSTED_PROXY_IPS", "127.0.0.1,::1")
+    values = [item.strip() for item in raw.split(",") if item.strip()]
+    if not values or "*" in values:
+        raise RuntimeError("VOICEASSISTANT_TRUSTED_PROXY_IPS must contain explicit proxy IPs/CIDRs; wildcard is forbidden")
+    for value in values:
+        try:
+            network = ipaddress.ip_network(value, strict=False)
+        except ValueError as error:
+            raise RuntimeError(f"Invalid VOICEASSISTANT_TRUSTED_PROXY_IPS entry: {value}") from error
+        if network.prefixlen == 0:
+            raise RuntimeError("VOICEASSISTANT_TRUSTED_PROXY_IPS cannot contain a world-wide network")
+    return ",".join(values)
+
+
 def _tls_options_from_env() -> dict:
     certfile = os.environ.get("VOICEASSISTANT_TLS_CERTFILE", "").strip()
     keyfile = os.environ.get("VOICEASSISTANT_TLS_KEYFILE", "").strip()
+    public_url = os.environ.get("VOICEASSISTANT_MOBILE_PUBLIC_URL", "").strip()
     if bool(certfile) != bool(keyfile):
         raise RuntimeError("Configure both VOICEASSISTANT_TLS_CERTFILE and VOICEASSISTANT_TLS_KEYFILE")
     if not certfile:
+        if public_url:
+            logger.info(
+                "Mobile public HTTPS URL is configured; TLS must terminate at the trusted reverse proxy",
+                extra={"event": "mobile.tls_upstream_termination"},
+            )
         return {}
-    if not Path(certfile).is_file() or not Path(keyfile).is_file():
-        raise RuntimeError("Configured TLS certificate or private key file does not exist")
+    try:
+        metadata = validate_tls_certificate(
+            certfile,
+            keyfile,
+            public_url=public_url or None,
+        )
+    except TLSCertificateError as error:
+        raise RuntimeError(f"Mobile TLS preflight failed: {error}") from error
+    if metadata["renewal_warning"]:
+        logger.warning(
+            "Mobile API TLS certificate expires in %.1f days",
+            metadata["days_remaining"],
+            extra={"event": "mobile.tls_certificate_renewal_due"},
+        )
+    else:
+        logger.info(
+            "Mobile API TLS certificate validated; %.1f days remain",
+            metadata["days_remaining"],
+            extra={"event": "mobile.tls_certificate_validated"},
+        )
     return {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
 
 
@@ -497,6 +538,7 @@ def start_server(host: str = "127.0.0.1", port: int = 8765):
     bridge.set_event_loop(loop)
 
     tls_options = _tls_options_from_env()
+    trusted_proxy_ips = _trusted_proxy_ips_from_env()
     config = uvicorn.Config(
         app,
         host=host,
@@ -507,6 +549,8 @@ def start_server(host: str = "127.0.0.1", port: int = 8765):
         ws_ping_interval=20,
         ws_ping_timeout=20,
         timeout_graceful_shutdown=2,
+        proxy_headers=True,
+        forwarded_allow_ips=trusted_proxy_ips,
         **tls_options,
     )
     server = uvicorn.Server(config)
