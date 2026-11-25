@@ -2,7 +2,7 @@
 
 The QR contains a random one-time challenge, never a device credential. Device
 credentials are minted only after explicit desktop approval and are delivered
-once to the phone that proves possession of the challenge.
+to the phone that proves possession of the challenge; the phone acknowledges receipt before the session is completed.
 """
 from __future__ import annotations
 
