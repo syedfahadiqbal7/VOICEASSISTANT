@@ -9,11 +9,15 @@ plugins that remain on the default same-user worker.
 from __future__ import annotations
 
 import ctypes
+import logging
 import os
 import subprocess
+import time
 import uuid
 from ctypes import wintypes
 from pathlib import Path
+
+logger = logging.getLogger("voiceassistant.appcontainer")
 
 
 class AppContainerUnavailable(RuntimeError):
@@ -157,15 +161,63 @@ def _grant_acl(path: Path, sid_text: str, permission: str) -> None:
         raise AppContainerUnavailable("icacls could not grant temporary AppContainer access")
 
 
-def _remove_acl(path: Path, sid_text: str) -> None:
+def _remove_acl(path: Path, sid_text: str) -> bool:
+    """Best-effort ACL cleanup that never prevents later profile/temp cleanup."""
+    target = Path(path)
+    if not target.exists():
+        return True
     icacls = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "icacls.exe"
-    subprocess.run(
-        [str(icacls), str(path), "/remove:g", f"*{sid_text}"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=10,
-        check=False,
+    for attempt in range(2):
+        try:
+            result = subprocess.run(
+                [str(icacls), str(target), "/remove:g", f"*{sid_text}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+                check=False,
+            )
+            if result.returncode == 0:
+                return True
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        if attempt == 0:
+            time.sleep(0.1)
+    logger.error(
+        "Could not remove temporary AppContainer ACL",
+        extra={"event": "appcontainer.acl_cleanup_failed", "path": str(target)},
     )
+    return False
+
+
+def _workspace_exceeds_limits(
+    directory: Path,
+    *,
+    max_bytes: int,
+    max_files: int,
+    max_file_bytes: int,
+) -> bool:
+    """Bound AppContainer-writable workspace bytes and file count.
+
+    The worker workspace is deliberately flat. Unexpected directories, links,
+    unreadable entries or missing workspace paths fail closed.
+    """
+    total_bytes = 0
+    file_count = 0
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                file_count += 1
+                if file_count > max_files or not entry.is_file(follow_symlinks=False):
+                    return True
+                size = entry.stat(follow_symlinks=False).st_size
+                if size < 0 or size > max_file_bytes:
+                    return True
+                total_bytes += size
+                if total_bytes > max_bytes:
+                    return True
+    except OSError:
+        return True
+    return False
 
 
 class _IO_COUNTERS(ctypes.Structure):
@@ -210,9 +262,9 @@ def _assign_bounded_job(kernel32, process_handle):
         raise OSError(ctypes.get_last_error(), "CreateJobObjectW failed")
     limits = _JOB_EXTENDED_LIMIT()
     limits.BasicLimitInformation.LimitFlags = 0x00000008 | 0x00000100 | 0x00000200 | 0x00002000
-    limits.BasicLimitInformation.ActiveProcessLimit = 16
-    limits.ProcessMemoryLimit = 2 * 1024 * 1024 * 1024
-    limits.JobMemoryLimit = 3 * 1024 * 1024 * 1024
+    limits.BasicLimitInformation.ActiveProcessLimit = 8
+    limits.ProcessMemoryLimit = 512 * 1024 * 1024
+    limits.JobMemoryLimit = 1024 * 1024 * 1024
     if not kernel32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
         error = ctypes.get_last_error()
         kernel32.CloseHandle(job)
@@ -231,6 +283,10 @@ def run_appcontainer_command(
     timeout_seconds: int = 15,
     appcontainer_sid=None,
     environment: dict[str, str] | None = None,
+    monitored_directory: Path | None = None,
+    max_workspace_bytes: int = 2 * 1024 * 1024,
+    max_workspace_files: int = 3,
+    max_workspace_file_bytes: int = 1024 * 1024,
 ) -> int:
     """Run one process in a no-capability AppContainer; return its exit code.
 
@@ -238,6 +294,8 @@ def run_appcontainer_command(
     access to the executable and any required input/output paths. This helper does
     not automatically broaden ACLs on application or user data directories.
     """
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 120:
+        raise ValueError("timeout_seconds must be an integer from 1 to 120")
     kernel32, userenv, advapi32 = _windows_apis()
     profile_name = profile_name or ("VoiceAssistant.Probe." + uuid.uuid4().hex)
     owns_profile = appcontainer_sid is None
@@ -329,17 +387,31 @@ def run_appcontainer_command(
         if resume_result == 0xFFFFFFFF:
             raise OSError(ctypes.get_last_error(), "ResumeThread failed")
 
-        wait_result = kernel32.WaitForSingleObject(
-            process_info.hProcess, max(1, int(timeout_seconds)) * 1000,
-        )
-        if wait_result == 0x00000102:  # WAIT_TIMEOUT
-            kernel32.TerminateJobObject(job_handle, 124)
-            kernel32.WaitForSingleObject(process_info.hProcess, 5000)
-            raise TimeoutError("AppContainer process timed out")
-        if wait_result != 0:
-            kernel32.TerminateJobObject(job_handle, 125)
-            kernel32.WaitForSingleObject(process_info.hProcess, 5000)
-            raise OSError(ctypes.get_last_error(), "WaitForSingleObject failed")
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                kernel32.TerminateJobObject(job_handle, 124)
+                kernel32.WaitForSingleObject(process_info.hProcess, 5000)
+                raise TimeoutError("AppContainer process timed out")
+            wait_result = kernel32.WaitForSingleObject(
+                process_info.hProcess, min(50, max(1, int(remaining * 1000))),
+            )
+            if wait_result == 0:
+                break
+            if wait_result != 0x00000102:  # WAIT_TIMEOUT
+                kernel32.TerminateJobObject(job_handle, 125)
+                kernel32.WaitForSingleObject(process_info.hProcess, 5000)
+                raise OSError(ctypes.get_last_error(), "WaitForSingleObject failed")
+            if monitored_directory is not None and _workspace_exceeds_limits(
+                Path(monitored_directory),
+                max_bytes=max_workspace_bytes,
+                max_files=max_workspace_files,
+                max_file_bytes=max_workspace_file_bytes,
+            ):
+                kernel32.TerminateJobObject(job_handle, 127)
+                kernel32.WaitForSingleObject(process_info.hProcess, 5000)
+                raise OSError("AppContainer writable workspace exceeded its size/file limit")
         exit_code = wintypes.DWORD()
         if not kernel32.GetExitCodeProcess(process_info.hProcess, ctypes.byref(exit_code)):
             raise OSError(ctypes.get_last_error(), "GetExitCodeProcess failed")
