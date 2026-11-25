@@ -283,7 +283,7 @@ def _trusted_proxy_ips_from_env() -> str:
         try:
             network = ipaddress.ip_network(value, strict=False)
         except ValueError as error:
-            raise RuntimeError(f"Invalid trusted proxy IP/CIDR: {value}") from error
+            raise RuntimeError(f"Invalid VOICEASSISTANT_TRUSTED_PROXY_IPS entry: {value}") from error
         if network.prefixlen == 0:
             raise RuntimeError("VOICEASSISTANT_TRUSTED_PROXY_IPS cannot contain a world-wide network")
     return ",".join(values)
