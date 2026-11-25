@@ -19,7 +19,7 @@ PR #46 has been merged into `main` (merge commit `88990d296ad0e7e59b0df96531f1d7
 |---|---|---|---|
 | 0.1–0.3 | Security baseline | Complete for scoped source controls | Ongoing threat-model review |
 | 1 | Reliability and recovery | Implemented and regression-tested | Full real-desktop end-to-end validation |
-| 2 | Plugin and integration hardening | Manifest, permissions, installer, crash-contained worker, broker and opt-in AppContainer pilot implemented | JSON formatter is the first AppContainer plugin; other plugins remain same-user workers; broader broker capabilities, publisher signing and independent review remain outstanding |
+| 2 | Plugin and integration hardening | Manifest, permissions, installer, crash-contained worker, broker and opt-in AppContainer pilot implemented | JSON formatter and no-permission hello example are the current AppContainer plugins; other plugins remain same-user workers; broader broker capabilities, publisher signing and independent review remain outstanding |
 | 3 | Persistence and privacy | Encrypted stores, backup/restore and opt-in retention implemented | No secure erasure or in-app privacy dashboard |
 | 4 | Mobile companion | Flutter app, API, identity, RBAC and approval routing implemented; CI builds | Physical-device, real LAN and signed distribution testing |
 | 5 | Desktop UI/UX and lifecycle | Source-level hardening implemented | Interactive Windows GUI, audio and Ollama runtime validation |
@@ -526,7 +526,7 @@ This addendum supersedes earlier pending-state notes where the corresponding wor
 
 1. **Windows desktop acceptance:** GUI layout, profile editor interaction, microphone/STT/TTS, Ollama lifecycle, Windows process/tool integrations and shutdown behavior still require testing on the target Windows machine.
 2. **Physical mobile acceptance:** Android/iOS pairing, secure-storage behavior, reconnect, approval routing, microphone permissions and real LAN/WSS behavior require physical-device tests.
-3. **Plugin isolation:** the default worker remains same-user crash containment, while the JSON formatter is explicitly AppContainer-isolated. Manifest, permission, archive and checksum checks alone do not provide an OS sandbox or verified publisher identity.
+3. **Plugin isolation:** the default worker remains same-user crash containment, while the JSON formatter and no-permission hello example are explicitly AppContainer-isolated. Manifest, permission, archive and checksum checks alone do not provide an OS sandbox or verified publisher identity.
 4. **Network security lifecycle:** use VPN or TLS/WSS for remote access. Certificate provisioning/rotation, certificate pinning and per-device client certificates are not implemented.
 5. **Release signing:** Android CI artifacts remain debug-signed; iOS CI builds remain unsigned. Production distribution requires protected Android signing and Apple signing/provisioning plus a Windows installer/signing and rollback plan.
 6. **Scheduler guarantees:** built-in scheduled fast-path tools use a durable at-most-once invocation guard, but arbitrary callbacks/reminders remain at-least-once. External side-effecting integrations must enforce their own idempotency keys.
@@ -572,7 +572,7 @@ Implement and test the host-owned capability broker, then implement Windows rest
 - Added a Windows AppContainer runner with no network capabilities, scoped ACL grants for the Python runtime/staged plugin/private IPC directory, bounded file IPC, timeout and Job Object process/resource limits.
 - Added a package-SID ACL named-pipe transport and host-owned per-invocation capability broker. The broker currently exposes policy-approved filesystem reads only; unsupported operations remain default-deny.
 - Routed plugin metadata discovery and every invocation through AppContainer when the verified manifest declares `execution_sandbox: appcontainer`. Failure never falls back to the same-user worker.
-- Marked `json_formatter.py` as the first opted-in plugin. All other plugins retain the default same-user crash-contained worker until separately reviewed and migrated.
+- Marked `json_formatter.py` and `example_hello_tool.py` as reviewed no-permission AppContainer plugins. All other plugins retain the default same-user crash-contained worker until separately reviewed and migrated.
 - The AppContainer runner rejects unsupported imports, native/dynamic APIs, undeclared capabilities and permissions outside the current broker contract. Python starts with `-I -S`; the trusted worker clears inherited environment variables before importing plugin code.
 - Added regressions for manifest generation/validation, dynamic-import detection, no-fallback behavior, AppContainer metadata discovery and real plugin execution.
 
