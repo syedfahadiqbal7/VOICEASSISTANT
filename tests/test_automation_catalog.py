@@ -60,7 +60,7 @@ def test_catalog_lookup_and_category_filter_are_stable():
     assert get_automation("job_search_mon_thu").weekdays == (0, 3)
     assert get_automation("saturday_home_task").weekdays == (5,)
     assert get_automation("sunday_family_tasks").weekdays == (6,)
-    assert len(list_automations("Career")) == 2
+    assert len(list_automations("Career")) == 3
     assert get_automation("unknown") is None
 
 
