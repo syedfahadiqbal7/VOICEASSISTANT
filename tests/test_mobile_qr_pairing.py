@@ -87,7 +87,7 @@ def test_pairing_credentials_can_be_delivered_only_once():
     assert coordinator.approve(request_id) is True
 
     assert coordinator.poll_result(session_id, secret)["status"] == "approved"
-    with pytest.raises(PairingError, match="already delivered"):
+    with pytest.raises(PairingError, match="Invalid or expired pairing session"):
         coordinator.poll_result(session_id, secret)
 
 
@@ -161,3 +161,42 @@ def test_desktop_can_cancel_pairing_session():
     assert coordinator.cancel(session_id) is False
     with pytest.raises(PairingError):
         coordinator.submit_request(session_id, secret, "Phone")
+
+
+
+def test_pairing_admin_routes_reject_remote_and_browser_origin_requests():
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from mobile_api.server import _require_loopback
+
+    local_request = SimpleNamespace(
+        client=SimpleNamespace(host="127.0.0.1"),
+        headers={},
+    )
+    _require_loopback(local_request)
+
+    remote_request = SimpleNamespace(
+        client=SimpleNamespace(host="192.0.2.25"),
+        headers={},
+    )
+    with pytest.raises(HTTPException) as remote_error:
+        _require_loopback(remote_request)
+    assert remote_error.value.status_code == 403
+
+    browser_request = SimpleNamespace(
+        client=SimpleNamespace(host="127.0.0.1"),
+        headers={"origin": "https://attacker.example"},
+    )
+    with pytest.raises(HTTPException) as browser_error:
+        _require_loopback(browser_request)
+    assert browser_error.value.status_code == 403
+
+
+def test_pairing_rejects_non_string_endpoint_and_device_name():
+    coordinator = PairingCoordinator(FakeRegistry())
+    with pytest.raises(PairingError, match="endpoint must be a URL string"):
+        coordinator.create_session(["https://assistant.example.com"])
+
+    session_id, secret = _session(coordinator)
+    with pytest.raises(PairingError, match="Device name must be text"):
+        coordinator.submit_request(session_id, secret, {"name": "phone"})
