@@ -13,7 +13,6 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, Set
-from zoneinfo import ZoneInfo
 
 from config import BASE_DIR
 from agent.data_protection import DataProtectionError
@@ -112,7 +111,7 @@ class IntegrationConnectionStore:
 
     def __init__(self, path: Optional[Path | str] = None):
         self.path = Path(path or INTEGRATION_FILE)
-        if self.path.is_symlink():
+        if self.path.parent.is_symlink() or self.path.is_symlink():
             raise DataProtectionError("Integration store path must not be a symbolic link")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
@@ -185,7 +184,9 @@ class IntegrationConnectionStore:
             connected_at = record.get("connected_at")
             if not isinstance(connected_at, str) or not connected_at:
                 raise ValueError("connected_at is invalid")
-            datetime.fromisoformat(connected_at.replace("Z", "+00:00"))
+            connected_dt = datetime.fromisoformat(connected_at.replace("Z", "+00:00"))
+            if connected_dt.tzinfo is None:
+                raise ValueError("connected_at must include an explicit timezone")
         except (TypeError, ValueError, OverflowError) as error:
             raise IntegrationStoreError("Integration timestamps are invalid") from error
         return dict(record)
@@ -202,9 +203,11 @@ class IntegrationConnectionStore:
         provider = str(provider or "").strip().lower()
         if provider not in _PROVIDER_SCOPES:
             raise ValueError("Provider must be google or microsoft")
+        if not isinstance(scopes, list) or not all(isinstance(scope, str) for scope in scopes):
+            raise ValueError("Scopes must be a list of strings")
         record = {
             "account_email": str(account_email or "").strip(),
-            "scopes": sorted(set(scopes)) if isinstance(scopes, list) else scopes,
+            "scopes": sorted(set(scopes)),
             "access_token": access_token,
             "refresh_token": refresh_token,
             "expires_at": expires_at,
