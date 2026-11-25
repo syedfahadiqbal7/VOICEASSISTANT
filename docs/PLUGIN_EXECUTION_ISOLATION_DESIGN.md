@@ -17,7 +17,7 @@ The current plugin pipeline performs useful package-level checks:
 
 These controls protect package integrity and reduce accidental privilege, but they do not make every plugin safe. The default `execution_sandbox: worker` mode imports and executes plugin code in a one-shot child process with the desktop user's OS privileges; this is crash containment, not a security sandbox.
 
-An opt-in Windows AppContainer path is now implemented for plugins whose verified manifest sets `execution_sandbox: appcontainer`. Both metadata discovery and each invocation use a no-network AppContainer process, scoped ACL grants and a package-SID ACL named-pipe broker. The JSON formatter is the first opted-in plugin. The pilot currently supports only standard-library plus staged `tools` imports and policy-approved `filesystem:read`; unsupported capabilities fail closed without falling back to the same-user worker.
+An opt-in Windows AppContainer path is now implemented for plugins whose verified manifest sets `execution_sandbox: appcontainer`. Both metadata discovery and each invocation use a no-network AppContainer process, scoped ACL grants and a package-SID ACL named-pipe broker. The JSON formatter is the first opted-in plugin. The pilot currently supports only standard-library plus staged `tools` imports and policy-approved `filesystem:read`; unsupported capabilities fail closed without falling back to the same-user worker. AppContainer workers now run under a 512 MiB per-process / 1 GiB per-job memory ceiling, an eight-process Job Object limit, a 1–120 second bounded timeout, and a monitored flat IPC workspace limited to three files and 1 MiB per file. The worker directory is read/execute only; write access is granted only to pre-created response IPC files.
 
 **Decision:** Describe only explicitly opted-in plugins as AppContainer-isolated. Continue treating every default-worker plugin as trusted code. The pilot is not blanket sandboxing or independent security certification; publisher signing, broader capability migration, target-machine validation and independent review remain outstanding.
 
@@ -118,7 +118,7 @@ Required controls before calling the worker sandboxed:
 - Safe DLL/Python import search paths and no writable import directory preceding trusted runtime libraries.
 - Worker startup handshake confirms the expected protocol, plugin identity and content digest before tool calls are accepted.
 
-The AppContainer pilot has passed Windows CI integration checks for filesystem denial, loopback denial, Python startup, SID-ACL named-pipe IPC, plugin metadata discovery and plugin execution. This proves the tested CI image path, not every Windows 10/11 edition or the user's target machine. If AppContainer setup cannot be established for a selected plugin, that plugin must fail closed and must not fall back to the same-user worker.
+The AppContainer pilot has passed Windows CI integration checks for filesystem denial, loopback denial, Python startup, SID-ACL named-pipe IPC, plugin metadata discovery and plugin execution. The resource watchdog samples the private IPC workspace every 50 ms and terminates the Job Object when byte/file bounds are exceeded. This is a bounded workspace watchdog, not an NTFS volume quota; full-volume and AppContainer profile-storage exhaustion still require target-machine validation. This proves the tested CI image path, not every Windows 10/11 edition or the user's target machine. If AppContainer setup cannot be established for a selected plugin, that plugin must fail closed and must not fall back to the same-user worker.
 
 ### Other platforms
 
@@ -233,3 +233,14 @@ PR #46 wires the existing AppContainer runner into the verified plugin manifest 
 
 **Remaining gates:** independent security review, target Windows machine validation, resource/disk-exhaustion controls, cleanup verification, publisher signing, and migration of additional plugin dependencies/capabilities. This remains a narrow opt-in pilot, not authorization for untrusted third-party plugins.
 
+
+
+## 11. AppContainer resource and cleanup hardening (2026-11-25)
+
+- Reduced the Job Object ceilings to 512 MiB per process, 1 GiB per job and eight active processes. Wall-clock timeout is strictly validated from 1 to 120 seconds.
+- The AppContainer can traverse/read the private work directory but cannot create arbitrary files there. The host pre-creates the request, response and response-temporary IPC files and grants write access only to the latter two.
+- A 50 ms watchdog samples the flat IPC workspace, rejecting more than three files, any file over 1 MiB or aggregate usage over 2 MiB. Overshoot between samples is possible; this is not a hard filesystem quota.
+- Source files are rejected above 5 MiB before reading/staging. Response size is checked from file metadata before loading it into host memory.
+- ACL removal retries and reports failures. Broker shutdown, each ACL removal, profile deletion, SID release and workspace deletion are isolated so one cleanup failure does not skip subsequent cleanup.
+- Static plugin inventory now distinguishes read-only `open(..., "r")` from write/append/update modes and treats dynamic open modes conservatively as read+write.
+- Remaining gate: validate ACL cleanup and disk-pressure behavior on supported Windows 10/11 target builds, including forced termination and cleanup failure injection. A watchdog does not replace independent Windows security review.
