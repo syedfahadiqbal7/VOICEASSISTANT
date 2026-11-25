@@ -188,3 +188,27 @@ def test_invalid_warning_window_is_rejected(tmp_path):
 
     with pytest.raises(TLSCertificateError, match="warning_days"):
         validate_tls_certificate(cert, key, now=now, warning_days=0)
+
+
+
+def test_trusted_proxy_ip_configuration_accepts_explicit_addresses_and_networks(monkeypatch):
+    from mobile_api.server import _trusted_proxy_ips_from_env
+
+    monkeypatch.setenv("VOICEASSISTANT_TRUSTED_PROXY_IPS", "127.0.0.1,10.20.0.0/24")
+    assert _trusted_proxy_ips_from_env() == "127.0.0.1,10.20.0.0/24"
+
+
+@pytest.mark.parametrize("value", ["*", "0.0.0.0/0", "not-an-ip", ""])
+def test_trusted_proxy_ip_configuration_rejects_wildcard_or_invalid_values(monkeypatch, value):
+    from mobile_api.server import _trusted_proxy_ips_from_env
+
+    monkeypatch.setenv("VOICEASSISTANT_TRUSTED_PROXY_IPS", value)
+    with pytest.raises(RuntimeError, match="TRUSTED_PROXY_IPS"):
+        _trusted_proxy_ips_from_env()
+
+
+def test_trusted_proxy_ip_configuration_defaults_to_loopback_only(monkeypatch):
+    from mobile_api.server import _trusted_proxy_ips_from_env
+
+    monkeypatch.delenv("VOICEASSISTANT_TRUSTED_PROXY_IPS", raising=False)
+    assert _trusted_proxy_ips_from_env() == "127.0.0.1,::1"
