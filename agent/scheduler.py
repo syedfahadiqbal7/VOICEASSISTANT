@@ -140,6 +140,8 @@ class JobScheduler:
                         # scheduler checkpoint so the completed occurrence is not replayed.
                         job["last_run"] = interrupted.get("finished_at") or _now().isoformat()
                         job["attempts"] = 0
+                        job["last_error"] = None
+                        job["execution_waiting"] = False
                         job.pop("started_at", None)
                         repeat_rule = job.get("repeat")
                         interval = (repeat_rule or {}).get("every_minutes") if isinstance(repeat_rule, dict) else None
@@ -182,7 +184,13 @@ class JobScheduler:
                         job["status"] = "failed"
                         job["enabled"] = False
                         job["execution_waiting"] = False
-                        job["last_error"] = "Interrupted execution outcome is uncertain; automatic replay blocked. Review execution history before rescheduling."
+                        job["last_error"] = (
+                            f"Interrupted execution has recorded outcome {history_status!r}; "
+                            "automatic replay blocked. Review execution history before rescheduling."
+                            if history_status else
+                            "Interrupted execution outcome cannot be verified; automatic replay blocked. "
+                            "Review execution history before rescheduling."
+                        )
                         job.pop("started_at", None)
                 if job["status"] not in {"pending", "running", "completed", "failed", "cancelled"}:
                     job["status"] = "failed"
