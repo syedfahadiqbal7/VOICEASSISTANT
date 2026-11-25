@@ -169,7 +169,27 @@ Canonical serialization and signature algorithm selection must be documented and
 - A malicious signaling/TURN test harness cannot read DataChannel application payloads or alter a session undetected.
 - Direct LAN/VPN WebSocket behavior and existing approval/RBAC regression suites remain unchanged.
 
-## 11. Implementation gate
+## 12. Repository-specific identity-key storage findings
+
+The repository's existing storage primitives were inspected against the current default branch before proposing an identity-key implementation:
+
+- `agent.storage.atomic_write_json(..., encrypt=True)` and `load_json(..., encrypt=True)` provide authenticated encrypted persistence and atomic replacement. The encryption context is the destination filename, so the identity store must use a stable, dedicated filename and must not be renamed without an explicit migration.
+- `agent.data_protection` writes VAENC1 with the existing data key unless an operator has explicitly bootstrapped the protected keyring; when a keyring exists, new writes use VAENC2 with its active data-encryption key. Therefore, do not describe every identity-store write as VAENC2 or assume keyring bootstrap has occurred.
+- On Windows, the legacy data key is protected using the current user's DPAPI profile. A profile reset, machine migration or restore under a different Windows account can make the store unavailable unless the documented key recovery process is followed.
+- The existing keyring preserves the legacy VAENC1 key and supports active/retained keys, but it is a data-encryption-key management facility. It is not a signing-key lifecycle manager and does not itself define identity-key export, backup, rotation, pin migration or recovery semantics.
+
+### Required implementation constraints
+
+1. Store the desktop signing private key in a dedicated, versioned identity record using the existing encrypted persistence only after its recovery behavior is explicitly tested. Never put it in the device registry, QR payload, environment variables or logs.
+2. Keep identity signing keys cryptographically separate from every AES data-encryption key. The encrypted storage layer may protect the private-key bytes at rest, but must not derive or reuse the signing key from the storage key.
+3. Make first-time identity creation an explicit owner action. Normal startup must not silently generate a replacement identity when the existing identity record is missing, unreadable or fails authentication; show a recovery/re-pair-required state instead.
+4. Define whether desktop identity is machine-bound or portable before enabling backup/restore. A restored identity must either preserve the original key through a controlled protected backup or force every mobile device to explicitly re-pin a newly generated desktop identity. Never silently rotate the identity on restore.
+5. Add fault-injection tests for interrupted writes, corrupt ciphertext, wrong DPAPI profile, missing keyring, keyring rotation, backup/restore and filename/context changes. Existing direct WebSocket authentication must continue to work if the remote identity store is unavailable.
+6. Keep mobile private-key storage separate from bearer-token storage and verify platform backup/restore policy on Android and iOS; secure-storage plugin defaults alone are not proof that keys are excluded from cloud/device backups.
+
+These findings refine the earlier desktop identity proposal: reuse the repository's authenticated encrypted persistence as a storage mechanism, but do not treat the existing data key/keyring as an identity system. The identity lifecycle and recovery contract remain a hard gate before registry v2 or production WebRTC implementation.
+
+## 13. Implementation gate
 
 Do not implement production remote WebRTC access until:
 - The desktop/mobile identity lifecycle and schema migration are approved.
