@@ -59,8 +59,10 @@ _AUTOMATIONS = (
     AutomationDefinition("competitor_monitoring", "Competitor monitoring", "Business intelligence", "Monitor selected competitors for material product, pricing and company changes.", "weekly", required_integrations=("web_research",)),
     AutomationDefinition("weekly_application_updates", "Weekly job application updates", "Career", "Review saved applications and report status changes and follow-ups.", "weekly", required_integrations=("job_tracker",)),
     AutomationDefinition("weekly_deadlines_prep", "Weekly deadlines and preparation", "Email & productivity", "Review upcoming deadlines and summarize preparation needed.", "weekly", any_integration_groups=(("calendar", "email"),)),
-    AutomationDefinition("daily_package_tracking", "Daily package tracking", "Email & productivity", "Check saved shipment tracking details and report delivery changes.", "daily", required_integrations=("carrier_tracking",)),
-    AutomationDefinition("sunday_family_tasks", "Sunday family to-do list", "Home & family", "Prepare a weekly family task list from user-maintained tasks.", "weekly", weekdays=(6,), required_integrations=("family_tasks",)),
+    AutomationDefinition("daily_package_tracking", "Daily package delivery updates", "Email & productivity", "Check the inbox daily for package delivery updates and shipment status changes.", "daily", required_integrations=("email", "carrier_tracking")),
+    AutomationDefinition("return_deadline_reminders", "Return deadline reminders", "Email & productivity", "Check the inbox daily for return deadlines and remind before the return window closes.", "daily", required_integrations=("email",)),
+    AutomationDefinition("renewal_reminders", "Renewal reminders", "Email & productivity", "Check the inbox daily for upcoming renewals and surface the renewal date and terms.", "daily", required_integrations=("email",)),
+    AutomationDefinition("sunday_family_tasks", "Sunday family to-do list", "Home & family", "Gather deadlines, replies and family to-dos into one list every Sunday.", "weekly", weekdays=(6,), required_integrations=("family_tasks",), any_integration_groups=(("calendar", "email"),)),
     AutomationDefinition("daily_inbox_offers", "Daily inbox offers and coupon checks", "Money & shopping", "Find inbox offers, estimate savings and surface expiry dates and catches.", "daily", required_integrations=("email",)),
 )
 
