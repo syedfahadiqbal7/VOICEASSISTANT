@@ -152,3 +152,5 @@ def test_desktop_catalog_cadence_labels_match_schedule_rules():
     assert AutomationCatalogViewer._cadence(get_automation("job_search_mon_thu")) == "Weekly (Mon, Thu)"
     assert AutomationCatalogViewer._cadence(get_automation("sunday_family_tasks")) == "Weekly (Sun)"
     assert AutomationCatalogViewer._cadence(get_automation("birthday_gift_planning")) == "Event-driven (30 days before)"
+    requirements = AutomationCatalogViewer._requirements(get_automation("daily_package_tracking"))
+    assert "email" in requirements and "carrier_tracking" in requirements
