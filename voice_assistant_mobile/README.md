@@ -34,7 +34,7 @@ The desktop can display a one-time QR code for a phone to scan:
 5. Click **Pair Mobile** in the desktop app, scan the QR using the mobile app's QR button, enter a device name, and approve the request on the desktop.
 6. The mobile app receives a one-time device credential after approval and stores it in secure storage.
 
-The QR contains only a short-lived challenge, never a permanent device token. Pairing requires a trusted HTTPS certificate. Direct unencrypted LAN pairing is deliberately not supported by the QR flow.
+The QR contains only a short-lived challenge, never a permanent device token. After desktop approval, the phone securely stores the unique device credential and acknowledges receipt over HTTPS before connecting. Pairing requires a trusted HTTPS certificate. Direct unencrypted LAN pairing is deliberately not supported by the QR flow.
 
 ## Current scope
 
