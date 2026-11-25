@@ -51,5 +51,23 @@ void main() {
     service.dispose();
   });
 
+  test('QR pairing rejects non-VoiceAssistant payloads before networking', () async {
+    final service = WebSocketService();
+    await expectLater(
+      service.pairFromQr('{}', deviceName: 'My phone'),
+      throwsFormatException,
+    );
+    service.dispose();
+  });
+
+  test('QR pairing rejects insecure HTTP endpoints', () async {
+    final service = WebSocketService();
+    const payload = '{"type":"voiceassistant_mobile_pairing","version":1,"endpoint":"http://desktop.example.com","session_id":"0123456789abcdef0123456789abcdef","secret":"01234567890123456789012345678901","expires_at":"2099-01-01T00:00:00+00:00"}';
+    await expectLater(
+      service.pairFromQr(payload, deviceName: 'My phone'),
+      throwsFormatException,
+    );
+    service.dispose();
+  });
 }
 
