@@ -373,10 +373,8 @@ def test_mobile_tls_configuration_requires_a_matching_certificate_and_key(tmp_pa
         _tls_options_from_env()
 
     monkeypatch.setenv("VOICEASSISTANT_TLS_KEYFILE", str(key))
-    assert _tls_options_from_env() == {
-        "ssl_certfile": str(cert),
-        "ssl_keyfile": str(key),
-    }
+    with pytest.raises(RuntimeError, match="not a valid PEM X.509 certificate"):
+        _tls_options_from_env()
 
 
 def test_mobile_approval_disconnect_is_denied_when_desktop_fallback_is_absent():
