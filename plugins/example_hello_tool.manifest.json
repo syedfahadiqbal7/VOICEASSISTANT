@@ -8,5 +8,6 @@
     "say_hello"
   ],
   "permissions": [],
-  "checksum_sha256": "15713eec55b4cd9536c38f8dab15fe6400c17ac6fd4741842158ccda526c78ee"
+  "checksum_sha256": "15713eec55b4cd9536c38f8dab15fe6400c17ac6fd4741842158ccda526c78ee",
+  "execution_sandbox": "appcontainer"
 }
