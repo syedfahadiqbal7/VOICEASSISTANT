@@ -134,7 +134,7 @@ class PairingCoordinator:
         if not hmac.compare_digest(self._secret_hash(supplied), item["secret_hash"]):
             item["attempts"] += 1
             if item["attempts"] >= _MAX_ATTEMPTS:
-                self._sessions.pop(identifier, None)
+                self._discard_session(identifier, item)
             raise PairingError("Invalid or expired pairing session")
         return item
 
