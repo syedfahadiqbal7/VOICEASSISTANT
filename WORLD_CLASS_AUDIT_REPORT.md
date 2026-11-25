@@ -578,7 +578,7 @@ Implement and test the host-owned capability broker, then implement Windows rest
 
 **CI verification before merge:** [run #45399119080](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45399119080) — **344 Python tests passed**, **16 Phase 0 smoke checks passed**, Flutter analysis/tests passed, Android APK build passed and unsigned iOS build passed. PR #46 was subsequently merged; post-merge validation is recorded in [run #45414269392](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45414269392).
 
-**Remaining gaps:** this is not blanket sandboxing. Additional plugins need dependency/capability migration; disk-exhaustion controls and ACL/profile cleanup verification need further hardening; publisher signatures and independent security review are outstanding. Validate on the target Windows machine before production use.
+**Remaining gaps:** this is not blanket sandboxing. Additional plugins need dependency/capability migration; a bounded AppContainer IPC workspace watchdog and best-effort ACL/profile cleanup logging are now implemented; this is not a hard NTFS volume quota and target-machine disk-pressure/ACL cleanup verification remains outstanding. Publisher signatures and independent security review are also outstanding. Validate on the target Windows machine before production use.
 
 
 
