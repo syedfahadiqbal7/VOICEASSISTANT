@@ -410,7 +410,14 @@ class AgenticVoiceAssistant(ctk.CTk):
                 approve_button.configure(state="disabled")
                 deny_button.configure(state="disabled")
                 return
-            if not active_request["decided"]:
+            if active_request["decided"]:
+                state = pairing_coordinator.session_state(session_id)
+                if state == "completed":
+                    status.configure(text="Device enrolled successfully. You can close this window.")
+                    return
+                if state == "denied":
+                    return
+            else:
                 requests = pairing_coordinator.pending_requests()
                 match = next((item for item in requests if item["session_id"] == session_id), None)
                 if match and active_request["id"] is None:
