@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/websocket_service.dart';
 import '../services/speech_service.dart';
 import 'schedules_screen.dart';
+import 'qr_pairing_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -119,6 +120,17 @@ class _HomeScreenState extends State<HomeScreen> {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
+          IconButton(
+            tooltip: "Scan desktop pairing QR",
+            onPressed: ws.isPairing
+                ? null
+                : () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const QrPairingScreen()),
+                    );
+                  },
+            icon: const Icon(Icons.qr_code_scanner),
+          ),
           IconButton(
             tooltip: "Schedules",
             onPressed: () {

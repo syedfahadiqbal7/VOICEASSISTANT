@@ -52,14 +52,14 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Scheduler delivery for reminders and arbitrary handlers remains at-least-once, not exactly-once. The built-in tool ledger prevents automatic replay of a successful or ambiguous tool invocation, but cannot prove whether an external effect completed if the process crashes in the effect/checkpoint window; that job is failed closed for manual reconciliation. Other integrations must durably enforce `execution_id` at their own side-effect boundary.
 
 ### 6. Flutter mobile companion
-- Connect to the running desktop over the local WebSocket API.
+- Connect to the running desktop over the WebSocket API through trusted LAN, VPN or TLS-protected remote endpoints.
 - View conversation transcripts, assistant speech/status events and synchronized plan checklists.
 - Submit text and voice input where platform speech permissions/capabilities are available.
 - View scheduled jobs, refresh schedule state and inspect recent execution history.
 - Save connection settings using platform secure storage and optionally restore a saved connection.
-- Pair individual devices with unique credentials; revoke devices and enforce server-side roles (admin, operator, approver, viewer).
+- Pair individual devices with unique credentials using a desktop-displayed, short-lived QR code and explicit desktop approval; revoke devices and enforce server-side roles (admin, operator, approver, viewer).
 - Route sensitive approval prompts to an authenticated admin/approver device, with desktop approval as fallback.
-- Supports secure WSS/TLS deployments; non-loopback cleartext WS requires an explicit warning/confirmation and is intended only for a trusted private LAN/VPN.
+- Supports secure WSS/TLS deployments; QR enrollment requires HTTPS and never embeds permanent credentials. Non-loopback cleartext WS requires an explicit warning/confirmation and is intended only for a trusted private LAN/VPN.
 
 ### 7. Privacy, data protection and recovery
 - Encrypt supported local runtime stores at rest with AES-256-GCM; protect the Windows data key with the current user's DPAPI profile or use the documented environment-key mode.
@@ -72,7 +72,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Redacted structured diagnostics and audit/policy controls support troubleshooting and accountability.
 
 ### 8. Current limitations to understand
-- The desktop application must be running for mobile connectivity and scheduled jobs; the mobile app does not independently execute desktop tools.
+- The desktop application must be running for mobile connectivity and scheduled jobs; the mobile app does not independently execute desktop tools. Cross-network connectivity still requires a trusted VPN or user-managed TLS reverse proxy; a hosted relay and automatic NAT traversal are not included.
 - AppContainer enforcement is currently a per-plugin Windows pilot, not a blanket sandbox for every plugin. Plugins without an explicit AppContainer manifest declaration still use the same-user crash-contained worker and retain the desktop user's OS permissions.
 - The AppContainer pilot currently supports a narrow low-dependency plugin set and policy-approved filesystem reads; remaining broker capabilities and plugin dependency migrations are not complete.
 - Windows GUI, microphone/speaker, Ollama lifecycle, physical Android/iOS behavior and real private-LAN/TLS deployment require target-environment validation.

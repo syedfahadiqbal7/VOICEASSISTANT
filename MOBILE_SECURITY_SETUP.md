@@ -106,3 +106,38 @@ GitHub Actions validates both the Android release variant and an unsigned iOS re
 ### Concurrent mobile connection limit
 
 The WebSocket server accepts at most five concurrent clients by default. Set `VOICEASSISTANT_MOBILE_MAX_CONNECTIONS` to an integer from 1 through 32 to adjust the ceiling. Capacity is reserved before awaiting the WebSocket handshake, preventing simultaneous connection attempts from exceeding the configured limit. Excess connections are rejected with a retry-later close code. This process-local capacity cap is independent of the per-device authentication registry.
+
+
+## Desktop-approved QR pairing (backend foundation)
+
+The pairing backend now supports a short-lived QR challenge lifecycle:
+
+1. The trusted desktop creates a pairing session through the loopback-only `POST /pairing/sessions` endpoint, supplying the public HTTPS API origin. The response contains a versioned QR payload with a random one-time challenge and a two-minute expiry by default.
+2. The mobile app submits the scanned challenge to `POST /pairing/request` with a user-visible device name.
+3. The desktop reads pending requests from loopback-only `GET /pairing/pending` and explicitly approves or denies the device through loopback-only `POST /pairing/approve` or `POST /pairing/deny`.
+4. On approval, the server creates a normal device-registry entry (operator by default). The phone polls `POST /pairing/result` and receives the device ID/token exactly once after proving possession of the QR challenge.
+5. The phone stores those credentials using its existing secure-storage path and connects using the normal authenticated WebSocket protocol.
+
+Security properties:
+- The QR never contains a long-lived device token.
+- QR challenges expire, are single-use, are rate-limited to five invalid attempts and are held only in memory; restarting the desktop invalidates them.
+- Pairing administration endpoints accept loopback clients only.
+- QR pairing cannot grant the `admin` role; owner-admin enrollment remains a trusted local operation.
+- The endpoint supplied in the QR must be a clean HTTPS origin with a trusted certificate. A public relay or NAT traversal service is not included in this backend phase.
+- This is the backend foundation only. The desktop QR display / approval UI and mobile camera scanner are separate integration steps and are not yet available in this phase.
+
+
+## Desktop-approved QR pairing
+
+The desktop and Flutter companion support a short-lived QR enrollment flow:
+
+1. Enroll the owner phone locally as an administrator once: `python mobile_device_cli.py add "Owner phone" --role admin`. QR pairing never grants the admin role.
+2. Configure `VOICEASSISTANT_MOBILE_HOST=0.0.0.0` only when you intentionally want a phone to reach the API. Restrict the Windows Firewall rule to the trusted LAN/VPN or reverse-proxy interface.
+3. Configure a trusted TLS certificate on the desktop API, or terminate TLS at a trusted reverse proxy. Set `VOICEASSISTANT_MOBILE_PUBLIC_URL=https://your-hostname` to the HTTPS origin reachable by the phone.
+4. For another network, connect through a trusted VPN or expose the HTTPS reverse-proxy endpoint through your chosen secure network. Do not port-forward the raw mobile API to the public internet.
+5. Click **Pair Mobile** on the desktop. Scan the QR from the mobile app, enter a device name and approve the request on the desktop.
+6. The phone receives a one-time device credential, stores it in secure storage and connects using the existing authenticated WSS protocol.
+
+The QR code expires after two minutes by default, permits one enrollment request, and contains no permanent device credential. Approved credentials are kept in memory and re-delivered only to the QR challenge holder until the phone acknowledges secure storage; the acknowledgement is idempotent. If receipt is never acknowledged, the provisional device is revoked when the session expires. If approval is abandoned before credentials are delivered, the provisional device is revoked. The QR flow requires a valid trusted HTTPS certificate; self-signed certificates that are not trusted by the phone will fail validation.
+
+**Not included:** a hosted internet relay, automatic NAT traversal, or a vendor-operated cloud service. A VPN or user-managed TLS reverse proxy is still required for cross-network reachability.

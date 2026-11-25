@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Voice Assistant uses the camera only when you choose to scan a desktop pairing QR code.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Voice Assistant uses the microphone when you tap the microphone button to dictate a command.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

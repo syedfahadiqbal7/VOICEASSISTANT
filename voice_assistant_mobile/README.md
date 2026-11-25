@@ -21,14 +21,21 @@ flutter test
 
 ## Connect to desktop
 
-1. Start the desktop Voice Assistant.
-2. By default, its mobile API listens only on `127.0.0.1`; this is local-only and cannot be reached from a phone.
-3. For a phone on a trusted private LAN, configure `VOICEASSISTANT_MOBILE_HOST=0.0.0.0` and a random `VOICEASSISTANT_MOBILE_TOKEN` of at least 32 characters on the desktop before launching it.
-4. Follow the root `MOBILE_SECURITY_SETUP.md` instructions, including Windows Firewall restrictions.
-5. Enter the desktop's LAN IP and the shared token in the app, then connect.
+For manual legacy setup, follow the root `MOBILE_SECURITY_SETUP.md` instructions. Do not expose port 8765 directly to the public internet.
 
-The shared token is sent in the WebSocket handshake header, not in the URL. Direct LAN mode uses `ws://`, so the token and traffic are not encrypted on the network. Use a trusted LAN only. For untrusted networks, place the desktop API behind a TLS reverse proxy and enter its `wss://host[:port]/ws` URL in the app; configure the proxy to forward `X-VoiceAssistant-Token` to the desktop upstream. A VPN is another option. Never forward port 8765 directly to the public internet.
+### QR pairing
+
+The desktop can display a one-time QR code for a phone to scan:
+
+1. On the trusted desktop, enroll the owner device as an admin once using `python mobile_device_cli.py add "Owner phone" --role admin`. QR pairing cannot grant admin rights.
+2. Configure the desktop API to bind to the required interface using `VOICEASSISTANT_MOBILE_HOST=0.0.0.0`.
+3. Configure a trusted TLS certificate directly on the desktop or use a TLS-terminating reverse proxy. Set `VOICEASSISTANT_MOBILE_PUBLIC_URL=https://your-trusted-host` to the HTTPS origin reachable by the phone.
+4. For access from another network, make that HTTPS endpoint reachable through a trusted VPN or secure reverse proxy. A QR code does not itself traverse NAT or firewalls.
+5. Click **Pair Mobile** in the desktop app, scan the QR using the mobile app's QR button, enter a device name, and approve the request on the desktop.
+6. The mobile app receives a one-time device credential after approval and stores it in secure storage.
+
+The QR contains only a short-lived challenge, never a permanent device token. After desktop approval, the phone securely stores the unique device credential and acknowledges receipt over HTTPS before connecting. Pairing requires a trusted HTTPS certificate. Direct unencrypted LAN pairing is deliberately not supported by the QR flow.
 
 ## Current scope
 
-The mobile app supports chat, speech-to-text input, live transcript, security approval, session state, undo availability and schedule viewing/cancellation. It does not independently execute desktop tools; all actions are processed by the desktop agent.
+The mobile app supports chat, speech-to-text input, live transcript, security approval, session state, undo availability and schedule viewing/cancellation. It does not independently execute desktop tools; all actions are processed by the desktop agent. QR enrollment uses trusted HTTPS and explicit desktop approval. Cross-network reachability still requires a VPN or user-managed TLS reverse proxy; there is no built-in hosted relay.

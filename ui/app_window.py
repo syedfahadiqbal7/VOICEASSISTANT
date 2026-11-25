@@ -26,7 +26,7 @@ from ui.diff_viewer import DiffViewer
 from ui.audit_viewer import AuditLogViewer
 from ui.help_window import HelpWindow
 from mobile_api.bridge import bridge
-from mobile_api.server import start_server, stop_server
+from mobile_api.server import start_server, stop_server, pairing_coordinator
 from ui.scheduler_viewer import open_scheduler_viewer
 from ui.undo_viewer import open_undo_viewer
 from ui.policy_viewer import open_policy_viewer
@@ -158,6 +158,7 @@ class AgenticVoiceAssistant(ctk.CTk):
         self.restart_btn = _tb("Restart", "#922B21", "#7B241C", self._restart_app, 80)
         self.stop_speak_btn = _tb("Stop Speaking", "#B9770E", "#9A7D0A", self._stop_speaking, 110)
         self.stop_activity_btn = _tb("Stop Activity", "#C0392B", "#922B21", self._stop_activity, 110)
+        self.mobile_pair_btn = _tb("Pair Mobile", "#117A65", "#0E6655", self._show_mobile_pairing, 100)
 
         # Transcript card
         self.main_card = ctk.CTkFrame(self, fg_color=("white", "#1B2838"), corner_radius=12)
@@ -304,6 +305,130 @@ class AgenticVoiceAssistant(ctk.CTk):
             except Exception:
                 self._ui_poll_id = None
 
+    def _show_mobile_pairing(self):
+        """Display a one-time QR code and require explicit desktop approval."""
+        import json
+        import os
+        from datetime import datetime, timezone
+
+        endpoint = os.environ.get("VOICEASSISTANT_MOBILE_PUBLIC_URL", "").strip()
+        if not endpoint:
+            messagebox.showerror(
+                "Mobile pairing is not configured",
+                "Set VOICEASSISTANT_MOBILE_PUBLIC_URL to the HTTPS address your phone can reach. Use a trusted TLS certificate and a VPN or secure reverse proxy for remote networks.",
+                parent=self,
+            )
+            return
+
+        try:
+            import qrcode
+            payload = pairing_coordinator.create_session(endpoint)
+            qr_bitmap = qrcode.make(json.dumps(payload, separators=(",", ":"))).get_image()
+        except Exception as error:
+            logger.exception("Could not create mobile pairing QR", extra={"event": "mobile.pairing_qr_failed"})
+            messagebox.showerror("Could not create pairing QR", str(error), parent=self)
+            return
+
+        window = ctk.CTkToplevel(self)
+        window.title("Connect a mobile device")
+        window.geometry("540x600")
+        window.resizable(False, False)
+        window.transient(self)
+        window.grab_set()
+
+        heading = ctk.CTkLabel(window, text="Scan with VoiceAssistant Mobile", font=ctk.CTkFont(size=19, weight="bold"))
+        heading.pack(padx=20, pady=(18, 6))
+        qr_image = ctk.CTkImage(light_image=qr_bitmap, dark_image=qr_bitmap, size=(300, 300))
+        image_label = ctk.CTkLabel(window, text="", image=qr_image)
+        image_label.image = qr_image
+        image_label.pack(padx=20, pady=8)
+        status = ctk.CTkLabel(window, text="Waiting for a phone to scan this code...", wraplength=470, justify="center")
+        status.pack(padx=20, pady=8)
+
+        request_frame = ctk.CTkFrame(window, fg_color="transparent")
+        request_frame.pack(fill="x", padx=20, pady=8)
+        approve_button = ctk.CTkButton(request_frame, text="Approve device", state="disabled", fg_color="#1E8449", hover_color="#196F3D")
+        approve_button.pack(side="left", expand=True, fill="x", padx=(0, 6))
+        deny_button = ctk.CTkButton(request_frame, text="Deny", state="disabled", fg_color="#922B21", hover_color="#7B241C")
+        deny_button.pack(side="left", expand=True, fill="x", padx=(6, 0))
+
+        expiry = datetime.fromisoformat(payload["expires_at"]).astimezone(timezone.utc).timestamp()
+        session_id = payload["session_id"]
+        active_request = {"id": None, "decided": False, "closed": False}
+
+        def approve():
+            request_id = active_request["id"]
+            if not request_id or active_request["decided"]:
+                return
+            try:
+                if pairing_coordinator.approve(request_id, role="operator"):
+                    active_request["decided"] = True
+                    approve_button.configure(state="disabled")
+                    deny_button.configure(state="disabled")
+                    status.configure(text="Approved. Waiting for the phone to receive its one-time credentials...")
+                else:
+                    status.configure(text="This request expired. Close this window and create a new QR.")
+            except Exception as error:
+                logger.exception("Mobile pairing approval failed", extra={"event": "mobile.pairing_approval_failed"})
+                status.configure(text="Approval failed: " + str(error))
+
+        def deny():
+            request_id = active_request["id"]
+            if not request_id or active_request["decided"]:
+                return
+            pairing_coordinator.deny(request_id)
+            active_request["decided"] = True
+            approve_button.configure(state="disabled")
+            deny_button.configure(state="disabled")
+            status.configure(text="Pairing request denied.")
+
+        approve_button.configure(command=approve)
+        deny_button.configure(command=deny)
+
+        def close():
+            if active_request["closed"]:
+                return
+            active_request["closed"] = True
+            try:
+                pairing_coordinator.cancel(session_id)
+            except Exception:
+                logger.exception("Mobile pairing cancellation failed", extra={"event": "mobile.pairing_cancel_failed"})
+            try:
+                window.grab_release()
+                window.destroy()
+            except Exception:
+                pass
+
+        window.protocol("WM_DELETE_WINDOW", close)
+
+        def poll():
+            if active_request["closed"] or not window.winfo_exists():
+                return
+            if datetime.now(timezone.utc).timestamp() >= expiry:
+                pairing_coordinator.cancel(session_id)
+                status.configure(text="QR code expired. Close this window and generate a new one.")
+                approve_button.configure(state="disabled")
+                deny_button.configure(state="disabled")
+                return
+            if active_request["decided"]:
+                state = pairing_coordinator.session_state(session_id)
+                if state == "completed":
+                    status.configure(text="Device enrolled successfully. You can close this window.")
+                    return
+                if state == "denied":
+                    return
+            else:
+                requests = pairing_coordinator.pending_requests()
+                match = next((item for item in requests if item["session_id"] == session_id), None)
+                if match and active_request["id"] is None:
+                    active_request["id"] = match["request_id"]
+                    status.configure(text=match["device_name"] + " wants to connect. Approve only if you recognize this device.")
+                    approve_button.configure(state="normal")
+                    deny_button.configure(state="normal")
+            window.after(1000, poll)
+
+        self.update_transcript("[Mobile] A short-lived QR pairing code was created. The phone will not be enrolled until you approve it here.")
+        poll()
     def _run_mobile_server(self):
         try:
             start_server(host=self.mobile_host, port=8765)

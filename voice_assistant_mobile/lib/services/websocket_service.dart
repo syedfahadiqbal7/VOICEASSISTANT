@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -24,6 +25,7 @@ class WebSocketService extends ChangeNotifier {
 
   bool isConnected = false;
   bool isConnecting = false;
+  bool isPairing = false;
   bool hasSavedConnection = false;
   String statusMessage = "Disconnected";
   String statusColor = "#E74C3C";
@@ -163,6 +165,183 @@ class WebSocketService extends ChangeNotifier {
       debugPrint("Secure connection settings delete failed: $error");
     }
     notifyListeners();
+  }
+
+
+  static Uri _validatePairingEndpoint(dynamic value) {
+    if (value is! String || value.length > 2048) {
+      throw const FormatException("Invalid QR pairing endpoint");
+    }
+    final endpoint = Uri.tryParse(value);
+    if (endpoint == null ||
+        endpoint.scheme != "https" ||
+        endpoint.host.isEmpty ||
+        endpoint.userInfo.isNotEmpty ||
+        endpoint.hasQuery ||
+        endpoint.hasFragment ||
+        (endpoint.path.isNotEmpty && endpoint.path != "/")) {
+      throw const FormatException("QR pairing requires a trusted HTTPS endpoint");
+    }
+    return endpoint;
+  }
+
+  static Future<Map<String, dynamic>> _postPairingJson(
+    HttpClient client,
+    Uri endpoint,
+    Map<String, dynamic> payload,
+  ) async {
+    final request = await client.postUrl(endpoint).timeout(const Duration(seconds: 5));
+    request.followRedirects = false;
+    request.headers.contentType = ContentType.json;
+    request.add(utf8.encode(jsonEncode(payload)));
+    final response = await request.close().timeout(const Duration(seconds: 5));
+    final bytes = await response.fold<List<int>>(<int>[], (buffer, chunk) {
+      if (buffer.length + chunk.length > 16384) {
+        throw const FormatException("Pairing server response is too large");
+      }
+      buffer.addAll(chunk);
+      return buffer;
+    }).timeout(const Duration(seconds: 5));
+    final decoded = jsonDecode(utf8.decode(bytes));
+    if (decoded is! Map) {
+      throw const FormatException("Invalid pairing server response");
+    }
+    final result = Map<String, dynamic>.from(decoded);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError(result["detail"]?.toString() ?? "Pairing request was rejected");
+    }
+    return result;
+  }
+
+  Future<void> pairFromQr(String rawPayload, {required String deviceName}) async {
+    if (isPairing) return;
+    if (deviceName.trim().isEmpty || deviceName.trim().length > 80) {
+      throw ArgumentError("Enter a device name between 1 and 80 characters");
+    }
+
+    final decoded = jsonDecode(rawPayload);
+    if (decoded is! Map ||
+        decoded["type"] != "voiceassistant_mobile_pairing" ||
+        decoded["version"] != 1) {
+      throw const FormatException("This is not a VoiceAssistant pairing QR code");
+    }
+    final endpoint = _validatePairingEndpoint(decoded["endpoint"]);
+    final sessionId = decoded["session_id"];
+    final secret = decoded["secret"];
+    final expiresRaw = decoded["expires_at"];
+    if (sessionId is! String ||
+        !RegExp(r"^[0-9a-f]{32}$").hasMatch(sessionId) ||
+        secret is! String ||
+        secret.length < 32 ||
+        secret.length > 256 ||
+        expiresRaw is! String) {
+      throw const FormatException("QR pairing data is incomplete or invalid");
+    }
+    final expiresAt = DateTime.tryParse(expiresRaw);
+    if (expiresAt == null ||
+        !expiresAt.isAfter(DateTime.now()) ||
+        expiresAt.isAfter(DateTime.now().add(const Duration(minutes: 6)))) {
+      throw const FormatException("QR pairing code has expired or has an invalid lifetime");
+    }
+
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    isPairing = true;
+    statusMessage = "Requesting desktop approval...";
+    statusColor = "#F39C12";
+    lastError = null;
+    notifyListeners();
+    try {
+      final requestUri = endpoint.replace(path: "/pairing/request");
+      final resultUri = endpoint.replace(path: "/pairing/result");
+      await _postPairingJson(client, requestUri, {
+        "session_id": sessionId,
+        "secret": secret,
+        "device_name": deviceName.trim(),
+      });
+
+      while (DateTime.now().isBefore(expiresAt)) {
+        await Future.delayed(const Duration(seconds: 1));
+        final result = await _postPairingJson(client, resultUri, {
+          "session_id": sessionId,
+          "secret": secret,
+        });
+        final state = result["status"];
+        if (state == "denied") {
+          throw StateError("The desktop user denied this device pairing");
+        }
+        if (state == "approved") {
+          final credentials = result["credentials"];
+          if (credentials is! Map ||
+              credentials["device_id"] is! String ||
+              credentials["device_token"] is! String) {
+            throw const FormatException("Desktop returned invalid device credentials");
+          }
+          final socketEndpoint = endpoint.replace(scheme: "wss", path: "/ws");
+          final deviceId = credentials["device_id"] as String;
+          final deviceToken = credentials["device_token"] as String;
+
+          // Persist the received credential before acknowledging it. If the
+          // app is terminated immediately after the acknowledgement, the user
+          // can still reconnect without having to enroll a ghost device again.
+          await _secureStorage.write(key: "desktop_host", value: socketEndpoint.toString());
+          await _secureStorage.write(key: "mobile_token", value: deviceToken);
+          await _secureStorage.write(key: "mobile_device_id", value: deviceId);
+          await _secureStorage.write(key: "auto_connect", value: "false");
+          hasSavedConnection = true;
+          notifyListeners();
+
+          // Acknowledge receipt before connecting. If this response is lost,
+          // retrying the acknowledgement is safe and idempotent.
+          Map<String, dynamic>? completion;
+          for (var attempt = 0; attempt < 3; attempt++) {
+            try {
+              completion = await _postPairingJson(
+                client,
+                endpoint.replace(path: "/pairing/complete"),
+                {"session_id": sessionId, "secret": secret},
+              );
+              break;
+            } catch (_) {
+              if (attempt == 2 || !DateTime.now().isBefore(expiresAt)) rethrow;
+              await Future.delayed(const Duration(seconds: 1));
+            }
+          }
+          if (completion?["status"] != "completed") {
+            throw StateError("Desktop did not confirm credential receipt");
+          }
+          await _secureStorage.write(key: "auto_connect", value: "true");
+          isPairing = false;
+          notifyListeners();
+          connect(
+            socketEndpoint.toString(),
+            deviceId: deviceId,
+            token: deviceToken,
+          );
+          return;
+        }
+        if (state != "pending_approval" && state != "waiting") {
+          throw StateError("Unexpected pairing status from desktop");
+        }
+        statusMessage = state == "pending_approval"
+            ? "Waiting for approval on desktop..."
+            : "Waiting for phone request...";
+        notifyListeners();
+      }
+      throw StateError("Pairing code expired before desktop approval");
+    } catch (error) {
+      isPairing = false;
+      statusMessage = "Pairing failed";
+      statusColor = "#E74C3C";
+      lastError = error.toString();
+      notifyListeners();
+      rethrow;
+    } finally {
+      client.close(force: true);
+      if (isPairing) {
+        isPairing = false;
+        notifyListeners();
+      }
+    }
   }
 
   void connect(String host, {int port = 8765, String token = "", String deviceId = ""}) {
