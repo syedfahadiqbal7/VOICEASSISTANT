@@ -323,7 +323,7 @@ class AgenticVoiceAssistant(ctk.CTk):
         try:
             import qrcode
             payload = pairing_coordinator.create_session(endpoint)
-            qr_bitmap = qrcode.make(json.dumps(payload, separators=(",", ":")))
+            qr_bitmap = qrcode.make(json.dumps(payload, separators=(",", ":"))).get_image()
         except Exception as error:
             logger.exception("Could not create mobile pairing QR", extra={"event": "mobile.pairing_qr_failed"})
             messagebox.showerror("Could not create pairing QR", str(error), parent=self)
