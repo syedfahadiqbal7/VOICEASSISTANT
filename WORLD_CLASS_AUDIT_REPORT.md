@@ -578,7 +578,7 @@ Implement and test the host-owned capability broker, then implement Windows rest
 
 **CI verification before merge:** [run #45399119080](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45399119080) — **344 Python tests passed**, **16 Phase 0 smoke checks passed**, Flutter analysis/tests passed, Android APK build passed and unsigned iOS build passed. PR #46 was subsequently merged; post-merge validation is recorded in [run #45414269392](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45414269392).
 
-**Remaining gaps:** this is not blanket sandboxing. Additional plugins need dependency/capability migration; disk-exhaustion controls and ACL/profile cleanup verification need further hardening; publisher signatures and independent security review are outstanding. Validate on the target Windows machine before production use.
+**Remaining gaps:** this is not blanket sandboxing. Additional plugins need dependency/capability migration; a bounded AppContainer IPC workspace watchdog and best-effort ACL/profile cleanup logging are implemented; this is not a hard NTFS volume quota and target-machine disk-pressure/ACL cleanup verification remains outstanding. Publisher signatures and independent security review are also outstanding. Validate on the target Windows machine before production use.
 
 
 
@@ -592,3 +592,14 @@ Implement and test the host-owned capability broker, then implement Windows rest
 - Pairing administration endpoints are loopback-only and reject browser-originated requests. Mobile credential exchange endpoints require HTTPS; the QR contains no permanent device token.
 - Cross-network connectivity still requires a reachable trusted HTTPS/WSS endpoint supplied through a VPN, direct TLS or a user-managed TLS reverse proxy. QR scanning alone cannot traverse NAT/firewalls. A hosted relay and automatic NAT traversal remain unimplemented.
 - Recommended future architecture: retain direct LAN and user-managed VPN/WSS, and add an optional hosted or self-hosted relay using outbound authenticated TLS connections from both endpoints. Relay payloads should be end-to-end authenticated/encrypted where feasible, with no relay access to desktop authorization decisions or stored assistant data.
+
+
+## 11. AppContainer resource and cleanup hardening (2026-11-25)
+
+- Reduced the Job Object ceilings to 512 MiB per process, 1 GiB per job and eight active processes. Wall-clock timeout is strictly validated from 1 to 120 seconds.
+- The AppContainer writable workspace is a flat directory with non-inheritable directory modify access needed for Windows atomic response-file replacement; request/response files have explicit ACLs.
+- A 50 ms watchdog samples the private IPC workspace, rejecting more than three files, any file over 1 MiB or aggregate usage over 2 MiB. Overshoot between samples is possible; this is not a hard filesystem quota.
+- Source files are rejected above 5 MiB before staging. Response size is checked from file metadata before loading it into host memory.
+- ACL removal retries and reports failures. Broker shutdown, each ACL removal, profile deletion, SID release and workspace deletion are isolated so one cleanup failure does not skip subsequent cleanup.
+- Static plugin inventory distinguishes read-only `open(..., "r")` from write/append/update modes and treats dynamic open modes conservatively as read+write.
+- Remaining gate: validate ACL cleanup and disk-pressure behavior on supported Windows 10/11 target builds, including forced termination and cleanup failure injection. A watchdog does not replace independent Windows security review.
