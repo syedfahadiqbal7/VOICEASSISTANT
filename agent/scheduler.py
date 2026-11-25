@@ -173,6 +173,7 @@ class JobScheduler:
                         job["status"] = "pending"
                         job["enabled"] = True
                         job["execution_waiting"] = True
+                        job["attempts"] = max(0, int(job.get("attempts", 1)) - 1)
                         job["run_at"] = (_now() + timedelta(minutes=1)).isoformat()
                         job.pop("started_at", None)
                     else:
