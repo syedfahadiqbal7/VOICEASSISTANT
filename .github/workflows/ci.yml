@@ -1,5 +1,10 @@
 name: CI and Release
 
+# Keep only the newest validation run for a PR/branch; avoid stale queued builds.
+concurrency:
+  group: voiceassistant-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main]
