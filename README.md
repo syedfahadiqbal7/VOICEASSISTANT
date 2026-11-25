@@ -25,6 +25,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - CustomTkinter Windows desktop interface for conversations and agent interaction.
 - Operational viewers for audit events, policy, scheduler jobs, undo history and file diffs.
 - Encrypted local profile editor for interests, career targets, preferred locations, content tastes, language-learning level, lifestyle preferences, wardrobe items, favorite stores, product watchlists and birthday reminders.
+- Desktop Automation Catalog lists 34 requested recurring workflows with their cadence and setup requirements. It is read-only in this phase: no workflow is enabled or scheduled until its real integration and execution handler are implemented and validated.
 - Assistant profile context is opt-in and includes only selected general preferences; birthday dates store month/day only, and profile validation rejects secret-like values. Profile data is not synchronized to mobile or cloud by this feature.
 - Help and skill-authoring interfaces.
 - Desktop lifecycle/restart handling and structured, redacted diagnostics.
