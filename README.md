@@ -41,6 +41,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 
 ### 5. Scheduling and automation
 - Create and inspect scheduled jobs from the desktop assistant; interval recurrence accepts integer minutes from 1 through 525,600 and rejects coercive or out-of-range values.
+- Declarative personal-automation catalog: recurring news, career, learning, lifestyle, local-discovery, shopping, email and family workflows are described with cadence, profile prerequisites and connector requirements. All catalog entries default to disabled; a workflow is not enableable until its real handler, required profile data and integrations are present. Catalog metadata alone does not run jobs or imply an account is connected.
 - The scheduler engine also exposes a calendar recurrence API for daily, selected-weekday weekly, and selected-day monthly jobs using IANA timezone names; interval jobs remain backward compatible. Calendar occurrences are stored as offset-aware ISO-8601 instants. A nonexistent DST wall time shifts forward to the first valid local minute; a repeated fall-back time uses the earlier occurrence (fold=0). Monthly dates absent from a month (for example, day 31 in February) are skipped rather than clamped.
 - Recover malformed recurrence metadata by disabling the affected job for manual review instead of silently coercing its interval. Mobile schedule entries retain the full ISO-8601 timestamp and explicit UTC offset.
 - Persist job state and recover eligible work after restart.
@@ -85,7 +86,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 ## Repository layout
 
 - `main.py`, `ui/` — Windows desktop application and operational viewers.
-- `agent/` — conversation orchestration, planner/executor, policy, verification, undo, memory, history, scheduler, skills and LLM client.
+- `agent/` — conversation orchestration, planner/executor, policy, verification, undo, memory, history, scheduler, personal automation catalog, skills and LLM client.
 - `tools/`, `plugins/` — built-in tools and manifest-verified plugin tools.
 - `audio/` — microphone capture, Faster-Whisper speech-to-text and pyttsx3 text-to-speech.
 - `mobile_api/` — local FastAPI/WebSocket bridge.
