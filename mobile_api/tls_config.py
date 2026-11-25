@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import ipaddress
 import ssl
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
