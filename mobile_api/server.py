@@ -76,6 +76,14 @@ def _require_loopback(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Pairing administration is available only to the local desktop process")
 
 
+def _require_https_pairing_request(request: Request) -> None:
+    # The phone sends the one-time challenge and receives its device secret here.
+    # Refuse plaintext HTTP even if someone bypasses the QR scanner client.
+    if request.url.scheme.lower() != "https":
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="QR pairing requires HTTPS")
+
+
 @app.post("/pairing/sessions")
 async def create_pairing_session(request: Request):
     _require_loopback(request)
@@ -133,6 +141,7 @@ async def cancel_pairing_session(request: Request):
 
 @app.post("/pairing/request")
 async def submit_pairing_request(request: Request):
+    _require_https_pairing_request(request)
     try:
         data = await request.json()
         if not isinstance(data, dict):
@@ -148,6 +157,7 @@ async def submit_pairing_request(request: Request):
 
 @app.post("/pairing/result")
 async def get_pairing_result(request: Request):
+    _require_https_pairing_request(request)
     try:
         data = await request.json()
         if not isinstance(data, dict):
