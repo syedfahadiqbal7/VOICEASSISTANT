@@ -496,3 +496,19 @@ def test_interrupted_success_reconciles_recurring_job_without_replay(tmp_path, m
     assert recovered["execution_id"] != first_execution_id
     assert datetime.fromisoformat(recovered["run_at"]) > datetime.now()
 
+
+def test_deferred_execution_recovery_keeps_retry_budget_and_identity(tmp_path, monkeypatch):
+    scheduler, _ = _scheduler(tmp_path, monkeypatch)
+    job = scheduler.add_once("deferred task", datetime.now() - timedelta(seconds=1))
+    execution_id = job["execution_id"]
+    scheduler.history.record_started(job)
+    scheduler.history.record_outcome(execution_id, "deferred", "execution deferred")
+    scheduler.jobs[0]["status"] = "running"
+    scheduler.jobs[0]["attempts"] = 1
+    scheduler.save()
+    restarted = JobScheduler()
+    recovered = restarted.list_jobs()[0]
+    assert recovered["status"] == "pending"
+    assert recovered["execution_waiting"] is True
+    assert recovered["attempts"] == 0
+    assert recovered["execution_id"] == execution_id
