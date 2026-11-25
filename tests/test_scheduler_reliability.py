@@ -20,19 +20,21 @@ def _scheduler(tmp_path, monkeypatch, handler=None):
     return JobScheduler(on_job=handler), path
 
 
-def test_running_job_is_requeued_after_process_restart(tmp_path, monkeypatch):
+def test_running_job_with_started_history_is_failed_closed_after_restart(tmp_path, monkeypatch):
     scheduler, path = _scheduler(tmp_path, monkeypatch)
-    path.write_text(json.dumps([{
-        "id": "crashed-1", "prompt": "remind me", "run_at": datetime.now().isoformat(),
-        "repeat": None, "enabled": True, "status": "running", "attempts": 1,
-    }]), encoding="utf-8")
+    job = scheduler.add_once("remind me", datetime.now())
+    scheduler.history.record_started(job)
+    scheduler.jobs[0]["status"] = "running"
+    scheduler.save()
     restarted = JobScheduler()
-    job = restarted.list_jobs()[0]
-    assert job["status"] == "pending"
-    assert job["enabled"] is True
-    assert job["recovered_after_crash"] is True
+    recovered = restarted.list_jobs()[0]
+    assert recovered["status"] == "failed"
+    assert recovered["enabled"] is False
+    assert recovered["recovered_after_crash"] is True
+    assert "uncertain" in recovered["last_error"].lower()
+    assert restarted.history.list_records()[0]["status"] == "uncertain"
     from agent.storage import load_json
-    assert load_json(path, encrypt=True)[0]["status"] == "pending"
+    assert load_json(path, encrypt=True)[0]["status"] == "failed"
 
 
 def test_one_time_job_is_completed_only_after_handler_success(tmp_path, monkeypatch):
@@ -217,16 +219,20 @@ def test_retry_reuses_same_execution_id(tmp_path, monkeypatch):
     assert scheduler.list_jobs()[0]["execution_id"] == first_id
 
 
-def test_crash_recovery_preserves_running_execution_id(tmp_path, monkeypatch):
-    scheduler, path = _scheduler(tmp_path, monkeypatch)
-    job = scheduler.add_once("crash during handler", datetime.now() - timedelta(seconds=1))
+def test_crash_recovery_resumes_only_recorded_retryable_outcome(tmp_path, monkeypatch):
+    scheduler, _ = _scheduler(tmp_path, monkeypatch)
+    job = scheduler.add_once("retry after crash", datetime.now() - timedelta(seconds=1))
     execution_id = job["execution_id"]
+    scheduler.history.record_started(job)
+    scheduler.history.record_outcome(execution_id, "retrying", "retry scheduled")
     scheduler.jobs[0]["status"] = "running"
     scheduler.save()
     restarted = JobScheduler()
     recovered = restarted.list_jobs()[0]
     assert recovered["status"] == "pending"
+    assert recovered["enabled"] is True
     assert recovered["execution_id"] == execution_id
+    assert restarted.history.list_records()[0]["status"] == "retrying"
 
 
 def test_interval_success_rotates_execution_id_for_next_occurrence(tmp_path, monkeypatch):
@@ -463,3 +469,30 @@ def test_invalid_calendar_recurrence_is_disabled_during_recovery(tmp_path, monke
     assert stored["status"] == "failed"
     assert stored["enabled"] is False
     assert "invalid persisted recurrence" in stored["last_error"].lower()
+
+def test_running_job_without_history_is_failed_closed(tmp_path, monkeypatch):
+    scheduler, _ = _scheduler(tmp_path, monkeypatch)
+    job = scheduler.add_once("unknown execution", datetime.now() - timedelta(seconds=1))
+    scheduler.jobs[0]["status"] = "running"
+    scheduler.save()
+    restarted = JobScheduler()
+    recovered = restarted.list_jobs()[0]
+    assert recovered["status"] == "failed"
+    assert recovered["enabled"] is False
+    assert "uncertain" in recovered["last_error"].lower()
+
+def test_interrupted_success_reconciles_recurring_job_without_replay(tmp_path, monkeypatch):
+    scheduler, _ = _scheduler(tmp_path, monkeypatch)
+    job = scheduler.add_interval("recurring task", 10)
+    first_execution_id = job["execution_id"]
+    scheduler.history.record_started(job)
+    scheduler.history.record_outcome(first_execution_id, "succeeded", "handler succeeded")
+    scheduler.jobs[0]["status"] = "running"
+    scheduler.save()
+    restarted = JobScheduler()
+    recovered = restarted.list_jobs()[0]
+    assert recovered["status"] == "pending"
+    assert recovered["enabled"] is True
+    assert recovered["execution_id"] != first_execution_id
+    assert datetime.fromisoformat(recovered["run_at"]) > datetime.now()
+
