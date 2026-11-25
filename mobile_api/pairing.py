@@ -160,12 +160,13 @@ class PairingCoordinator:
             self._purge_expired()
             return [
                 {
+                    "session_id": session_id,
                     "request_id": item["request_id"],
                     "device_name": item["device_name"],
                     "created_state": item["state"],
                     "expires_at": item["expires_at_utc"],
                 }
-                for item in self._sessions.values()
+                for session_id, item in self._sessions.items()
                 if item["state"] == "pending_approval" and item["request_id"]
             ]
 
