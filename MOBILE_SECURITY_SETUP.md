@@ -138,6 +138,6 @@ The desktop and Flutter companion support a short-lived QR enrollment flow:
 5. Click **Pair Mobile** on the desktop. Scan the QR from the mobile app, enter a device name and approve the request on the desktop.
 6. The phone receives a one-time device credential, stores it in secure storage and connects using the existing authenticated WSS protocol.
 
-The QR code expires after two minutes by default, is single-use, and contains no permanent device credential. If approval is abandoned before credentials are delivered, the provisional device is revoked. The QR flow requires a valid trusted HTTPS certificate; self-signed certificates that are not trusted by the phone will fail validation.
+The QR code expires after two minutes by default, permits one enrollment request, and contains no permanent device credential. Approved credentials are kept in memory and re-delivered only to the QR challenge holder until the phone acknowledges secure storage; the acknowledgement is idempotent. If receipt is never acknowledged, the provisional device is revoked when the session expires. If approval is abandoned before credentials are delivered, the provisional device is revoked. The QR flow requires a valid trusted HTTPS certificate; self-signed certificates that are not trusted by the phone will fail validation.
 
 **Not included:** a hosted internet relay, automatic NAT traversal, or a vendor-operated cloud service. A VPN or user-managed TLS reverse proxy is still required for cross-network reachability.
