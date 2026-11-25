@@ -412,7 +412,7 @@ class AgenticVoiceAssistant(ctk.CTk):
                 return
             if not active_request["decided"]:
                 requests = pairing_coordinator.pending_requests()
-                match = next((item for item in requests if item["request_id"]), None)
+                match = next((item for item in requests if item["session_id"] == session_id), None)
                 if match and active_request["id"] is None:
                     active_request["id"] = match["request_id"]
                     status.configure(text=match["device_name"] + " wants to connect. Approve only if you recognize this device.")
