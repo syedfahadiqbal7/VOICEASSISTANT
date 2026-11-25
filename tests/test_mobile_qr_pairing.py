@@ -200,3 +200,39 @@ def test_pairing_rejects_non_string_endpoint_and_device_name():
     session_id, secret = _session(coordinator)
     with pytest.raises(PairingError, match="Device name must be text"):
         coordinator.submit_request(session_id, secret, {"name": "phone"})
+
+
+
+def test_approved_but_undelivered_device_is_revoked_when_desktop_cancels():
+    registry = FakeRegistry()
+    registry.revoked = []
+
+    def revoke(device_id):
+        registry.revoked.append(device_id)
+        return True
+
+    registry.revoke = revoke
+    coordinator = PairingCoordinator(registry)
+    session_id, secret = _session(coordinator)
+    coordinator.submit_request(session_id, secret, "Phone")
+    request_id = coordinator.pending_requests()[0]["request_id"]
+    assert coordinator.approve(request_id) is True
+
+    assert coordinator.cancel(session_id) is True
+    assert registry.revoked == [registry.created[0]["device_id"]]
+
+
+def test_approved_but_undelivered_device_is_revoked_when_session_expires():
+    now = [100.0]
+    registry = FakeRegistry()
+    registry.revoked = []
+    registry.revoke = lambda device_id: registry.revoked.append(device_id) or True
+    coordinator = PairingCoordinator(registry, clock=lambda: now[0])
+    session_id, secret = _session(coordinator)
+    coordinator.submit_request(session_id, secret, "Phone")
+    request_id = coordinator.pending_requests()[0]["request_id"]
+    assert coordinator.approve(request_id) is True
+
+    now[0] += 121
+    assert coordinator.pending_requests() == []
+    assert registry.revoked == [registry.created[0]["device_id"]]
