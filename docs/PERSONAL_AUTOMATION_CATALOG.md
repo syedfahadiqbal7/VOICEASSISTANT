@@ -46,8 +46,10 @@ This document describes the current declarative catalog in `agent/automation_cat
 | `competitor_monitoring` | Competitor monitoring | Weekly | Web research and selected competitors |
 | `weekly_application_updates` | Job application updates | Weekly | Job tracker |
 | `weekly_deadlines_prep` | Deadlines and preparation | Weekly | Calendar or email connector |
-| `daily_package_tracking` | Package tracking | Daily | Carrier tracking |
-| `sunday_family_tasks` | Family to-do list | Sunday | Family task source |
+| `daily_package_tracking` | Inbox delivery updates | Daily | Email and carrier tracking |
+| `return_deadline_reminders` | Return deadline reminders | Daily | Email connector |
+| `renewal_reminders` | Renewal reminders | Daily | Email connector |
+| `sunday_family_tasks` | Deadlines, replies and family to-dos | Sunday | Family task source plus calendar or email |
 | `daily_inbox_offers` | Inbox offers, savings and catches | Daily | Email connector |
 
 Times are intentionally not hard-coded. Users choose local delivery times and timezone in the automation setup flow; the current catalog only captures cadence and weekday constraints.
