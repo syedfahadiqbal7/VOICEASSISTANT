@@ -253,3 +253,16 @@ def test_challenge_lockout_revokes_provisionally_approved_device():
         with pytest.raises(PairingError):
             coordinator.poll_result(session_id, "wrong-secret")
     assert registry.revoked == [registry.created[0]["device_id"]]
+
+
+
+def test_pairing_transport_helper_rejects_plain_http():
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from mobile_api.server import _require_https_pairing_request
+
+    with pytest.raises(HTTPException) as error:
+        _require_https_pairing_request(SimpleNamespace(url=SimpleNamespace(scheme="http")))
+    assert error.value.status_code == 400
+
+    _require_https_pairing_request(SimpleNamespace(url=SimpleNamespace(scheme="https")))
