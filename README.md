@@ -66,7 +66,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 
 ### 7. Privacy, data protection and recovery
 - Encrypt supported local runtime stores at rest with AES-256-GCM; protect the Windows data key with the current user's DPAPI profile or use the documented environment-key mode.
-- Store Google/Microsoft OAuth connection tokens only in the encrypted local integration registry; status views expose account/scope metadata and never return token values. Supported capabilities are derived from allow-listed read-only mail/calendar scopes. Disconnect removes the provider record.
+- Store Google/Microsoft OAuth connection tokens only in the encrypted local integration registry; status APIs expose account/scope metadata and never return token values. Supported capabilities are derived from allow-listed read-only mail/calendar scopes. Disconnect removes the provider record.
 - Use portable passphrase-encrypted backups with authenticated verification and explicit restore confirmation.
 - Inspect registered encrypted stores and explicitly migrate legacy VAENC1 data to VAENC2 after verifying a current backup.
 - Bootstrap and rotate data-encryption keys locally while retaining previous keys for old data.
@@ -88,7 +88,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 ## Repository layout
 
 - `main.py`, `ui/` — Windows desktop application and operational viewers.
-- `agent/` — conversation orchestration, planner/executor, policy, verification, undo, memory, history, scheduler, personal automation catalog, skills and LLM client.
+- `agent/` — conversation orchestration, planner/executor, policy, verification, undo, memory, history, scheduler, personal automation catalog, encrypted integration registry, skills and LLM client.
 - `tools/`, `plugins/` — built-in tools and manifest-verified plugin tools.
 - `audio/` — microphone capture, Faster-Whisper speech-to-text and pyttsx3 text-to-speech.
 - `mobile_api/` — local FastAPI/WebSocket bridge.
