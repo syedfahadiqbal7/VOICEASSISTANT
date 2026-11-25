@@ -90,3 +90,22 @@ def test_history_rejects_missing_stable_identity(tmp_path):
     history = SchedulerExecutionHistory(tmp_path / "history.json")
     with pytest.raises(SchedulerHistoryError):
         history.record_started({"id": "job-1", "run_at": "2026-11-23T08:00:00"})
+
+def test_recover_interrupted_marks_started_occurrence_uncertain(tmp_path):
+    history = SchedulerExecutionHistory(tmp_path / "history.json")
+    history.record_started(_job())
+    recovered = history.recover_interrupted("exec-1")
+    assert recovered["status"] == "uncertain"
+    assert recovered["finished_at"]
+    assert recovered["diagnostic"] == "handler outcome uncertain"
+
+def test_recover_interrupted_leaves_retrying_outcome_resumable(tmp_path):
+    history = SchedulerExecutionHistory(tmp_path / "history.json")
+    history.record_started(_job())
+    history.record_outcome("exec-1", "retrying", "retry scheduled")
+    recovered = history.recover_interrupted("exec-1")
+    assert recovered["status"] == "retrying"
+
+def test_recover_interrupted_returns_none_for_missing_occurrence(tmp_path):
+    history = SchedulerExecutionHistory(tmp_path / "history.json")
+    assert history.recover_interrupted("missing") is None
