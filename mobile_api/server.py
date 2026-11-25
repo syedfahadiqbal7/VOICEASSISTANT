@@ -167,6 +167,19 @@ async def get_pairing_result(request: Request):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=str(error)) from error
 
+@app.post("/pairing/complete")
+async def complete_pairing_result(request: Request):
+    _require_https_pairing_request(request)
+    try:
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise PairingError("Invalid pairing completion request")
+        pairing_coordinator.complete_result(data.get("session_id", ""), data.get("secret", ""))
+        return {"status": "completed"}
+    except PairingError as error:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
 
 def _max_mobile_connections() -> int:
     raw = os.environ.get("VOICEASSISTANT_MOBILE_MAX_CONNECTIONS", "5").strip()
