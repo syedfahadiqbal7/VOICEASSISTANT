@@ -139,7 +139,7 @@ def automation_readiness(
     return {
         "automation_id": definition.id,
         "ready": not missing,
-        "enabled": bool(master_enabled and definition.id in handlers and not missing_profile and not missing_integrations and not missing_any_groups),
+        "can_enable": not missing,
         "blockers": missing,
         "missing_profile_fields": missing_profile,
         "missing_integrations": missing_integrations,
