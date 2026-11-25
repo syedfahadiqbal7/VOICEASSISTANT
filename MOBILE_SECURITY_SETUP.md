@@ -125,3 +125,19 @@ Security properties:
 - QR pairing cannot grant the `admin` role; owner-admin enrollment remains a trusted local operation.
 - The endpoint supplied in the QR must be a clean HTTPS origin with a trusted certificate. A public relay or NAT traversal service is not included in this backend phase.
 - This is the backend foundation only. The desktop QR display / approval UI and mobile camera scanner are separate integration steps and are not yet available in this phase.
+
+
+## Desktop-approved QR pairing
+
+The desktop and Flutter companion support a short-lived QR enrollment flow:
+
+1. Enroll the owner phone locally as an administrator once: `python mobile_device_cli.py add "Owner phone" --role admin`. QR pairing never grants the admin role.
+2. Configure `VOICEASSISTANT_MOBILE_HOST=0.0.0.0` only when you intentionally want a phone to reach the API. Restrict the Windows Firewall rule to the trusted LAN/VPN or reverse-proxy interface.
+3. Configure a trusted TLS certificate on the desktop API, or terminate TLS at a trusted reverse proxy. Set `VOICEASSISTANT_MOBILE_PUBLIC_URL=https://your-hostname` to the HTTPS origin reachable by the phone.
+4. For another network, connect through a trusted VPN or expose the HTTPS reverse-proxy endpoint through your chosen secure network. Do not port-forward the raw mobile API to the public internet.
+5. Click **Pair Mobile** on the desktop. Scan the QR from the mobile app, enter a device name and approve the request on the desktop.
+6. The phone receives a one-time device credential, stores it in secure storage and connects using the existing authenticated WSS protocol.
+
+The QR code expires after two minutes by default, is single-use, and contains no permanent device credential. If approval is abandoned before credentials are delivered, the provisional device is revoked. The QR flow requires a valid trusted HTTPS certificate; self-signed certificates that are not trusted by the phone will fail validation.
+
+**Not included:** a hosted internet relay, automatic NAT traversal, or a vendor-operated cloud service. A VPN or user-managed TLS reverse proxy is still required for cross-network reachability.
