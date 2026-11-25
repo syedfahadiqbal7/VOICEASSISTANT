@@ -182,6 +182,26 @@ class SchedulerExecutionHistory:
             record["diagnostic"] = diagnostic if isinstance(diagnostic, str) and diagnostic in _SAFE_DIAGNOSTICS else "outcome recorded" if diagnostic else None
             self._write(records)
 
+    def recover_interrupted(self, execution_id: str) -> Optional[Dict[str, Any]]:
+        """Resolve a job left running at process restart without blind replay.
+
+        A persisted started occurrence has an ambiguous side-effect outcome.
+        Mark it uncertain and require manual review. A recorded retrying
+        outcome is safe to resume because the handler had already returned.
+        Missing history is also ambiguous and is handled fail-closed by caller.
+        """
+        with self._guard():
+            records = self._read()
+            record = next((r for r in records if r["execution_id"] == execution_id), None)
+            if record is None:
+                return None
+            if record.get("status") == "started":
+                record["status"] = "uncertain"
+                record["finished_at"] = _utc_now()
+                record["diagnostic"] = "handler outcome uncertain"
+                self._write(records)
+            return dict(record)
+
     def list_records(self, limit: int = 100) -> List[Dict[str, Any]]:
         safe_limit = max(1, min(int(limit), self.max_records))
         with self._guard():
