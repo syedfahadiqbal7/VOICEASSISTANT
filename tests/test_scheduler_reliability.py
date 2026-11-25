@@ -31,7 +31,7 @@ def test_running_job_with_started_history_is_failed_closed_after_restart(tmp_pat
     assert recovered["status"] == "failed"
     assert recovered["enabled"] is False
     assert recovered["recovered_after_crash"] is True
-    assert "uncertain" in recovered["last_error"].lower()
+    assert "cannot be verified" in recovered["last_error"].lower()
     assert restarted.history.list_records()[0]["status"] == "uncertain"
     from agent.storage import load_json
     assert load_json(path, encrypt=True)[0]["status"] == "failed"
