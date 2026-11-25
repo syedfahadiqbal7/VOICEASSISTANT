@@ -40,7 +40,9 @@ class PairingCoordinator:
 
     @staticmethod
     def _validate_endpoint(endpoint_url: str) -> str:
-        value = str(endpoint_url or "").strip()
+        if not isinstance(endpoint_url, str):
+            raise PairingError("Pairing endpoint must be a URL string")
+        value = endpoint_url.strip()
         if len(value) > 2048:
             raise PairingError("Pairing endpoint is too long")
         try:
@@ -120,7 +122,9 @@ class PairingCoordinator:
         return item
 
     def submit_request(self, session_id: str, secret: str, device_name: str) -> dict[str, str]:
-        name = str(device_name or "").strip()
+        if not isinstance(device_name, str):
+            raise PairingError("Device name must be text")
+        name = device_name.strip()
         if not name or len(name) > 80 or any(ord(ch) < 32 for ch in name):
             raise PairingError("Device name must contain 1–80 printable characters")
         with self._lock:
