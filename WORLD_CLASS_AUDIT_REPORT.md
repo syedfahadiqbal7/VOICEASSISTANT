@@ -603,3 +603,12 @@ Implement and test the host-owned capability broker, then implement Windows rest
 - Added [Scheduled Execution Reliability](SCHEDULED_EXECUTION_RELIABILITY.md) documenting at-most-once invocation, at-least-once callback behavior, ambiguous crash outcomes and the manual reconciliation boundary.
 
 **Remaining:** this ledger is local to one desktop profile and has a 20,000-entry fail-closed capacity. It is not a distributed idempotency service. External plugins must propagate the stable execution ID to their provider or implement their own reconciliation.
+
+
+## 12. Mobile TLS certificate preflight and proxy trust (2026-11-25)
+
+- Direct TLS startup validates the PEM X.509 certificate, matching private key, validity window and (when configured) Subject Alternative Name against `VOICEASSISTANT_MOBILE_PUBLIC_URL`.
+- Expired, not-yet-valid, malformed, mismatched-key and public-host mismatch configurations fail startup. Certificates with 30 days or fewer remaining produce a renewal warning.
+- TLS certificate renewal is restart-based; Uvicorn does not hot-reload the configured certificate files. Reverse-proxy TLS is renewed/reloaded at the proxy.
+- Uvicorn forwarded-header trust is explicit: loopback-only by default, configurable through `VOICEASSISTANT_TRUSTED_PROXY_IPS`, and rejects wildcard/world-wide networks.
+- Remaining: validate certificate renewal/restart and proxy-forwarded scheme behavior on target Windows deployments; this preflight does not perform online OCSP/CRL revocation checks or CA-chain trust verification on behalf of mobile clients.

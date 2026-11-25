@@ -22,7 +22,7 @@ Please use GitHub's **Report a vulnerability** feature (Security tab) if private
 
 ## Important limitations
 
-Plugin manifests and checksums provide integrity checks, not cryptographic publisher signatures. AppContainer isolation is a narrow per-plugin Windows pilot, not a blanket sandbox; plugins without the explicit manifest opt-in remain same-user workers. Command analysis is heuristic and is not a PowerShell sandbox. Direct `ws://` LAN mode does not encrypt traffic. Cross-network mobile connectivity currently depends on an operator-managed VPN or TLS-protected `wss://` endpoint; QR pairing is available but does not provide NAT traversal or a hosted relay. Never expose the mobile API directly to the public internet. Review the engineering audit for additional limitations before production deployment.
+Plugin manifests and checksums provide integrity checks, not cryptographic publisher signatures. AppContainer isolation is a narrow per-plugin Windows pilot, not a blanket sandbox; plugins without the explicit manifest opt-in remain same-user workers. Command analysis is heuristic and is not a PowerShell sandbox. Direct `ws://` LAN mode does not encrypt traffic. Direct TLS certificates are validated at startup and require a desktop restart after renewal; reverse proxies must be explicitly trusted for forwarded HTTPS headers. Cross-network mobile connectivity currently depends on an operator-managed VPN or TLS-protected `wss://` endpoint; QR pairing is available but does not provide NAT traversal or a hosted relay. Never expose the mobile API directly to the public internet. Review the engineering audit for additional limitations before production deployment.
 
 
 ## Data encryption, backup and key recovery
