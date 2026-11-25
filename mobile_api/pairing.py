@@ -7,6 +7,7 @@ once to the phone that proves possession of the challenge.
 from __future__ import annotations
 
 import hashlib
+import logging
 import hmac
 import secrets
 import threading
@@ -22,6 +23,7 @@ _ALLOWED_PAIRING_ROLES = {ROLE_OPERATOR, ROLE_APPROVER, ROLE_VIEWER}
 _MAX_SESSIONS = 20
 _MAX_ATTEMPTS = 5
 _DEFAULT_TTL_SECONDS = 120
+logger = logging.getLogger("voiceassistant.mobile_pairing")
 
 
 class PairingError(ValueError):
@@ -62,11 +64,25 @@ class PairingCoordinator:
             raise PairingError("Pairing requires a trusted HTTPS endpoint without credentials, path, query or fragment")
         return f"https://{parsed.netloc}"
 
+    def _discard_session(self, session_id: str, item: dict[str, Any]) -> None:
+        credentials = item.get("credentials")
+        if item.get("state") == "approved" and credentials and not item.get("result_consumed"):
+            try:
+                self._registry.revoke(str(credentials.get("device_id", "")))
+            except Exception:
+                logger.exception(
+                    "Could not revoke an approved but undelivered mobile pairing",
+                    extra={"event": "mobile.pairing_orphan_revoke_failed"},
+                )
+        self._sessions.pop(session_id, None)
+
     def _purge_expired(self) -> None:
         now = self._clock()
         expired = [key for key, item in self._sessions.items() if item["expires_at"] <= now]
         for key in expired:
-            self._sessions.pop(key, None)
+            item = self._sessions.get(key)
+            if item is not None:
+                self._discard_session(key, item)
 
     @staticmethod
     def _secret_hash(secret: str) -> str:
@@ -112,7 +128,8 @@ class PairingCoordinator:
             raise PairingError("Invalid or expired pairing session")
         item = self._sessions.get(identifier)
         if item is None or item["expires_at"] <= self._clock():
-            self._sessions.pop(identifier, None)
+            if item is not None:
+                self._discard_session(identifier, item)
             raise PairingError("Pairing session expired; scan a new QR code")
         if not hmac.compare_digest(self._secret_hash(supplied), item["secret_hash"]):
             item["attempts"] += 1
@@ -200,6 +217,10 @@ class PairingCoordinator:
         identifier = str(session_id or "").strip().lower()
         with self._lock:
             self._purge_expired()
-            return self._sessions.pop(identifier, None) is not None
+            item = self._sessions.get(identifier)
+            if item is None:
+                return False
+            self._discard_session(identifier, item)
+            return True
 
 
