@@ -77,11 +77,22 @@ class AutomationCatalogViewer(ctk.CTkToplevel):
                 ).pack(side="right", anchor="e")
                 ctk.CTkLabel(
                     card,
-                    text=f"{item.description}\nCadence: {self._cadence(item)}",
+                    text=f"{item.description}\nCadence: {self._cadence(item)}\nSetup: {self._requirements(item)}",
                     justify="left",
                     wraplength=820,
                     text_color=("gray25", "gray75"),
                 ).pack(anchor="w", padx=10, pady=(0, 8))
+
+    @staticmethod
+    def _requirements(item) -> str:
+        requirements = []
+        if item.required_profile_fields:
+            requirements.append("Profile: " + ", ".join(item.required_profile_fields))
+        if item.required_integrations:
+            requirements.append("Integrations: " + ", ".join(item.required_integrations))
+        for group in item.any_integration_groups:
+            requirements.append("One of: " + " or ".join(group))
+        return "; ".join(requirements) if requirements else "No additional profile or provider setup"
 
     @staticmethod
     def _cadence(item) -> str:
