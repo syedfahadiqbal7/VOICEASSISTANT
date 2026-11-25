@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import sys
@@ -31,6 +32,9 @@ from tools.plugin_capability_inventory import inspect_source
 
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
+MAX_PLUGIN_SOURCE_BYTES = 5 * 1024 * 1024
+MAX_WORKSPACE_BYTES = MAX_REQUEST_BYTES + MAX_RESPONSE_BYTES
+logger = logging.getLogger("voiceassistant.appcontainer_runner")
 
 
 class AppContainerPluginRunner:
@@ -52,6 +56,8 @@ class AppContainerPluginRunner:
     ) -> dict[str, Any]:
         if mode not in {"execute", "describe"}:
             return {"ok": False, "error_code": "unsupported_worker_mode"}
+        if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 120:
+            return {"ok": False, "error_code": "invalid_timeout"}
         if os.name != "nt":
             return {"ok": False, "error_code": "appcontainer_unavailable"}
         original_entry = Path(entry)
@@ -63,7 +69,14 @@ class AppContainerPluginRunner:
             return {"ok": False, "error_code": "invalid_plugin_source"}
         if not entry.is_file():
             return {"ok": False, "error_code": "invalid_plugin_source"}
-        source_bytes = entry.read_bytes()
+        try:
+            if entry.stat().st_size > MAX_PLUGIN_SOURCE_BYTES:
+                return {"ok": False, "error_code": "plugin_source_too_large"}
+            source_bytes = entry.read_bytes()
+        except OSError:
+            return {"ok": False, "error_code": "invalid_plugin_source"}
+        if len(source_bytes) > MAX_PLUGIN_SOURCE_BYTES:
+            return {"ok": False, "error_code": "plugin_source_too_large"}
         actual_digest = hashlib.sha256(source_bytes).hexdigest()
         if actual_digest.lower() != str(sha256).lower():
             return {"ok": False, "error_code": "plugin_digest_mismatch"}
@@ -157,6 +170,7 @@ class AppContainerPluginRunner:
 
             request_path = work / "request.json"
             response_path = work / "response.json"
+            temporary_response_path = response_path.with_suffix(response_path.suffix + ".tmp")
             request = {
                 "protocol_version": 1,
                 "mode": mode,
@@ -171,6 +185,11 @@ class AppContainerPluginRunner:
             if len(payload) > MAX_REQUEST_BYTES:
                 return {"ok": False, "error_code": "request_too_large"}
             request_path.write_bytes(payload)
+            # Pre-create every writable file. The AppContainer gets read/execute
+            # on the directory and modify access only to these bounded IPC files;
+            # it cannot create arbitrary temp files in the workspace.
+            response_path.write_bytes(b"")
+            temporary_response_path.write_bytes(b"")
 
             stage = "grant_root_acl"
             # AppContainer must be able to traverse every ancestor of its
@@ -204,12 +223,14 @@ class AppContainerPluginRunner:
                 granted.append(child)
 
             stage = "grant_ipc_acl"
-            _grant_acl(work, sid_text, "(OI)(CI)M")
+            _grant_acl(work, sid_text, "(RX)")
             granted.append(work)
-            # The request file already exists; grant it explicitly. The
-            # response and temporary response files will inherit from work.
-            _grant_acl(request_path, sid_text, "(M)")
+            _grant_acl(request_path, sid_text, "(R)")
             granted.append(request_path)
+            _grant_acl(response_path, sid_text, "(M)")
+            granted.append(response_path)
+            _grant_acl(temporary_response_path, sid_text, "(M)")
+            granted.append(temporary_response_path)
 
             stage = "launch_appcontainer_worker"
             worker_path = staging / "agent" / "plugin_worker.py"
@@ -251,14 +272,51 @@ class AppContainerPluginRunner:
             }
         finally:
             if broker is not None:
-                broker.close()
+                try:
+                    broker.close()
+                except Exception:
+                    logger.exception(
+                        "AppContainer broker cleanup failed",
+                        extra={"event": "appcontainer.broker_cleanup_failed"},
+                    )
             if sid_text:
                 for path in reversed(granted):
-                    _remove_acl(path, sid_text)
+                    try:
+                        _remove_acl(path, sid_text)
+                    except Exception:
+                        logger.exception(
+                            "Unexpected AppContainer ACL cleanup failure",
+                            extra={"event": "appcontainer.acl_cleanup_exception", "path": str(path)},
+                        )
             if sid is not None:
-                userenv.DeleteAppContainerProfile(profile_name)
-                advapi32.FreeSid(sid)
-            shutil.rmtree(root, ignore_errors=True)
+                try:
+                    result = userenv.DeleteAppContainerProfile(profile_name)
+                    if result < 0:
+                        logger.error(
+                            "Windows did not delete the temporary AppContainer profile",
+                            extra={"event": "appcontainer.profile_cleanup_failed", "hresult": int(result)},
+                        )
+                except Exception:
+                    logger.exception(
+                        "AppContainer profile cleanup raised an exception",
+                        extra={"event": "appcontainer.profile_cleanup_exception"},
+                    )
+                try:
+                    advapi32.FreeSid(sid)
+                except Exception:
+                    logger.exception(
+                        "AppContainer SID cleanup failed",
+                        extra={"event": "appcontainer.sid_cleanup_failed"},
+                    )
+            try:
+                shutil.rmtree(root)
+            except FileNotFoundError:
+                pass
+            except Exception:
+                logger.exception(
+                    "AppContainer staging workspace cleanup failed",
+                    extra={"event": "appcontainer.workspace_cleanup_failed"},
+                )
 
     def describe(
         self,
