@@ -185,9 +185,10 @@ class AppContainerPluginRunner:
             if len(payload) > MAX_REQUEST_BYTES:
                 return {"ok": False, "error_code": "request_too_large"}
             request_path.write_bytes(payload)
-            # Pre-create every writable file. The AppContainer gets read/execute
-            # on the directory and modify access only to these bounded IPC files;
-            # it cannot create arbitrary temp files in the workspace.
+            # Pre-create the IPC files. Windows atomic replace requires modify
+            # access on the directory itself, but do not make that ACE inheritable.
+            # Existing files retain their explicit read/modify grants; the
+            # watchdog bounds any additional entries created in this directory.
             response_path.write_bytes(b"")
             temporary_response_path.write_bytes(b"")
 
@@ -223,7 +224,7 @@ class AppContainerPluginRunner:
                 granted.append(child)
 
             stage = "grant_ipc_acl"
-            _grant_acl(work, sid_text, "(RX)")
+            _grant_acl(work, sid_text, "(M)")
             granted.append(work)
             _grant_acl(request_path, sid_text, "(R)")
             granted.append(request_path)
