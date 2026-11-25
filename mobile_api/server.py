@@ -10,7 +10,7 @@ import logging
 import os
 import threading
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from mobile_api.connection_manager import manager
@@ -18,6 +18,7 @@ from mobile_api.bridge import bridge
 from mobile_api.device_registry import registry as mobile_devices
 from mobile_api.authorization import is_allowed
 from mobile_api.rate_limiter import DeviceRateLimiter
+from mobile_api.pairing import PairingCoordinator, PairingError
 
 logger = logging.getLogger("voiceassistant.mobile_api")
 _server_lock = threading.Lock()
@@ -26,6 +27,7 @@ _active_server = None
 _active_server_loop = None
 manager.on_disconnect = bridge.client_disconnected
 mobile_rate_limiter = DeviceRateLimiter()
+pairing_coordinator = PairingCoordinator(mobile_devices)
 
 app = FastAPI(title="VoiceAssistant Mobile API", version="1.1")
 
@@ -50,6 +52,107 @@ async def root():
 @app.get("/health")
 async def health():
     return {"ok": True, "clients": manager.connection_count()}
+
+
+def _is_loopback_request(request: Request) -> bool:
+    """Pairing administration endpoints are callable only by the desktop itself."""
+    import ipaddress
+
+    client = request.client
+    if client is None:
+        return False
+    try:
+        return ipaddress.ip_address(client.host).is_loopback
+    except ValueError:
+        return False
+
+
+def _require_loopback(request: Request) -> None:
+    if not _is_loopback_request(request):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Pairing administration is available only on the desktop")
+
+
+@app.post("/pairing/sessions")
+async def create_pairing_session(request: Request):
+    _require_loopback(request)
+    try:
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise PairingError("Invalid pairing request")
+        return {"ok": True, "qr_payload": pairing_coordinator.create_session(
+            data.get("endpoint_url", ""), data.get("ttl_seconds", 120)
+        )}
+    except PairingError as error:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/pairing/pending")
+async def list_pairing_requests(request: Request):
+    _require_loopback(request)
+    return {"requests": pairing_coordinator.pending_requests()}
+
+
+@app.post("/pairing/approve")
+async def approve_pairing_request(request: Request):
+    _require_loopback(request)
+    try:
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise PairingError("Invalid pairing approval")
+        accepted = pairing_coordinator.approve(data.get("request_id", ""), data.get("role", "operator"))
+        return {"ok": accepted}
+    except PairingError as error:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/pairing/deny")
+async def deny_pairing_request(request: Request):
+    _require_loopback(request)
+    data = await request.json()
+    if not isinstance(data, dict):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid pairing denial")
+    return {"ok": pairing_coordinator.deny(data.get("request_id", ""))}
+
+
+@app.post("/pairing/cancel")
+async def cancel_pairing_session(request: Request):
+    _require_loopback(request)
+    data = await request.json()
+    if not isinstance(data, dict):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid pairing cancellation")
+    return {"ok": pairing_coordinator.cancel(data.get("session_id", ""))}
+
+
+@app.post("/pairing/request")
+async def submit_pairing_request(request: Request):
+    try:
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise PairingError("Invalid pairing request")
+        result = pairing_coordinator.submit_request(
+            data.get("session_id", ""), data.get("secret", ""), data.get("device_name", "")
+        )
+        return {"ok": True, **result}
+    except PairingError as error:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/pairing/result")
+async def get_pairing_result(request: Request):
+    try:
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise PairingError("Invalid pairing result request")
+        return pairing_coordinator.poll_result(data.get("session_id", ""), data.get("secret", ""))
+    except PairingError as error:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 def _max_mobile_connections() -> int:
