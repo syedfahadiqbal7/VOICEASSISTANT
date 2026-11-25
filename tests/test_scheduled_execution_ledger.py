@@ -34,7 +34,7 @@ def test_started_execution_after_restart_becomes_uncertain_and_is_never_reclaime
     # Simulate a previous process that no longer exists.
     import agent.scheduled_execution_ledger as ledger_module
     with ledger_module._ACTIVE_EXECUTIONS_LOCK:
-        ledger_module._ACTIVE_EXECUTIONS.discard("exec-3")
+        ledger_module._ACTIVE_EXECUTIONS.discard((str(path.resolve()), "exec-3"))
     first._entries["exec-3"]["owner_pid"] = -1
     first._entries["exec-3"]["owner_process_start"] = 0
     first._save()
@@ -107,3 +107,44 @@ def test_ledger_capacity_fails_closed(tmp_path):
         assert "full" in str(error).lower()
     else:
         raise AssertionError("full ledger must block untracked side effects")
+
+
+
+def test_execution_ids_are_scoped_to_their_ledger_file(tmp_path):
+    first = ScheduledExecutionLedger(tmp_path / "first.json")
+    second = ScheduledExecutionLedger(tmp_path / "second.json")
+
+    assert first.claim("shared-id", "open_app") == "claimed"
+    assert second.claim("shared-id", "open_app") == "claimed"
+    first.complete("shared-id", success=True)
+    second.complete("shared-id", success=True)
+
+
+def test_execution_id_cannot_be_reused_for_a_different_tool(tmp_path):
+    ledger = ScheduledExecutionLedger(tmp_path / "ledger.json")
+    assert ledger.claim("bound-id", "open_app") == "claimed"
+    ledger.complete("bound-id", success=True)
+
+    try:
+        ledger.claim("bound-id", "delete_file")
+    except ScheduledExecutionLedgerError as error:
+        assert "different tool" in str(error).lower()
+    else:
+        raise AssertionError("an execution ID must remain bound to its original tool")
+
+
+def test_ledger_rejects_entries_without_a_valid_tool_binding(tmp_path):
+    from agent.storage import atomic_write_json
+
+    path = tmp_path / "ledger.json"
+    atomic_write_json(
+        path,
+        {"version": 1, "entries": {"broken": {"status": "succeeded"}}},
+        encrypt=True,
+    )
+    try:
+        ScheduledExecutionLedger(path)
+    except ScheduledExecutionLedgerError as error:
+        assert "invalid tool binding" in str(error).lower()
+    else:
+        raise AssertionError("malformed ledger entries must fail closed")
