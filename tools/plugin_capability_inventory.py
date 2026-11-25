@@ -16,7 +16,7 @@ from typing import Any
 
 CAPABILITY_RULES = {
     "filesystem:read": {
-        "calls": {"open", "read_text", "read_bytes", "iterdir", "glob", "rglob", "listdir", "scandir", "walk"},
+        "calls": {"read_text", "read_bytes", "iterdir", "glob", "rglob", "listdir", "scandir", "walk"},
     },
     "filesystem:write": {
         "calls": {"write_text", "write_bytes", "mkdir", "makedirs", "copy", "copy2", "move", "replace"},
@@ -143,7 +143,24 @@ def inspect_source(
             if leaf in {"connect", "urlopen", "request", "get", "post", "put", "delete"}:
                 if any(part in name.lower() for part in ("requests", "httpx", "urllib", "socket", "aiohttp")):
                     record("network:read" if leaf not in {"post", "put", "delete"} else "network:write", "call:" + name)
-            if leaf in {"read_text", "read_bytes", "open", "listdir", "scandir", "walk"}:
+            if leaf == "open":
+                mode_node = node.args[1] if len(node.args) > 1 else None
+                if mode_node is None:
+                    mode_node = next((item.value for item in node.keywords if item.arg == "mode"), None)
+                if mode_node is None or (isinstance(mode_node, ast.Constant) and mode_node.value is None):
+                    record("filesystem:read", "call:" + name)
+                elif isinstance(mode_node, ast.Constant) and isinstance(mode_node.value, str):
+                    mode = mode_node.value
+                    if any(flag in mode for flag in ("w", "a", "x", "+")):
+                        record("filesystem:write", "call:" + name)
+                    if "r" in mode or "+" in mode:
+                        record("filesystem:read", "call:" + name)
+                else:
+                    # A dynamic mode can write. Require an explicit write grant
+                    # rather than assuming the open is read-only.
+                    record("filesystem:read", "call:" + name + ":dynamic_mode")
+                    record("filesystem:write", "call:" + name + ":dynamic_mode")
+            elif leaf in {"read_text", "read_bytes", "listdir", "scandir", "walk"}:
                 record("filesystem:read", "call:" + name)
             if leaf in {"write_text", "write_bytes", "makedirs", "mkdir"}:
                 record("filesystem:write", "call:" + name)
