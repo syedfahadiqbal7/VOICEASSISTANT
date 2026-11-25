@@ -13,7 +13,7 @@ Before enabling LAN access:
 - Keep at least one active admin device enrolled. The CLI refuses to demote or revoke the last active admin.
 - Prefer a VPN or TLS-terminating reverse proxy (`wss://`) on networks you do not fully trust. QR enrollment requires a trusted HTTPS endpoint and explicit approval in the desktop UI; it never grants admin.
 - Do not run the application with unnecessary administrator privileges.
-- Review every plugin before enabling it. Plugins run in child workers. On Windows, only plugins whose verified manifest explicitly selects `execution_sandbox: appcontainer` use the AppContainer pilot; the JSON formatter is the first opted-in plugin. Other plugins remain same-user crash-contained workers and are not OS-sandboxed.
+- Review every plugin before enabling it. Plugins run in child workers. On Windows, only plugins whose verified manifest explicitly selects `execution_sandbox: appcontainer` use the AppContainer pilot; the JSON formatter and no-permission hello example are the currently opted-in built-ins. Other plugins remain same-user crash-contained workers and are not OS-sandboxed.
 - Protect local history, memory, audit and undo files using Windows account permissions and disk encryption.
 
 ## Reporting a vulnerability
