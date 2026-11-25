@@ -19,6 +19,7 @@ from mobile_api.device_registry import registry as mobile_devices
 from mobile_api.authorization import is_allowed
 from mobile_api.rate_limiter import DeviceRateLimiter
 from mobile_api.pairing import PairingCoordinator, PairingError
+from mobile_api.tls_config import TLSCertificateError, validate_tls_certificate
 
 logger = logging.getLogger("voiceassistant.mobile_api")
 _server_lock = threading.Lock()
@@ -275,12 +276,36 @@ def _validate_job_id(data: dict) -> str:
 def _tls_options_from_env() -> dict:
     certfile = os.environ.get("VOICEASSISTANT_TLS_CERTFILE", "").strip()
     keyfile = os.environ.get("VOICEASSISTANT_TLS_KEYFILE", "").strip()
+    public_url = os.environ.get("VOICEASSISTANT_MOBILE_PUBLIC_URL", "").strip()
     if bool(certfile) != bool(keyfile):
         raise RuntimeError("Configure both VOICEASSISTANT_TLS_CERTFILE and VOICEASSISTANT_TLS_KEYFILE")
     if not certfile:
+        if public_url:
+            logger.info(
+                "Mobile public HTTPS URL is configured; TLS must terminate at the trusted reverse proxy",
+                extra={"event": "mobile.tls_upstream_termination"},
+            )
         return {}
-    if not Path(certfile).is_file() or not Path(keyfile).is_file():
-        raise RuntimeError("Configured TLS certificate or private key file does not exist")
+    try:
+        metadata = validate_tls_certificate(
+            certfile,
+            keyfile,
+            public_url=public_url or None,
+        )
+    except TLSCertificateError as error:
+        raise RuntimeError(f"Mobile TLS preflight failed: {error}") from error
+    if metadata["renewal_warning"]:
+        logger.warning(
+            "Mobile API TLS certificate expires in %.1f days",
+            metadata["days_remaining"],
+            extra={"event": "mobile.tls_certificate_renewal_due"},
+        )
+    else:
+        logger.info(
+            "Mobile API TLS certificate validated; %.1f days remain",
+            metadata["days_remaining"],
+            extra={"event": "mobile.tls_certificate_validated"},
+        )
     return {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
 
 
