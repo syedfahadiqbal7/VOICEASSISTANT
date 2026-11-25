@@ -37,7 +37,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Plugin source and manifests are verified before registration; plugin code is imported in a child process, not in the desktop process.
 - The default worker provides crash containment only and still runs with the desktop user's OS privileges.
 - Windows plugins may explicitly set `"execution_sandbox": "appcontainer"` in their manifest. For these plugins, both metadata discovery and every invocation run inside a no-network AppContainer with a package-SID ACL named-pipe broker; sandbox failures never fall back to the same-user worker.
-- The initial AppContainer pilot is intentionally narrow: the JSON formatter is the first opted-in plugin, and the current broker supports only policy-approved filesystem reads. Plugins with unsupported imports, capabilities or permissions are rejected from AppContainer execution rather than silently downgraded.
+- The initial AppContainer pilot is intentionally narrow: the JSON formatter and no-permission hello example are opted-in plugins, and the current broker supports only policy-approved filesystem reads. Plugins with unsupported imports, capabilities or permissions are rejected from AppContainer execution rather than silently downgraded.
 
 ### 5. Scheduling and automation
 - Create and inspect scheduled jobs from the desktop assistant; interval recurrence accepts integer minutes from 1 through 525,600 and rejects coercive or out-of-range values.
