@@ -66,6 +66,7 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 
 ### 7. Privacy, data protection and recovery
 - Encrypt supported local runtime stores at rest with AES-256-GCM; protect the Windows data key with the current user's DPAPI profile or use the documented environment-key mode.
+- Store Google/Microsoft OAuth connection tokens only in the encrypted local integration registry; status views expose account/scope metadata and never return token values. Supported capabilities are derived from allow-listed read-only mail/calendar scopes. Disconnect removes the provider record.
 - Use portable passphrase-encrypted backups with authenticated verification and explicit restore confirmation.
 - Inspect registered encrypted stores and explicitly migrate legacy VAENC1 data to VAENC2 after verifying a current backup.
 - Bootstrap and rotate data-encryption keys locally while retaining previous keys for old data.
@@ -165,7 +166,7 @@ By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. 
 ## Tests
 
 ```powershell
-python -m pytest -q tests/test_security_reliability_regressions.py tests/test_user_profile.py tests/test_automation_catalog.py tests/test_mobile_device_identity.py tests/test_mobile_rbac.py tests/test_mobile_approval_routing.py tests/test_scheduler_reliability.py tests/test_scheduler_ui_state.py tests/test_scheduled_execution_ledger.py tests/test_scheduled_tool_idempotency.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_keyring.py tests/test_data_protection_v2.py tests/test_key_migration.py tests/test_key_migration_cli.py tests/test_key_rotation.py tests/test_key_recovery.py tests/test_key_retirement.py tests/test_scheduled_write_undo_safety.py tests/test_backup_manager.py tests/test_privacy_manager.py tests/test_observability.py
+python -m pytest -q tests/test_security_reliability_regressions.py tests/test_user_profile.py tests/test_automation_catalog.py tests/test_integration_registry.py tests/test_mobile_device_identity.py tests/test_mobile_rbac.py tests/test_mobile_approval_routing.py tests/test_scheduler_reliability.py tests/test_scheduler_ui_state.py tests/test_scheduled_execution_ledger.py tests/test_scheduled_tool_idempotency.py tests/test_plugin_marketplace_security.py tests/test_data_protection.py tests/test_keyring.py tests/test_data_protection_v2.py tests/test_key_migration.py tests/test_key_migration_cli.py tests/test_key_rotation.py tests/test_key_recovery.py tests/test_key_retirement.py tests/test_scheduled_write_undo_safety.py tests/test_backup_manager.py tests/test_privacy_manager.py tests/test_observability.py
 python tests/phase0_smoke_tests.py
 ```
 
