@@ -287,3 +287,20 @@ def test_completed_pairing_is_not_revoked_when_desktop_session_is_cancelled():
 
     assert coordinator.cancel(session_id) is True
     assert registry.revoked == []
+
+
+
+def test_desktop_session_status_tracks_approval_completion_and_expiry():
+    coordinator = PairingCoordinator(FakeRegistry())
+    session_id, secret = _session(coordinator)
+    assert coordinator.session_state(session_id) == "waiting"
+    coordinator.submit_request(session_id, secret, "Phone")
+    request_id = coordinator.pending_requests()[0]["request_id"]
+    assert coordinator.session_state(session_id) == "pending_approval"
+    assert coordinator.approve(request_id) is True
+    assert coordinator.session_state(session_id) == "approved"
+    coordinator.poll_result(session_id, secret)
+    coordinator.complete_result(session_id, secret)
+    assert coordinator.session_state(session_id) == "completed"
+    coordinator.cancel(session_id)
+    assert coordinator.session_state(session_id) == "expired"
