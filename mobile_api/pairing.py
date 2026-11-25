@@ -150,7 +150,7 @@ class PairingCoordinator:
 
     def approve(self, request_id: str, role: str = ROLE_OPERATOR) -> bool:
         identifier = str(request_id or "").strip().lower()
-        if role not in _ALLOWED_PAIRING_ROLES:
+        if not isinstance(role, str) or role not in _ALLOWED_PAIRING_ROLES:
             raise PairingError("QR pairing cannot grant the admin role; enroll the owner admin locally")
         with self._lock:
             self._purge_expired()
