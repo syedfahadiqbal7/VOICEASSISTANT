@@ -38,4 +38,4 @@ The QR contains only a short-lived challenge, never a permanent device token. Pa
 
 ## Current scope
 
-The mobile app supports chat, speech-to-text input, live transcript, security approval, session state, undo availability and schedule viewing/cancellation. It does not independently execute desktop tools; all actions are processed by the desktop agent.
+The mobile app supports chat, speech-to-text input, live transcript, security approval, session state, undo availability and schedule viewing/cancellation. It does not independently execute desktop tools; all actions are processed by the desktop agent. QR enrollment uses trusted HTTPS and explicit desktop approval. Cross-network reachability still requires a VPN or user-managed TLS reverse proxy; there is no built-in hosted relay.
