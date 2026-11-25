@@ -79,16 +79,20 @@ def test_desktop_approval_is_required_before_credentials_are_created():
     assert result["credentials"]["device_token"] == registry.created[0]["device_token"]
 
 
-def test_pairing_credentials_can_be_delivered_only_once():
+def test_pairing_credentials_are_retried_until_idempotent_receipt_acknowledgement():
     coordinator = PairingCoordinator(FakeRegistry())
     session_id, secret = _session(coordinator)
     coordinator.submit_request(session_id, secret, "Phone")
     request_id = coordinator.pending_requests()[0]["request_id"]
     assert coordinator.approve(request_id) is True
 
-    assert coordinator.poll_result(session_id, secret)["status"] == "approved"
-    with pytest.raises(PairingError, match="Invalid or expired pairing session"):
-        coordinator.poll_result(session_id, secret)
+    first = coordinator.poll_result(session_id, secret)
+    second = coordinator.poll_result(session_id, secret)
+    assert first["status"] == second["status"] == "approved"
+    assert first["credentials"] == second["credentials"]
+    assert coordinator.complete_result(session_id, secret) is True
+    assert coordinator.complete_result(session_id, secret) is True
+    assert coordinator.poll_result(session_id, secret) == {"status": "completed"}
 
 
 def test_pairing_qr_is_single_request_and_cannot_be_replayed():
@@ -266,3 +270,20 @@ def test_pairing_transport_helper_rejects_plain_http():
     assert error.value.status_code == 400
 
     _require_https_pairing_request(SimpleNamespace(url=SimpleNamespace(scheme="https")))
+
+
+
+def test_completed_pairing_is_not_revoked_when_desktop_session_is_cancelled():
+    registry = FakeRegistry()
+    registry.revoked = []
+    registry.revoke = lambda device_id: registry.revoked.append(device_id) or True
+    coordinator = PairingCoordinator(registry)
+    session_id, secret = _session(coordinator)
+    coordinator.submit_request(session_id, secret, "Phone")
+    request_id = coordinator.pending_requests()[0]["request_id"]
+    assert coordinator.approve(request_id) is True
+    coordinator.poll_result(session_id, secret)
+    coordinator.complete_result(session_id, secret)
+
+    assert coordinator.cancel(session_id) is True
+    assert registry.revoked == []
