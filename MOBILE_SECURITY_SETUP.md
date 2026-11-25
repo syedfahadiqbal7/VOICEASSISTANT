@@ -108,25 +108,6 @@ GitHub Actions validates both the Android release variant and an unsigned iOS re
 The WebSocket server accepts at most five concurrent clients by default. Set `VOICEASSISTANT_MOBILE_MAX_CONNECTIONS` to an integer from 1 through 32 to adjust the ceiling. Capacity is reserved before awaiting the WebSocket handshake, preventing simultaneous connection attempts from exceeding the configured limit. Excess connections are rejected with a retry-later close code. This process-local capacity cap is independent of the per-device authentication registry.
 
 
-## Desktop-approved QR pairing (backend foundation)
-
-The pairing backend now supports a short-lived QR challenge lifecycle:
-
-1. The trusted desktop creates a pairing session through the loopback-only `POST /pairing/sessions` endpoint, supplying the public HTTPS API origin. The response contains a versioned QR payload with a random one-time challenge and a two-minute expiry by default.
-2. The mobile app submits the scanned challenge to `POST /pairing/request` with a user-visible device name.
-3. The desktop reads pending requests from loopback-only `GET /pairing/pending` and explicitly approves or denies the device through loopback-only `POST /pairing/approve` or `POST /pairing/deny`.
-4. On approval, the server creates a normal device-registry entry (operator by default). The phone polls `POST /pairing/result` and receives the device ID/token exactly once after proving possession of the QR challenge.
-5. The phone stores those credentials using its existing secure-storage path and connects using the normal authenticated WebSocket protocol.
-
-Security properties:
-- The QR never contains a long-lived device token.
-- QR challenges expire, are single-use, are rate-limited to five invalid attempts and are held only in memory; restarting the desktop invalidates them.
-- Pairing administration endpoints accept loopback clients only.
-- QR pairing cannot grant the `admin` role; owner-admin enrollment remains a trusted local operation.
-- The endpoint supplied in the QR must be a clean HTTPS origin with a trusted certificate. A public relay or NAT traversal service is not included in this backend phase.
-- This is the backend foundation only. The desktop QR display / approval UI and mobile camera scanner are separate integration steps and are not yet available in this phase.
-
-
 ## Desktop-approved QR pairing
 
 The desktop and Flutter companion support a short-lived QR enrollment flow:
@@ -141,3 +122,30 @@ The desktop and Flutter companion support a short-lived QR enrollment flow:
 The QR code expires after two minutes by default, permits one enrollment request, and contains no permanent device credential. Approved credentials are kept in memory and re-delivered only to the QR challenge holder until the phone acknowledges secure storage; the acknowledgement is idempotent. If receipt is never acknowledged, the provisional device is revoked when the session expires. If approval is abandoned before credentials are delivered, the provisional device is revoked. The QR flow requires a valid trusted HTTPS certificate; self-signed certificates that are not trusted by the phone will fail validation.
 
 **Not included:** a hosted internet relay, automatic NAT traversal, or a vendor-operated cloud service. A VPN or user-managed TLS reverse proxy is still required for cross-network reachability.
+
+
+## TLS certificate lifecycle and reverse-proxy trust
+
+### Direct TLS on the desktop API
+
+Set both `VOICEASSISTANT_TLS_CERTFILE` and `VOICEASSISTANT_TLS_KEYFILE`. The certificate PEM should contain the leaf certificate and required intermediate chain; the private key must match. If `VOICEASSISTANT_MOBILE_PUBLIC_URL` is set, the certificate Subject Alternative Name must match its hostname or IP address.
+
+At desktop startup the application now:
+- Validates the PEM X.509 certificate and matching private key.
+- Rejects missing, not-yet-valid, expired, malformed or host-mismatched certificates.
+- Logs a renewal warning when 30 days or fewer remain.
+- Keeps the private key out of logs and API responses.
+
+The certificate is loaded when the mobile API starts. **There is no live certificate hot-reload.** After renewing/replacing the certificate and key, restart VoiceAssistant so Uvicorn loads the new pair. Replace the files atomically (write new files, then rename into place), keep backups outside the repository, and restrict private-key ACLs to the Windows account running VoiceAssistant and administrators.
+
+### TLS-terminating reverse proxy
+
+If TLS terminates at a reverse proxy, leave the desktop API certificate variables unset and configure the proxy to forward the HTTPS origin to the desktop API. The proxy must:
+- Present a publicly trusted certificate for the QR endpoint hostname.
+- Forward `X-Forwarded-Proto: https` to the desktop upstream.
+- Proxy WebSocket upgrades for `/ws` and HTTP requests for `/pairing/*`.
+- Keep the upstream mobile API private; never publish port 8765 directly.
+
+Uvicorn trusts loopback proxies by default. If the reverse proxy connects from another fixed address or private subnet, set `VOICEASSISTANT_TRUSTED_PROXY_IPS` to a comma-separated list of exact IPs/CIDRs, for example `127.0.0.1,10.20.0.5`. Wildcards and world-wide networks are rejected. Trust only the proxy addresses you control; otherwise an untrusted client could spoof forwarded HTTPS headers.
+
+For proxy deployments, renew and reload the certificate at the proxy. The desktop application cannot inspect or rotate a certificate it does not terminate itself.
