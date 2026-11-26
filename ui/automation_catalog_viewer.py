@@ -116,7 +116,7 @@ class AutomationCatalogViewer(ctk.CTkToplevel):
 
         detail = f"{item.description}\nCadence: {self._cadence(item)}\nSetup: {self._requirements(item)}"
         blockers = readiness["blockers"]
-        if setting_key and blockers and not enabled:
+        if setting_key and blockers:
             detail += "\nCannot enable yet: " + "; ".join(blockers)
         elif not setting_key:
             detail += "\nStatus: no executable workflow handler is registered yet."
