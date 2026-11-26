@@ -144,6 +144,7 @@ class MobileIdentityService {
       }
     } finally {
       keyPair.destroy();
+      seed.fillRange(0, seed.length, 0);
     }
     return decoded;
   }
@@ -168,8 +169,9 @@ class MobileIdentityService {
     }
 
     final keyPair = await _algorithm.newKeyPair();
+    List<int>? seed;
     try {
-      final seed = await keyPair.extractPrivateKeyBytes();
+      seed = await keyPair.extractPrivateKeyBytes();
       final publicKey = (await keyPair.extractPublicKey()).bytes;
       if (seed.length != 32 || publicKey.length != 32) {
         throw const MobileIdentityException('Generated Ed25519 key has an invalid length');
@@ -195,6 +197,7 @@ class MobileIdentityService {
       );
     } finally {
       keyPair.destroy();
+      seed?.fillRange(0, seed.length, 0);
     }
   }
 
@@ -213,6 +216,7 @@ class MobileIdentityService {
       return List<int>.unmodifiable(signature.bytes);
     } finally {
       keyPair.destroy();
+      seed.fillRange(0, seed.length, 0);
     }
   }
 
