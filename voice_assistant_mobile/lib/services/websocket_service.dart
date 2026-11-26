@@ -258,11 +258,23 @@ class WebSocketService extends ChangeNotifier {
       // Generate the device signing identity only after the user explicitly
       // scans a pairing QR. The private seed remains in platform secure storage.
       final identity = await MobileIdentityService().loadOrCreateForPairing();
+      final normalizedName = deviceName.trim();
+      final proofMessage = utf8.encode(
+        "voiceassistant-mobile-pairing-v2\\n"
+        "$sessionId\\n"
+        "$normalizedName\\n"
+        "${identity.publicKey}\\n"
+        "$secret",
+      );
+      final proofSignature = base64Url
+          .encode(await MobileIdentityService().sign(proofMessage))
+          .replaceAll("=", "");
       await _postPairingJson(client, requestUri, {
         "session_id": sessionId,
         "secret": secret,
-        "device_name": deviceName.trim(),
+        "device_name": normalizedName,
         "public_key_ed25519": identity.publicKey,
+        "proof_signature": proofSignature,
       });
 
       while (DateTime.now().isBefore(expiresAt)) {
