@@ -27,7 +27,7 @@ MAX_REPLAY_ENTRIES = 20_000
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 _ID = re.compile(r"^[0-9a-f]{32}$")
 _TYPE = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
-_B64URL = re.compile(r"^[A-Za-z0-9_-]{43}$")
+_B64URL = re.compile(r"^[A-Za-z0-9_-]+$")
 _FIELDS = {
     "protocol_version", "sender_id", "recipient_id", "session_id",
     "message_id", "sequence", "issued_at_ms", "expires_at_ms",
@@ -45,7 +45,7 @@ def _b64url_encode(value: bytes) -> str:
 
 
 def _b64url_decode(value: Any, *, expected_length: int) -> bytes:
-    if not isinstance(value, str) or not _B64URL.fullmatch(value):
+    if (not isinstance(value, str) or len(value) != (expected_length * 8 + 5) // 6\n            or not _B64URL.fullmatch(value)):
         raise SignalingEnvelopeError("Invalid base64url value")
     try:
         decoded = base64.b64decode(value + "=", altchars=b"-_", validate=True)
