@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:voice_assistant_mobile/services/websocket_service.dart';
 
@@ -71,3 +74,47 @@ void main() {
   });
 }
 
+
+  test('QR desktop identity fingerprint is validated before pairing', () async {
+    final publicBytes = List<int>.generate(32, (index) => index);
+    final publicKey = base64Url.encode(publicBytes).replaceAll('=', '');
+    final digest = await Sha256().hash(publicBytes);
+    final fingerprint = digest.bytes
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+    final payload = jsonEncode({
+      'type': 'voiceassistant_mobile_pairing',
+      'version': 2,
+      'desktop_identity': {
+        'identity_id': 'a' * 32,
+        'algorithm': 'Ed25519',
+        'public_key': publicKey,
+        'fingerprint_sha256': fingerprint,
+      },
+    });
+
+    final identity = await WebSocketService.inspectDesktopIdentity(payload);
+    expect(identity['identity_id'], 'a' * 32);
+    expect(identity['public_key'], publicKey);
+    expect(identity['fingerprint_sha256'], fingerprint);
+  });
+
+  test('QR desktop identity rejects a tampered fingerprint', () async {
+    final publicBytes = List<int>.generate(32, (index) => index);
+    final publicKey = base64Url.encode(publicBytes).replaceAll('=', '');
+    final payload = jsonEncode({
+      'type': 'voiceassistant_mobile_pairing',
+      'version': 2,
+      'desktop_identity': {
+        'identity_id': 'b' * 32,
+        'algorithm': 'Ed25519',
+        'public_key': publicKey,
+        'fingerprint_sha256': '0' * 64,
+      },
+    });
+
+    await expectLater(
+      WebSocketService.inspectDesktopIdentity(payload),
+      throwsFormatException,
+    );
+  });
