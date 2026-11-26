@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import base64
+import hashlib
 import time
 
 from fastapi.testclient import TestClient
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from relay_service.server import create_app, canonical_json, validate_grant
+from relay_service.server import RendezvousHub, create_app, canonical_json, validate_grant
 
 
 def _b64(raw: bytes) -> str:
@@ -128,3 +130,16 @@ def test_relay_health_is_non_sensitive():
     response = TestClient(create_app(audience="test-relay")).get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "service": "rendezvous-relay"}
+
+
+
+def test_hub_rejects_peers_with_different_signed_grants():
+    async def scenario():
+        hub = RendezvousHub()
+        first = object()
+        second = object()
+        expires = int(time.time() * 1000) + 60_000
+        assert await hub.attach("4" * 32, "desktop", first, expires, "a" * 64)
+        assert not await hub.attach("4" * 32, "mobile", second, expires, "b" * 64)
+
+    asyncio.run(scenario())
