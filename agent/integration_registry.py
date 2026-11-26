@@ -6,6 +6,7 @@ OAuth acquisition and refresh are handled by provider adapters, not this store.
 """
 from __future__ import annotations
 
+import copy
 import os
 import re
 import threading
@@ -24,6 +25,7 @@ _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 _TOKEN_MIN = 8
 _TOKEN_MAX = 8192
 _MAX_SCOPES = 32
+_MAX_STORE_BYTES = 256 * 1024
 
 _PROVIDER_SCOPES = {
     "google": {
@@ -72,12 +74,24 @@ def _parse_expiry(value: Any) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _contains_symlink_component(path: Path) -> bool:
+    absolute = Path(os.path.abspath(str(path)))
+    current = Path(absolute.anchor)
+    for component in absolute.parts[1:]:
+        current = current / component
+        if current.is_symlink():
+            return True
+    return False
+
+
 @contextmanager
 def _file_lock(path: Path) -> Iterator[None]:
     lock_path = path.with_name(path.name + ".lock")
-    if path.is_symlink() or lock_path.is_symlink():
-        raise DataProtectionError("Integration store or lock path must not be a symbolic link")
+    if _contains_symlink_component(path) or _contains_symlink_component(lock_path):
+        raise DataProtectionError("Integration store and lock paths must not contain symbolic links")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
+    if _contains_symlink_component(path) or _contains_symlink_component(lock_path):
+        raise DataProtectionError("Integration store path changed to a symbolic link")
     with lock_path.open("a+b") as handle:
         handle.seek(0, os.SEEK_END)
         if handle.tell() == 0:
@@ -95,6 +109,8 @@ def _file_lock(path: Path) -> Iterator[None]:
             else:
                 raise RuntimeError("Integration storage requires OS file locking")
             acquired = True
+            if _contains_symlink_component(path) or _contains_symlink_component(lock_path):
+                raise DataProtectionError("Integration store path changed while acquiring its lock")
             yield
         finally:
             if acquired:
@@ -111,9 +127,11 @@ class IntegrationConnectionStore:
 
     def __init__(self, path: Optional[Path | str] = None):
         self.path = Path(path or INTEGRATION_FILE)
-        if self.path.parent.is_symlink() or self.path.is_symlink():
-            raise DataProtectionError("Integration store path must not be a symbolic link")
+        if _contains_symlink_component(self.path):
+            raise DataProtectionError("Integration store path must not contain symbolic links")
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if _contains_symlink_component(self.path):
+            raise DataProtectionError("Integration store path changed to a symbolic link")
         self._lock = threading.RLock()
         with self._guard():
             self._read_unlocked()
@@ -125,6 +143,10 @@ class IntegrationConnectionStore:
                 yield
 
     def _read_unlocked(self) -> Dict[str, Any]:
+        if _contains_symlink_component(self.path):
+            raise DataProtectionError("Integration store path must not contain symbolic links")
+        if self.path.exists() and self.path.stat().st_size > _MAX_STORE_BYTES:
+            raise IntegrationStoreError("Integration store exceeds its size limit")
         document = load_json(
             self.path,
             default={"version": 1, "connections": {}},
@@ -226,7 +248,7 @@ class IntegrationConnectionStore:
             raise ValueError("Provider must be google or microsoft")
         with self._guard():
             record = self._read_unlocked()["connections"].get(provider)
-            return dict(record) if record else None
+            return copy.deepcopy(record) if record else None
 
     def get_status(self, provider: str) -> Dict[str, Any]:
         connection = self.get_connection(provider)
@@ -261,9 +283,10 @@ class IntegrationConnectionStore:
         return [self.get_status(provider) for provider in sorted(_PROVIDER_SCOPES)]
 
     def connected_integrations(self) -> Set[str]:
+        """Return only capabilities backed by an unexpired access token."""
         capabilities: Set[str] = set()
         for status in self.list_status():
-            if status["connected"]:
+            if status["connected"] and not status["needs_refresh"]:
                 capabilities.update(status["capabilities"])
         return capabilities
 
