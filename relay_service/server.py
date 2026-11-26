@@ -137,6 +137,7 @@ def verify_join_proof(grant: dict[str, Any], side: str, challenge: str,
 @dataclass
 class PeerSession:
     expires_at_ms: int
+    grant_sha256: str
     peers: dict[str, WebSocket] = field(default_factory=dict)
     changed: asyncio.Event = field(default_factory=asyncio.Event)
 
@@ -150,7 +151,7 @@ class RendezvousHub:
         self._lock = asyncio.Lock()
 
     async def attach(self, session_id: str, side: str, socket: WebSocket,
-                     expires_at_ms: int) -> bool:
+                     expires_at_ms: int, grant_sha256: str) -> bool:
         now = int(time.time() * 1000)
         async with self._lock:
             expired = [key for key, value in self._sessions.items()
@@ -161,9 +162,11 @@ class RendezvousHub:
             if session is None:
                 if len(self._sessions) >= self.max_sessions:
                     return False
-                session = PeerSession(expires_at_ms=expires_at_ms)
+                session = PeerSession(expires_at_ms=expires_at_ms, grant_sha256=grant_sha256)
                 self._sessions[session_id] = session
-            if session.expires_at_ms != expires_at_ms or side in session.peers:
+            if (session.expires_at_ms != expires_at_ms
+                    or not hmac.compare_digest(session.grant_sha256, grant_sha256)
+                    or side in session.peers):
                 return False
             session.peers[side] = socket
             session.changed.set()
@@ -242,7 +245,8 @@ def create_app(*, audience: str | None = None, hub: RendezvousHub | None = None)
                 grant, side, challenge, auth["issued_at_ms"], auth["proof_signature"]
             )
             if not await relay_hub.attach(
-                session_id, side, websocket, grant["expires_at_ms"]
+                session_id, side, websocket, grant["expires_at_ms"],
+                hashlib.sha256(canonical_json(grant)).hexdigest(),
             ):
                 await websocket.close(code=1008, reason="Session is full or expired")
                 return
