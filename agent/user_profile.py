@@ -33,6 +33,8 @@ DEFAULT_PROFILE: Dict[str, Any] = {
     "settings": {
         "assistant_context_enabled": False,
         "personal_automations_enabled": False,
+        "birthday_reminders_enabled": False,
+        "birthday_reminder_time": "09:00",
         "timezone": "",
     },
     "interests": [],
@@ -214,6 +216,11 @@ class UserProfileStore:
             raise ValueError("assistant_context_enabled must be boolean")
         if not isinstance(settings.get("personal_automations_enabled"), bool):
             raise ValueError("personal_automations_enabled must be boolean")
+        if not isinstance(settings.get("birthday_reminders_enabled"), bool):
+            raise ValueError("birthday_reminders_enabled must be boolean")
+        reminder_time = _safe_text(settings.get("birthday_reminder_time", "09:00"), "birthday_reminder_time", 5)
+        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", reminder_time):
+            raise ValueError("birthday_reminder_time must use HH:MM (24-hour time)")
         timezone_name = _safe_text(settings.get("timezone", ""), "timezone", 80)
         if timezone_name:
             try:
@@ -223,6 +230,8 @@ class UserProfileStore:
         data["settings"] = {
             "assistant_context_enabled": settings["assistant_context_enabled"],
             "personal_automations_enabled": settings["personal_automations_enabled"],
+            "birthday_reminders_enabled": settings["birthday_reminders_enabled"],
+            "birthday_reminder_time": reminder_time,
             "timezone": timezone_name,
         }
 
