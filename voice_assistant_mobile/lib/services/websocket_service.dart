@@ -419,6 +419,10 @@ class WebSocketService extends ChangeNotifier {
       }
     }
 
+    final savedDeviceId = await _secureStorage.read(key: "mobile_device_id");
+    if (savedDeviceId == null || savedDeviceId != deviceId) {
+      throw StateError("This remote QR was created for a different paired mobile device.");
+    }
     final mobileIdentity = MobileIdentityService();
     final mobileKey = await mobileIdentity.load();
     if (mobileKey == null) {
