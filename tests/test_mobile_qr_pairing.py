@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import pytest
+
+VALID_PUBLIC_KEY = base64.urlsafe_b64encode(bytes(range(32))).decode('ascii').rstrip('=')
 
 from mobile_api.pairing import PairingCoordinator, PairingError
 
@@ -9,12 +13,13 @@ class FakeRegistry:
     def __init__(self):
         self.created = []
 
-    def register(self, name, role="operator"):
+    def register(self, name, role="operator", *, public_key_ed25519=None):
         item = {
             "device_id": f"{len(self.created) + 1:032x}",
             "device_token": f"secret-{len(self.created) + 1}",
             "name": name,
             "role": role,
+            "public_key_ed25519": public_key_ed25519,
         }
         self.created.append(item)
         return item
@@ -25,12 +30,16 @@ def _session(coordinator):
     return payload["session_id"], payload["secret"]
 
 
+def _submit(coordinator, session_id, secret, name):
+    return coordinator.submit_request(session_id, secret, name, VALID_PUBLIC_KEY)
+
+
 def test_qr_payload_contains_only_short_lived_challenge_not_device_credentials():
     coordinator = PairingCoordinator(FakeRegistry())
     payload = coordinator.create_session("https://assistant.example.com")
 
     assert payload["type"] == "voiceassistant_mobile_pairing"
-    assert payload["version"] == 1
+    assert payload["version"] == 2
     assert payload["endpoint"] == "https://assistant.example.com"
     assert payload["session_id"]
     assert payload["secret"]
@@ -66,7 +75,7 @@ def test_desktop_approval_is_required_before_credentials_are_created():
     coordinator = PairingCoordinator(registry)
     session_id, secret = _session(coordinator)
 
-    coordinator.submit_request(session_id, secret, "Owner phone")
+    _submit(coordinator, session_id, secret, "Owner phone")
     assert registry.created == []
     assert coordinator.pending_requests()[0]["device_name"] == "Owner phone"
     assert coordinator.poll_result(session_id, secret)["status"] == "pending_approval"
@@ -82,7 +91,7 @@ def test_desktop_approval_is_required_before_credentials_are_created():
 def test_pairing_credentials_are_retried_until_idempotent_receipt_acknowledgement():
     coordinator = PairingCoordinator(FakeRegistry())
     session_id, secret = _session(coordinator)
-    coordinator.submit_request(session_id, secret, "Phone")
+    _submit(coordinator, session_id, secret, "Phone")
     request_id = coordinator.pending_requests()[0]["request_id"]
     assert coordinator.approve(request_id) is True
 
@@ -98,9 +107,9 @@ def test_pairing_credentials_are_retried_until_idempotent_receipt_acknowledgemen
 def test_pairing_qr_is_single_request_and_cannot_be_replayed():
     coordinator = PairingCoordinator(FakeRegistry())
     session_id, secret = _session(coordinator)
-    coordinator.submit_request(session_id, secret, "First phone")
+    _submit(coordinator, session_id, secret, "First phone")
     with pytest.raises(PairingError, match="already been used"):
-        coordinator.submit_request(session_id, secret, "Second phone")
+        _submit(coordinator, session_id, secret, "Second phone")
 
 
 def test_invalid_secret_is_rejected_and_five_attempts_invalidate_session():
@@ -108,9 +117,9 @@ def test_invalid_secret_is_rejected_and_five_attempts_invalidate_session():
     session_id, secret = _session(coordinator)
     for _ in range(5):
         with pytest.raises(PairingError):
-            coordinator.submit_request(session_id, "wrong-secret", "Phone")
+            _submit(coordinator, session_id, "wrong-secret", "Phone")
     with pytest.raises(PairingError):
-        coordinator.submit_request(session_id, secret, "Phone")
+        _submit(coordinator, session_id, secret, "Phone")
 
 
 def test_pairing_session_expires_and_cannot_be_used():
@@ -119,14 +128,14 @@ def test_pairing_session_expires_and_cannot_be_used():
     session_id, secret = _session(coordinator)
     now[0] += 121
     with pytest.raises(PairingError, match="expired"):
-        coordinator.submit_request(session_id, secret, "Phone")
+        _submit(coordinator, session_id, secret, "Phone")
 
 
 def test_pairing_denial_does_not_enroll_device():
     registry = FakeRegistry()
     coordinator = PairingCoordinator(registry)
     session_id, secret = _session(coordinator)
-    coordinator.submit_request(session_id, secret, "Untrusted phone")
+    _submit(coordinator, session_id, secret, "Untrusted phone")
     request_id = coordinator.pending_requests()[0]["request_id"]
 
     assert coordinator.deny(request_id) is True
@@ -138,7 +147,7 @@ def test_pairing_denial_does_not_enroll_device():
 def test_qr_pairing_cannot_grant_admin_or_malformed_roles(role):
     coordinator = PairingCoordinator(FakeRegistry())
     session_id, secret = _session(coordinator)
-    coordinator.submit_request(session_id, secret, "Phone")
+    _submit(coordinator, session_id, secret, "Phone")
     request_id = coordinator.pending_requests()[0]["request_id"]
 
     with pytest.raises(PairingError):
@@ -164,7 +173,7 @@ def test_desktop_can_cancel_pairing_session():
     assert coordinator.cancel(session_id) is True
     assert coordinator.cancel(session_id) is False
     with pytest.raises(PairingError):
-        coordinator.submit_request(session_id, secret, "Phone")
+        _submit(coordinator, session_id, secret, "Phone")
 
 
 
@@ -203,7 +212,7 @@ def test_pairing_rejects_non_string_endpoint_and_device_name():
 
     session_id, secret = _session(coordinator)
     with pytest.raises(PairingError, match="Device name must be text"):
-        coordinator.submit_request(session_id, secret, {"name": "phone"})
+        coordinator.submit_request(session_id, secret, {"name": "phone"}, VALID_PUBLIC_KEY)
 
 
 
@@ -218,7 +227,7 @@ def test_approved_but_undelivered_device_is_revoked_when_desktop_cancels():
     registry.revoke = revoke
     coordinator = PairingCoordinator(registry)
     session_id, secret = _session(coordinator)
-    coordinator.submit_request(session_id, secret, "Phone")
+    _submit(coordinator, session_id, secret, "Phone")
     request_id = coordinator.pending_requests()[0]["request_id"]
     assert coordinator.approve(request_id) is True
 
@@ -233,7 +242,7 @@ def test_approved_but_undelivered_device_is_revoked_when_session_expires():
     registry.revoke = lambda device_id: registry.revoked.append(device_id) or True
     coordinator = PairingCoordinator(registry, clock=lambda: now[0])
     session_id, secret = _session(coordinator)
-    coordinator.submit_request(session_id, secret, "Phone")
+    _submit(coordinator, session_id, secret, "Phone")
     request_id = coordinator.pending_requests()[0]["request_id"]
     assert coordinator.approve(request_id) is True
 
@@ -249,7 +258,7 @@ def test_challenge_lockout_revokes_provisionally_approved_device():
     registry.revoke = lambda device_id: registry.revoked.append(device_id) or True
     coordinator = PairingCoordinator(registry)
     session_id, secret = _session(coordinator)
-    coordinator.submit_request(session_id, secret, "Phone")
+    _submit(coordinator, session_id, secret, "Phone")
     request_id = coordinator.pending_requests()[0]["request_id"]
     assert coordinator.approve(request_id) is True
 
@@ -279,7 +288,7 @@ def test_completed_pairing_is_not_revoked_when_desktop_session_is_cancelled():
     registry.revoke = lambda device_id: registry.revoked.append(device_id) or True
     coordinator = PairingCoordinator(registry)
     session_id, secret = _session(coordinator)
-    coordinator.submit_request(session_id, secret, "Phone")
+    _submit(coordinator, session_id, secret, "Phone")
     request_id = coordinator.pending_requests()[0]["request_id"]
     assert coordinator.approve(request_id) is True
     coordinator.poll_result(session_id, secret)
@@ -294,7 +303,7 @@ def test_desktop_session_status_tracks_approval_completion_and_expiry():
     coordinator = PairingCoordinator(FakeRegistry())
     session_id, secret = _session(coordinator)
     assert coordinator.session_state(session_id) == "waiting"
-    coordinator.submit_request(session_id, secret, "Phone")
+    _submit(coordinator, session_id, secret, "Phone")
     request_id = coordinator.pending_requests()[0]["request_id"]
     assert coordinator.session_state(session_id) == "pending_approval"
     assert coordinator.approve(request_id) is True
@@ -304,3 +313,26 @@ def test_desktop_session_status_tracks_approval_completion_and_expiry():
     assert coordinator.session_state(session_id) == "completed"
     coordinator.cancel(session_id)
     assert coordinator.session_state(session_id) == "expired"
+
+
+def test_qr_pairing_requires_canonical_ed25519_mobile_public_key():
+    coordinator = PairingCoordinator(FakeRegistry())
+    session_id, secret = _session(coordinator)
+
+    with pytest.raises(PairingError, match="Ed25519 mobile public key"):
+        coordinator.submit_request(session_id, secret, "Phone", "not-a-key")
+
+
+def test_pending_approval_exposes_mobile_key_fingerprint_and_registration_binds_key():
+    registry = FakeRegistry()
+    coordinator = PairingCoordinator(registry)
+    session_id, secret = _session(coordinator)
+
+    _submit(coordinator, session_id, secret, "Trusted phone")
+    pending = coordinator.pending_requests()[0]
+    expected_fingerprint = hashlib.sha256(bytes(range(32))).hexdigest()
+    assert pending["identity_algorithm"] == "Ed25519"
+    assert pending["identity_fingerprint"] == expected_fingerprint
+
+    assert coordinator.approve(pending["request_id"]) is True
+    assert registry.created[0]["public_key_ed25519"] == VALID_PUBLIC_KEY
