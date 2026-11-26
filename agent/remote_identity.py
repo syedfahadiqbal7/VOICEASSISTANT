@@ -247,5 +247,5 @@ class RemoteIdentityStore:
 
 
 def get_remote_identity_store() -> RemoteIdentityStore:
-    """Return the process-wide default identity store."""
+    """Return a store bound to the default runtime profile."""
     return RemoteIdentityStore()
