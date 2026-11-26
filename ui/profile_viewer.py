@@ -136,6 +136,12 @@ class ProfileViewer(ctk.CTkToplevel):
         ctk.CTkLabel(row3, text="Daily lesson minutes", width=150, anchor="w").pack(side="left")
         self.minutes_var = ctk.StringVar(value="10")
         ctk.CTkOptionMenu(row3, variable=self.minutes_var, values=[str(i) for i in range(1, 11)], width=80).pack(side="left")
+        row4 = ctk.CTkFrame(frame, fg_color="transparent")
+        row4.pack(fill="x", padx=8, pady=(0, 8))
+        ctk.CTkLabel(row4, text="Daily lesson time", width=150, anchor="w").pack(side="left")
+        self.language_time_entry = ctk.CTkEntry(row4, width=100, placeholder_text="08:00")
+        self.language_time_entry.pack(side="left")
+        ctk.CTkLabel(row4, text="24-hour local time", text_color=("gray45", "gray65")).pack(side="left", padx=8)
 
         self._add_list_field(
             "Birthdays (one per line: Label | MM-DD | reminder days)",
@@ -168,6 +174,7 @@ class ProfileViewer(ctk.CTkToplevel):
         self.language_entry.insert(0, profile["language"]["target_language"])
         self.level_var.set(profile["language"]["level"])
         self.minutes_var.set(str(profile["language"]["daily_minutes"]))
+        self.language_time_entry.insert(0, settings["daily_language_lesson_time"])
 
         sections = {
             "interests": profile["interests"],
@@ -239,6 +246,8 @@ class ProfileViewer(ctk.CTkToplevel):
                     "personal_automations_enabled": bool(self.automation_var.get()),
                     "birthday_reminders_enabled": self.profile_store.get_profile()["settings"]["birthday_reminders_enabled"],
                     "birthday_reminder_time": self.birthday_time_entry.get().strip(),
+                    "daily_language_lesson_enabled": self.profile_store.get_profile()["settings"]["daily_language_lesson_enabled"],
+                    "daily_language_lesson_time": self.language_time_entry.get().strip(),
                     "timezone": self.timezone_entry.get().strip(),
                 },
                 "interests": self._read_lines(self.fields["interests"]),
