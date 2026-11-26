@@ -46,6 +46,7 @@ _JSON_STORE_NAMES = {
     "agent_memory.json",
     "user_profile.json",
     "scheduled_execution_history.json",
+    "integrations.json",
     "desktop_remote_identity.json",
     "agent_policy.json",
     "scheduled_jobs.json",
