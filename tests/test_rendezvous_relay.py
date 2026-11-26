@@ -49,7 +49,7 @@ def _authenticate(socket, side, grant, grant_signature, private_key):
         "session_id": grant["session_id"],
         "side": side,
         "challenge": challenge["challenge"],
-        "grant_sha256": __import__("hashlib").sha256(canonical_json(grant)).hexdigest(),
+        "grant_sha256": hashlib.sha256(canonical_json(grant)).hexdigest(),
         "issued_at_ms": int(time.time() * 1000),
     }
     socket.send_json({
