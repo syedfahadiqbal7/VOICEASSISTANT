@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'mobile_identity_service.dart';
 
@@ -122,28 +123,6 @@ class SignalingEnvelopeService {
     return random.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
   }
 
-  static final _random = _SecureRandom();
-  static int _secureRandomByte() => _random.nextByte();
-}
-
-/// Uses dart:math Random.secure without exposing a seed or predictable PRNG.
-class _SecureRandom {
-  final dynamic _source = _createSecureRandom();
-
-  int nextByte() => _source.nextInt(256);
-}
-
-dynamic _createSecureRandom() {
-  // Kept in a helper so the secure source is created once per service library.
-  return _SecureRandomSource();
-}
-
-class _SecureRandomSource {
-  final _random = _secureRandomFactory();
-  int nextInt(int max) => _random.nextInt(max);
-}
-
-dynamic _secureRandomFactory() {
-  // dart:math is imported lazily at library scope by the companion import.
-  return _mathRandomSecure();
+  static final math.Random _random = math.Random.secure();
+  static int _secureRandomByte() => _random.nextInt(256);
 }
