@@ -29,6 +29,7 @@ from agent.storage import atomic_write_json
 from config import HISTORY_DIR
 
 IDENTITY_FILE = Path(HISTORY_DIR) / "desktop_remote_identity.json"
+_PROCESS_LOCK = threading.RLock()
 _SCHEMA_VERSION = 1
 _MAX_MESSAGE_BYTES = 1024 * 1024
 _MAX_IDENTITY_FILE_BYTES = 16 * 1024
@@ -108,11 +109,10 @@ class RemoteIdentityStore:
 
     def __init__(self, path: Path | str | None = None):
         self.path = Path(path) if path is not None else IDENTITY_FILE
-        self._lock = threading.RLock()
 
     @contextmanager
     def _guard(self) -> Iterator[None]:
-        with self._lock:
+        with _PROCESS_LOCK:
             with _identity_file_lock(self.path):
                 yield
 
