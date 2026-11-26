@@ -14,6 +14,7 @@ import os
 import re
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -30,7 +31,10 @@ CLOCK_SKEW_MS = 30_000
 AUTH_TIMEOUT_SECONDS = 5
 PEER_WAIT_SECONDS = 120
 SEND_TIMEOUT_SECONDS = 5
-MAX_SESSIONS = 2048
+MAX_SESSIONS = 256
+MAX_CONNECTIONS = 512
+MAX_CONNECTIONS_PER_IP = 32
+MAX_AUTH_ATTEMPTS_PER_MINUTE = 60
 MAX_FRAMES_PER_WINDOW = 120
 RATE_WINDOW_SECONDS = 10
 
@@ -204,11 +208,57 @@ class FrameRate:
         return self.count <= MAX_FRAMES_PER_WINDOW
 
 
+class RelayAdmission:
+    """Bound unauthenticated sockets and handshake attempts before crypto work."""
+
+    def __init__(self):
+        self._active = 0
+        self._active_by_ip: dict[str, int] = {}
+        self._attempts_by_ip: dict[str, Any] = {}
+        self._lock = asyncio.Lock()
+
+    async def open(self, host: str) -> bool:
+        now = time.monotonic()
+        async with self._lock:
+            for address, attempts in list(self._attempts_by_ip.items()):
+                while attempts and now - attempts[0] >= 60:
+                    attempts.popleft()
+                if not attempts:
+                    self._attempts_by_ip.pop(address, None)
+            attempts = self._attempts_by_ip.get(host)
+            if attempts is None:
+                if len(self._attempts_by_ip) >= 4096:
+                    return False
+                attempts = deque()
+                self._attempts_by_ip[host] = attempts
+            if len(attempts) >= MAX_AUTH_ATTEMPTS_PER_MINUTE:
+                return False
+            attempts.append(now)
+            if (
+                self._active >= MAX_CONNECTIONS
+                or self._active_by_ip.get(host, 0) >= MAX_CONNECTIONS_PER_IP
+            ):
+                return False
+            self._active += 1
+            self._active_by_ip[host] = self._active_by_ip.get(host, 0) + 1
+            return True
+
+    async def close(self, host: str) -> None:
+        async with self._lock:
+            self._active = max(0, self._active - 1)
+            remaining = self._active_by_ip.get(host, 0) - 1
+            if remaining <= 0:
+                self._active_by_ip.pop(host, None)
+            else:
+                self._active_by_ip[host] = remaining
+
+
 def create_app(*, audience: str | None = None, hub: RendezvousHub | None = None) -> FastAPI:
     expected_audience = audience or os.environ.get(
         "VOICEASSISTANT_RELAY_AUDIENCE", "voiceassistant-relay"
     )
     relay_hub = hub or RendezvousHub()
+    admission = RelayAdmission()
     app = FastAPI(title="VoiceAssistant Rendezvous Relay", version="1.0")
 
     @app.get("/health")
@@ -220,8 +270,12 @@ def create_app(*, audience: str | None = None, hub: RendezvousHub | None = None)
         if not _ID.fullmatch(session_id) or side not in {"desktop", "mobile"}:
             await websocket.close(code=1008)
             return
-        await websocket.accept()
+        client_host = websocket.client.host if websocket.client else "unknown"
+        if not await admission.open(client_host):
+            await websocket.close(code=1013, reason="Relay admission limit exceeded")
+            return
         try:
+            await websocket.accept()
             challenge = uuid.uuid4().hex + uuid.uuid4().hex
             await websocket.send_text(json.dumps({
                 "type": "relay.challenge", "challenge": challenge,
@@ -297,6 +351,7 @@ def create_app(*, audience: str | None = None, hub: RendezvousHub | None = None)
                     await remaining_peer.close(code=1013, reason="Peer disconnected")
                 except Exception:
                     pass
+            await admission.close(client_host)
 
     return app
 
