@@ -75,7 +75,9 @@ part of a coordinated client configuration.
   routing and a reviewed shared-session design.
 - Configure host firewall, OS patching, Docker updates, DNS, TLS renewal,
   monitoring and log retention according to the deployment's security policy.
-- Do not enable access logs that capture WebSocket query strings, authorization
+- Uvicorn access logging is disabled in the supplied container command to avoid
+  recording session IDs from WebSocket paths. Do not enable Caddy access logs or
+  any proxy/application logs that capture session identifiers, authorization
   headers or message frames.
 - Do not expose the container's port 8080 publicly.
 - This prototype has in-memory global connection/session caps, per-IP active
