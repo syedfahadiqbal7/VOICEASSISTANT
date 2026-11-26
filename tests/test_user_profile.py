@@ -191,3 +191,15 @@ def test_birthday_reminder_settings_default_and_validation(tmp_path):
         store.update_profile({"settings": {"birthday_reminder_time": "25:90"}})
     with pytest.raises(ValueError, match="birthday_reminders_enabled"):
         store.update_profile({"settings": {"birthday_reminders_enabled": "yes"}})
+
+def test_daily_language_lesson_settings_default_and_validate_local_time(tmp_path):
+    store = UserProfileStore(tmp_path / "profile.json")
+    settings = store.get_profile()["settings"]
+    assert settings["daily_language_lesson_enabled"] is False
+    assert settings["daily_language_lesson_time"] == "08:00"
+    store.update_profile({"settings": {"daily_language_lesson_time": "07:30"}})
+    assert store.get_profile()["settings"]["daily_language_lesson_time"] == "07:30"
+    with pytest.raises(ValueError, match="daily_language_lesson_time"):
+        store.update_profile({"settings": {"daily_language_lesson_time": "24:00"}})
+    with pytest.raises(ValueError, match="daily_language_lesson_enabled"):
+        store.update_profile({"settings": {"daily_language_lesson_enabled": "yes"}})
