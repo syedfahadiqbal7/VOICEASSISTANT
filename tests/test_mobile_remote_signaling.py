@@ -182,7 +182,7 @@ def test_signaling_hub_enforces_one_socket_per_side_and_cleans_up():
         replacement = object()
         assert await hub.attach(session_id, "mobile", replacement)
         assert await hub.wait_for_peer(session_id, "desktop") is replacement
-        await hub.detach(session_id, "replacement", replacement)
+        await hub.detach(session_id, "mobile", replacement)
         await hub.detach(session_id, "desktop", desktop)
         assert await hub.replay_guard(session_id) is not None
 
