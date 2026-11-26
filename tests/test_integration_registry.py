@@ -80,6 +80,7 @@ def test_expired_connection_is_reported_for_refresh_without_exposing_tokens(tmp_
     )
     assert status["needs_refresh"] is True
     assert "refresh_token" not in status
+    assert store.connected_integrations() == set()
 
 
 def test_disconnect_removes_tokens_and_capabilities(tmp_path, monkeypatch):
@@ -138,3 +139,21 @@ def test_symlinked_integration_store_is_rejected(tmp_path, monkeypatch):
         pytest.skip("Symlinks are not available in this test environment")
     with pytest.raises(DataProtectionError):
         IntegrationConnectionStore(link)
+
+
+def test_parent_symlink_and_oversized_registry_fail_closed(tmp_path, monkeypatch):
+    _key(monkeypatch)
+    real_parent = tmp_path / "real"
+    real_parent.mkdir()
+    linked_parent = tmp_path / "linked"
+    try:
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Directory symlinks are not available in this test environment")
+    with pytest.raises(DataProtectionError):
+        IntegrationConnectionStore(linked_parent / "integrations.json")
+
+    oversized = tmp_path / "oversized.json"
+    oversized.write_bytes(b"x" * (256 * 1024 + 1))
+    with pytest.raises(IntegrationStoreError, match="size limit"):
+        IntegrationConnectionStore(oversized)
