@@ -264,6 +264,36 @@ class RemoteSessionStore:
                 )
             )
 
+    def authorize_desktop(self, *, session_id: str, device_id: str, registry,
+                          now_ms: int | None = None) -> bool:
+        """Authorize the local desktop peer while rechecking the paired device."""
+        if (
+            not isinstance(session_id, str) or not _DEVICE_ID.fullmatch(session_id)
+            or not isinstance(device_id, str) or not _DEVICE_ID.fullmatch(device_id)
+        ):
+            return False
+        try:
+            now = self._now_ms(now_ms)
+        except RemoteSessionError:
+            return False
+        with self._lock:
+            self._prune(now)
+            session = self._sessions.get(session_id)
+            if session is None or session["device_id"] != device_id:
+                return False
+            try:
+                identity = registry.get_device_identity(device_id)
+            except Exception:
+                return False
+            return bool(
+                identity
+                and identity.get("algorithm") == "Ed25519"
+                and hmac.compare_digest(
+                    str(identity.get("fingerprint_sha256", "")),
+                    session["identity_fingerprint"],
+                )
+            )
+
     def revoke_session(self, session_id: str) -> bool:
         if not isinstance(session_id, str):
             return False
