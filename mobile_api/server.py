@@ -149,7 +149,10 @@ async def submit_pairing_request(request: Request):
         if not isinstance(data, dict):
             raise PairingError("Invalid pairing request")
         result = pairing_coordinator.submit_request(
-            data.get("session_id", ""), data.get("secret", ""), data.get("device_name", "")
+            data.get("session_id", ""),
+            data.get("secret", ""),
+            data.get("device_name", ""),
+            data.get("public_key_ed25519", ""),
         )
         return {"ok": True, **result}
     except PairingError as error:
