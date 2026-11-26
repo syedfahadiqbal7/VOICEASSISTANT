@@ -512,3 +512,20 @@ def test_deferred_execution_recovery_keeps_retry_budget_and_identity(tmp_path, m
     assert recovered["execution_waiting"] is True
     assert recovered["attempts"] == 0
     assert recovered["execution_id"] == execution_id
+
+def test_stop_recurring_after_current_cancels_pending_or_finishes_waiting_run(tmp_path, monkeypatch):
+    scheduler, _ = _scheduler(tmp_path, monkeypatch, lambda _job: True)
+    pending = scheduler.add_calendar("reminder", {"type": "calendar", "frequency": "daily", "local_time": "09:00", "timezone": "Asia/Dubai"})
+    assert scheduler.stop_recurring_after_current(pending["id"]) == "cancelled"
+    assert scheduler.list_jobs()[0]["status"] == "cancelled"
+
+    waiting = scheduler.add_calendar("waiting reminder", {"type": "calendar", "frequency": "daily", "local_time": "09:00", "timezone": "Asia/Dubai"})
+    scheduler.jobs[1]["execution_waiting"] = True
+    assert scheduler.stop_recurring_after_current(waiting["id"]) == "stopping"
+    scheduler._fire(waiting)
+    stored = next(job for job in scheduler.list_jobs() if job["id"] == waiting["id"])
+    assert stored["status"] == "completed"
+    assert stored["enabled"] is False
+    assert "disable_after_run" not in stored
+    record = next(item for item in scheduler.history.list_records() if item["execution_id"] == waiting["execution_id"])
+    assert record["status"] == "succeeded"
