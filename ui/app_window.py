@@ -26,7 +26,10 @@ from ui.diff_viewer import DiffViewer
 from ui.audit_viewer import AuditLogViewer
 from ui.help_window import HelpWindow
 from mobile_api.bridge import bridge
-from mobile_api.server import start_server, stop_server, pairing_coordinator
+from mobile_api.server import (
+    start_server, stop_server, pairing_coordinator, mobile_devices,
+    _create_remote_session_qr, remote_session_store,
+)
 from ui.scheduler_viewer import open_scheduler_viewer
 from ui.undo_viewer import open_undo_viewer
 from ui.policy_viewer import open_policy_viewer
@@ -162,6 +165,7 @@ class AgenticVoiceAssistant(ctk.CTk):
         self.stop_speak_btn = _tb("Stop Speaking", "#B9770E", "#9A7D0A", self._stop_speaking, 110)
         self.stop_activity_btn = _tb("Stop Activity", "#C0392B", "#922B21", self._stop_activity, 110)
         self.mobile_pair_btn = _tb("Pair Mobile", "#117A65", "#0E6655", self._show_mobile_pairing, 100)
+        self.mobile_remote_btn = _tb("Remote Mobile", "#1F618D", "#154360", self._show_remote_session_qr, 112)
 
         # Transcript card
         self.main_card = ctk.CTkFrame(self, fg_color=("white", "#1B2838"), corner_radius=12)
@@ -477,6 +481,176 @@ class AgenticVoiceAssistant(ctk.CTk):
 
         self.update_transcript("[Mobile] A short-lived QR pairing code was created. The phone will not be enrolled until you approve it here.")
         poll()
+    def _show_remote_session_qr(self):
+        """Create a short-lived, signed remote-access QR for an already paired phone."""
+        import json
+        import os
+        import qrcode
+
+        endpoint = os.environ.get("VOICEASSISTANT_MOBILE_PUBLIC_URL", "").strip()
+        if not endpoint:
+            messagebox.showerror(
+                "Remote mobile access is not configured",
+                "Set VOICEASSISTANT_MOBILE_PUBLIC_URL to the HTTPS address the phone can reach. "
+                "The address must route to this desktop API with a trusted TLS certificate.",
+                parent=self,
+            )
+            return
+
+        devices = [
+            item for item in mobile_devices.list_devices()
+            if item.get("status") == "active" and item.get("identity_fingerprint")
+        ]
+        if not devices:
+            messagebox.showinfo(
+                "No eligible paired phones",
+                "Pair a phone first. Remote QR access requires an active paired device with an Ed25519 identity.",
+                parent=self,
+            )
+            return
+
+        chooser = ctk.CTkToplevel(self)
+        chooser.title("Create remote mobile session")
+        chooser.geometry("560x300")
+        chooser.resizable(False, False)
+        chooser.transient(self)
+        chooser.grab_set()
+
+        ctk.CTkLabel(
+            chooser,
+            text="Choose an already paired phone",
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).pack(padx=20, pady=(20, 8))
+
+        device_labels = {
+            f"{item.get('name', 'Mobile device')} • {item['device_id'][:8]}": item
+            for item in devices
+        }
+        selected_label = next(iter(device_labels))
+        device_var = ctk.StringVar(value=selected_label)
+        device_menu = ctk.CTkOptionMenu(
+            chooser, values=list(device_labels), variable=device_var, width=480
+        )
+        device_menu.pack(padx=20, pady=8)
+
+        endpoint_var = ctk.StringVar(value=endpoint)
+        endpoint_entry = ctk.CTkEntry(
+            chooser, textvariable=endpoint_var, width=480,
+            placeholder_text="https://your-public-hostname",
+        )
+        endpoint_entry.pack(padx=20, pady=8)
+
+        ctk.CTkLabel(
+            chooser,
+            text="QR expires in 90 seconds. The authenticated mobile session lasts 10 minutes. "
+                 "Both devices must be able to reach this HTTPS/WSS endpoint.",
+            wraplength=500,
+            justify="center",
+        ).pack(padx=20, pady=8)
+
+        def create_qr():
+            selected = device_labels.get(device_var.get())
+            if selected is None:
+                messagebox.showerror("Select a phone", "Choose an active paired phone.", parent=chooser)
+                return
+            if not messagebox.askyesno(
+                "Authorize remote access",
+                f"Create a 10-minute remote session for {selected.get('name', 'this phone')}? "
+                "Anyone who scans the QR before it expires can attempt the signed device challenge.",
+                parent=chooser,
+            ):
+                return
+            try:
+                payload = _create_remote_session_qr({
+                    "device_id": selected["device_id"],
+                    "endpoint_url": endpoint_var.get().strip(),
+                    "challenge_ttl_seconds": 90,
+                    "session_ttl_seconds": 600,
+                })
+                bitmap = qrcode.make(json.dumps(payload, separators=(",", ":"))).get_image()
+            except Exception as error:
+                logger.exception(
+                    "Could not create remote mobile session QR",
+                    extra={"event": "mobile.remote_session_qr_failed"},
+                )
+                messagebox.showerror("Could not create remote session QR", str(error), parent=chooser)
+                return
+
+            chooser.grab_release()
+            chooser.destroy()
+            window = ctk.CTkToplevel(self)
+            window.title("Remote mobile session")
+            window.geometry("520x610")
+            window.resizable(False, False)
+            window.transient(self)
+            window.grab_set()
+
+            ctk.CTkLabel(
+                window, text="Scan with the already paired phone",
+                font=ctk.CTkFont(size=18, weight="bold"),
+            ).pack(padx=20, pady=(18, 6))
+            qr_image = ctk.CTkImage(light_image=bitmap, dark_image=bitmap, size=(300, 300))
+            image_label = ctk.CTkLabel(window, text="", image=qr_image)
+            image_label.image = qr_image
+            image_label.pack(padx=20, pady=8)
+
+            fingerprint = payload["desktop_identity"]["fingerprint_sha256"]
+            grouped = " ".join(fingerprint[i:i + 4] for i in range(0, len(fingerprint), 4))
+            ctk.CTkLabel(
+                window,
+                text="Verify the desktop fingerprint on the phone:\n" + grouped,
+                wraplength=480,
+                justify="center",
+                font=ctk.CTkFont(size=11, weight="bold"),
+            ).pack(padx=20, pady=6)
+
+            status = ctk.CTkLabel(
+                window, text="Waiting for the phone to redeem the signed challenge...",
+                wraplength=470, justify="center",
+            )
+            status.pack(padx=20, pady=8)
+            buttons = ctk.CTkFrame(window, fg_color="transparent")
+            buttons.pack(fill="x", padx=20, pady=10)
+
+            def revoke():
+                remote_session_store.revoke_session(payload["session_id"])
+                status.configure(text="Remote session revoked.")
+                revoke_button.configure(state="disabled")
+
+            revoke_button = ctk.CTkButton(
+                buttons, text="Revoke session", fg_color="#922B21",
+                hover_color="#7B241C", command=revoke,
+            )
+            revoke_button.pack(side="left", expand=True, fill="x", padx=6)
+            ctk.CTkButton(
+                buttons, text="Close", command=window.destroy,
+            ).pack(side="left", expand=True, fill="x", padx=6)
+
+            def poll_state():
+                if not window.winfo_exists():
+                    return
+                state = remote_session_store.state(payload["session_id"])
+                if state == "pending":
+                    status.configure(text="QR scanned? Complete the connection on the phone. Challenge is still pending.")
+                    window.after(1000, poll_state)
+                elif state == "active":
+                    status.configure(text="Phone authenticated. The short-lived remote session is active.")
+                    revoke_button.configure(state="normal")
+                    window.after(5000, poll_state)
+                else:
+                    status.configure(text="QR expired, was redeemed and closed, or the session was revoked.")
+                    revoke_button.configure(state="disabled")
+
+            poll_state()
+            self.update_transcript(
+                f"[Mobile] Signed 10-minute remote session QR created for {selected.get('name', 'paired phone')}."
+            )
+
+        ctk.CTkButton(
+            chooser, text="Generate remote QR", command=create_qr,
+            fg_color="#1F618D", hover_color="#154360", width=220,
+        ).pack(padx=20, pady=(10, 18))
+
     def _run_mobile_server(self):
         try:
             start_server(host=self.mobile_host, port=8765)
