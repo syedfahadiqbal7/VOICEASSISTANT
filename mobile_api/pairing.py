@@ -179,10 +179,10 @@ class PairingCoordinator:
             self._purge_expired()
             item = self._get_session(session_id, secret)
             proof_message = (
-                "voiceassistant-mobile-pairing-v2\\n"
-                + str(session_id).strip().lower() + "\\n"
-                + name + "\\n"
-                + public_key + "\\n"
+                "voiceassistant-mobile-pairing-v2\n"
+                + str(session_id).strip().lower() + "\n"
+                + name + "\n"
+                + public_key + "\n"
                 + secret
             ).encode("utf-8")
             try:
