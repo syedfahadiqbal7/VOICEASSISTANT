@@ -1,7 +1,24 @@
 import 'dart:convert';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:voice_assistant_mobile/services/mobile_identity_service.dart';
 import 'package:voice_assistant_mobile/services/signaling_envelope.dart';
+
+class _MemoryIdentityStorage implements MobileIdentitySecretStorage {
+  final Map<String, String> values = {};
+
+  @override
+  Future<String?> read(String key) async => values[key];
+
+  @override
+  Future<void> write(String key, String value) async {
+    values[key] = value;
+  }
+}
+
+String _b64(List<int> bytes) => base64Url.encode(bytes).replaceAll('=', '');
+
 
 void main() {
   group('canonical signaling JSON', () {
