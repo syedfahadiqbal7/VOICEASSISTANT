@@ -62,7 +62,7 @@ class ProfileViewer(ctk.CTkToplevel):
         ).pack(anchor="w", padx=10, pady=3)
         ctk.CTkCheckBox(
             frame,
-            text="Save preferences for upcoming personal automations (does not connect accounts or start schedules)",
+            text="Allow individually enabled personal automations to run (does not connect accounts or enable workflows by itself)",
             variable=self.automation_var,
         ).pack(anchor="w", padx=10, pady=3)
         timezone_row = ctk.CTkFrame(frame, fg_color="transparent")
