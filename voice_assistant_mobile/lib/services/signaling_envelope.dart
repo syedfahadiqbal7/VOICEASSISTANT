@@ -89,7 +89,8 @@ class SignalingEnvelopeService {
   }) async {
     final now = nowMs ?? DateTime.now().toUtc().millisecondsSinceEpoch;
     if (!_isId(senderId) || !_isId(recipientId) || !_isId(sessionId) ||
-        sequence < 1 || sequence > _maxSafeInteger ||\n        now < 0 || now + ttlMs > _maxSafeInteger ||
+        sequence < 1 || sequence > _maxSafeInteger ||
+        now < 0 || now + ttlMs > _maxSafeInteger ||
         !RegExp(r'^[a-z][a-z0-9_.-]{0,63}$').hasMatch(messageType) ||
         ttlMs < 1000 || ttlMs > _maxSignalingTtlMs) {
       throw const SignalingEnvelopeException('Invalid signaling envelope metadata');
