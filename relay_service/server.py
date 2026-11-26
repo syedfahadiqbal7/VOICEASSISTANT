@@ -36,6 +36,7 @@ MAX_CONNECTIONS = 512
 MAX_CONNECTIONS_PER_IP = 32
 MAX_AUTH_ATTEMPTS_PER_MINUTE = 60
 MAX_FRAMES_PER_WINDOW = 120
+MAX_BYTES_PER_WINDOW = 512 * 1024
 RATE_WINDOW_SECONDS = 10
 
 
@@ -199,13 +200,18 @@ class FrameRate:
     def __init__(self):
         self.started = time.monotonic()
         self.count = 0
+        self.byte_count = 0
 
-    def consume(self) -> bool:
+    def consume(self, frame_bytes: int) -> bool:
         now = time.monotonic()
         if now - self.started >= RATE_WINDOW_SECONDS:
-            self.started, self.count = now, 0
+            self.started, self.count, self.byte_count = now, 0, 0
         self.count += 1
-        return self.count <= MAX_FRAMES_PER_WINDOW
+        self.byte_count += frame_bytes
+        return (
+            self.count <= MAX_FRAMES_PER_WINDOW
+            and self.byte_count <= MAX_BYTES_PER_WINDOW
+        )
 
 
 class RelayAdmission:
@@ -327,10 +333,11 @@ def create_app(*, audience: str | None = None, hub: RendezvousHub | None = None)
                 except asyncio.TimeoutError:
                     await websocket.close(code=1008, reason="Relay grant expired")
                     break
-                if len(raw.encode("utf-8")) > MAX_FRAME_BYTES:
+                frame_size = len(raw.encode("utf-8"))
+                if frame_size > MAX_FRAME_BYTES:
                     await websocket.close(code=1009, reason="Frame too large")
                     break
-                if not rate.consume():
+                if not rate.consume(frame_size):
                     await websocket.close(code=1013, reason="Rate limit exceeded")
                     break
                 peer = await relay_hub.peer(session_id, side)
