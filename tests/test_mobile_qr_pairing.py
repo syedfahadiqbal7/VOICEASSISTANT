@@ -3,8 +3,15 @@ from __future__ import annotations
 import base64
 import hashlib
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-VALID_PUBLIC_KEY = base64.urlsafe_b64encode(bytes(range(32))).decode('ascii').rstrip('=')
+_TEST_PRIVATE_KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+_TEST_PUBLIC_RAW = _TEST_PRIVATE_KEY.public_key().public_bytes(
+    encoding=serialization.Encoding.Raw,
+    format=serialization.PublicFormat.Raw,
+)
+VALID_PUBLIC_KEY = base64.urlsafe_b64encode(_TEST_PUBLIC_RAW).decode("ascii").rstrip("=")
 
 from mobile_api.pairing import PairingCoordinator, PairingError
 
@@ -31,7 +38,18 @@ def _session(coordinator):
 
 
 def _submit(coordinator, session_id, secret, name):
-    return coordinator.submit_request(session_id, secret, name, VALID_PUBLIC_KEY)
+    proof_message = (
+        "voiceassistant-mobile-pairing-v2\\n"
+        + session_id.lower() + "\\n"
+        + name + "\\n"
+        + VALID_PUBLIC_KEY + "\\n"
+        + secret
+    ).encode("utf-8")
+    signature = _TEST_PRIVATE_KEY.sign(proof_message)
+    proof = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+    return coordinator.submit_request(
+        session_id, secret, name, VALID_PUBLIC_KEY, proof
+    )
 
 
 def test_qr_payload_contains_only_short_lived_challenge_not_device_credentials():
@@ -212,7 +230,7 @@ def test_pairing_rejects_non_string_endpoint_and_device_name():
 
     session_id, secret = _session(coordinator)
     with pytest.raises(PairingError, match="Device name must be text"):
-        coordinator.submit_request(session_id, secret, {"name": "phone"}, VALID_PUBLIC_KEY)
+        coordinator.submit_request(session_id, secret, {"name": "phone"}, VALID_PUBLIC_KEY, "")
 
 
 
@@ -320,7 +338,7 @@ def test_qr_pairing_requires_canonical_ed25519_mobile_public_key():
     session_id, secret = _session(coordinator)
 
     with pytest.raises(PairingError, match="Ed25519 mobile public key"):
-        coordinator.submit_request(session_id, secret, "Phone", "not-a-key")
+        coordinator.submit_request(session_id, secret, "Phone", "not-a-key", "")
 
 
 def test_pending_approval_exposes_mobile_key_fingerprint_and_registration_binds_key():
@@ -330,9 +348,21 @@ def test_pending_approval_exposes_mobile_key_fingerprint_and_registration_binds_
 
     _submit(coordinator, session_id, secret, "Trusted phone")
     pending = coordinator.pending_requests()[0]
-    expected_fingerprint = hashlib.sha256(bytes(range(32))).hexdigest()
+    expected_fingerprint = hashlib.sha256(_TEST_PUBLIC_RAW).hexdigest()
     assert pending["identity_algorithm"] == "Ed25519"
     assert pending["identity_fingerprint"] == expected_fingerprint
 
     assert coordinator.approve(pending["request_id"]) is True
     assert registry.created[0]["public_key_ed25519"] == VALID_PUBLIC_KEY
+
+
+def test_qr_pairing_rejects_invalid_mobile_proof_of_possession():
+    coordinator = PairingCoordinator(FakeRegistry())
+    session_id, secret = _session(coordinator)
+    with pytest.raises(PairingError, match="proof-of-possession verification failed"):
+        coordinator.submit_request(
+            session_id, secret, "Phone", VALID_PUBLIC_KEY,
+            base64.urlsafe_b64encode(bytes(64)).decode("ascii").rstrip("="),
+        )
+    assert coordinator.pending_requests() == []
+    assert coordinator.poll_result(session_id, secret)["status"] == "waiting"
