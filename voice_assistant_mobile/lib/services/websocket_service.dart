@@ -260,10 +260,10 @@ class WebSocketService extends ChangeNotifier {
       final identity = await MobileIdentityService().loadOrCreateForPairing();
       final normalizedName = deviceName.trim();
       final proofMessage = utf8.encode(
-        "voiceassistant-mobile-pairing-v2\\n"
-        "$sessionId\\n"
-        "$normalizedName\\n"
-        "${identity.publicKey}\\n"
+        "voiceassistant-mobile-pairing-v2\n"
+        "$sessionId\n"
+        "$normalizedName\n"
+        "${identity.publicKey}\n"
         "$secret",
       );
       final proofSignature = base64Url
