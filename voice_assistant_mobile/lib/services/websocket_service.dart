@@ -162,6 +162,20 @@ class WebSocketService extends ChangeNotifier {
     }
   }
 
+  Future<void> _clearRemoteSessionCredentials() async {
+    _lastRemoteSessionId = "";
+    _lastRemoteSessionTicket = "";
+    _lastRemoteSessionExpiresAtMs = 0;
+    try {
+      await _secureStorage.delete(key: "remote_session_id");
+      await _secureStorage.delete(key: "remote_session_ticket");
+      await _secureStorage.delete(key: "remote_session_expires_at_ms");
+      await _secureStorage.write(key: "auto_connect", value: "false");
+    } catch (error) {
+      debugPrint("Remote session credential cleanup failed: $error");
+    }
+  }
+
   Future<void> forgetSavedConnection() async {
     // Forgetting credentials must also stop the live socket and its reconnect loop.
     _manualDisconnect = true;
@@ -593,6 +607,9 @@ class WebSocketService extends ChangeNotifier {
           await _secureStorage.write(key: "desktop_host", value: socketEndpoint.toString());
           await _secureStorage.write(key: "mobile_token", value: deviceToken);
           await _secureStorage.write(key: "mobile_device_id", value: deviceId);
+          await _secureStorage.delete(key: "remote_session_id");
+          await _secureStorage.delete(key: "remote_session_ticket");
+          await _secureStorage.delete(key: "remote_session_expires_at_ms");
           await _secureStorage.write(key: "desktop_identity_id", value: desktopIdentity["identity_id"]!);
           await _secureStorage.write(key: "desktop_identity_public_key", value: desktopIdentity["public_key"]!);
           await _secureStorage.write(key: "desktop_identity_fingerprint", value: desktopIdentity["fingerprint_sha256"]!);
@@ -739,6 +756,18 @@ class WebSocketService extends ChangeNotifier {
       return;
     }
 
+    if (_lastRemoteSessionId.isNotEmpty &&
+        (_lastRemoteSessionTicket.isEmpty ||
+            _lastRemoteSessionExpiresAtMs <= DateTime.now().millisecondsSinceEpoch)) {
+      unawaited(_clearRemoteSessionCredentials());
+      _failConnect(
+        "Remote session expired. Scan a fresh desktop QR code.",
+        generation: generation,
+        retry: false,
+      );
+      return;
+    }
+
     isConnecting = true;
     isConnected = false;
     statusMessage = "Connecting...";
@@ -787,6 +816,9 @@ class WebSocketService extends ChangeNotifier {
           if (generation != _connectionGeneration) return;
           final closeCode = channel.closeCode;
           final rejected = closeCode == 1008;
+          if (rejected && _lastRemoteSessionId.isNotEmpty) {
+            unawaited(_clearRemoteSessionCredentials());
+          }
           _failConnect(
             rejected
                 ? (_lastRemoteSessionId.isNotEmpty
