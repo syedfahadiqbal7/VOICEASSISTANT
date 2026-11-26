@@ -15,6 +15,18 @@ VALID_PUBLIC_KEY = base64.urlsafe_b64encode(_TEST_PUBLIC_RAW).decode("ascii").rs
 
 from mobile_api.pairing import PairingCoordinator, PairingError
 
+_TEST_DESKTOP_PRIVATE_KEY = Ed25519PrivateKey.from_private_bytes(bytes(reversed(range(32))))
+_TEST_DESKTOP_PUBLIC_RAW = _TEST_DESKTOP_PRIVATE_KEY.public_key().public_bytes(
+    encoding=serialization.Encoding.Raw,
+    format=serialization.PublicFormat.Raw,
+)
+TEST_DESKTOP_IDENTITY = {
+    "identity_id": "a" * 32,
+    "algorithm": "Ed25519",
+    "public_key": base64.urlsafe_b64encode(_TEST_DESKTOP_PUBLIC_RAW).decode("ascii").rstrip("="),
+    "fingerprint_sha256": hashlib.sha256(_TEST_DESKTOP_PUBLIC_RAW).hexdigest(),
+}
+
 
 class FakeRegistry:
     def __init__(self):
@@ -33,7 +45,7 @@ class FakeRegistry:
 
 
 def _session(coordinator):
-    payload = coordinator.create_session("https://assistant.example.com")
+    payload = coordinator.create_session("https://assistant.example.com", desktop_identity=TEST_DESKTOP_IDENTITY)
     return payload["session_id"], payload["secret"]
 
 
@@ -61,6 +73,7 @@ def test_qr_payload_contains_only_short_lived_challenge_not_device_credentials()
     assert payload["endpoint"] == "https://assistant.example.com"
     assert payload["session_id"]
     assert payload["secret"]
+    assert payload["desktop_identity"] == TEST_DESKTOP_IDENTITY
     assert "device_token" not in payload
     assert "device_id" not in payload
 
@@ -78,14 +91,14 @@ def test_qr_payload_contains_only_short_lived_challenge_not_device_credentials()
 def test_pairing_requires_clean_trusted_https_endpoint(endpoint):
     coordinator = PairingCoordinator(FakeRegistry())
     with pytest.raises(PairingError):
-        coordinator.create_session(endpoint)
+        coordinator.create_session(endpoint, desktop_identity=TEST_DESKTOP_IDENTITY)
 
 
 @pytest.mark.parametrize("ttl", [True, False, 0, 29, 301, "120", 1.5])
 def test_pairing_lifetime_is_strictly_bounded(ttl):
     coordinator = PairingCoordinator(FakeRegistry())
     with pytest.raises(PairingError):
-        coordinator.create_session("https://assistant.example.com", ttl_seconds=ttl)
+        coordinator.create_session("https://assistant.example.com", ttl_seconds=ttl, desktop_identity=TEST_DESKTOP_IDENTITY)
 
 
 def test_desktop_approval_is_required_before_credentials_are_created():
@@ -366,3 +379,18 @@ def test_qr_pairing_rejects_invalid_mobile_proof_of_possession():
         )
     assert coordinator.pending_requests() == []
     assert coordinator.poll_result(session_id, secret)["status"] == "waiting"
+
+
+def test_qr_rejects_desktop_identity_with_mismatched_fingerprint():
+    coordinator = PairingCoordinator(FakeRegistry())
+    identity = dict(TEST_DESKTOP_IDENTITY, fingerprint_sha256="0" * 64)
+    with pytest.raises(PairingError, match="fingerprint does not match"):
+        coordinator.create_session(
+            "https://assistant.example.com", desktop_identity=identity
+        )
+
+
+def test_qr_requires_initialized_desktop_identity():
+    coordinator = PairingCoordinator(FakeRegistry())
+    with pytest.raises(PairingError, match="initialized desktop identity"):
+        coordinator.create_session("https://assistant.example.com")
