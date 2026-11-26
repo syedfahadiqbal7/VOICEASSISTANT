@@ -622,3 +622,27 @@ Implement and test the host-owned capability broker, then implement Windows rest
 - TLS certificate renewal is restart-based; Uvicorn does not hot-reload the configured certificate files. Reverse-proxy TLS is renewed/reloaded at the proxy.
 - Uvicorn forwarded-header trust is explicit: loopback-only by default, configurable through `VOICEASSISTANT_TRUSTED_PROXY_IPS`, and rejects wildcard/world-wide networks.
 - Remaining: validate certificate renewal/restart and proxy-forwarded scheme behavior on target Windows deployments; this preflight does not perform online OCSP/CRL revocation checks or CA-chain trust verification on behalf of mobile clients.
+
+## 13. Remote-session desktop identity foundation — PR #65
+
+- Added an explicitly provisioned Ed25519 desktop signing identity in the authenticated-encrypted `history/desktop_remote_identity.json` store. The signing key is independent of the AES data-encryption key.
+- Normal application startup does not create or replace the identity. Local bootstrap requires the exact typed confirmation `CREATE DESKTOP IDENTITY`; existing, malformed, unreadable, plaintext or tampered identity records fail closed.
+- CLI status/public commands expose only the public key and SHA-256 fingerprint. The private key is never printed or logged.
+- Added bounded sign/verify primitives for future signed signaling, and included the identity record in portable encrypted backups and explicit key-migration inventory.
+- Backup/restore regression verifies that the public fingerprint remains unchanged after restore; key-migration tests verify the identity store is included in VAENC1-to-VAENC2 migration.
+
+**Verification:** PR #65 merged to `main` as `8a1ea2e9226ead21473ef2c7d63c5c31662c3db8`. CI run [#45769610013](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45769610013) passed **464 Python regression tests**, **16 Phase 0 smoke checks**, Flutter analysis/tests, Android APK build and unsigned iOS build.
+
+**Remaining security gate:** the desktop key is not yet pinned by QR pairing or used to sign signaling. Mobile keypair generation/storage, device-registry public-key enrollment, schema migration, signed signaling envelopes, cross-language signature vectors, revocation and two-network WebRTC/TURN acceptance remain unimplemented. Identity rotation/reset is intentionally not exposed. Do not claim internet relay or production remote connectivity from this foundation.
+
+## 14. Secure cross-network relay design — PR #63
+
+- Merged the reviewed WebRTC DataChannel + ICE/STUN/TURN architecture and mobile remote identity threat model.
+- Design preserves desktop-only execution/RBAC/approval authority and direct LAN/VPN/WSS compatibility; it explicitly rejects a custom cryptographic handshake.
+- Implementation gate requires desktop/mobile identity lifecycle and recovery, signed signaling and DTLS fingerprint binding, platform builds, TURN UDP/TCP/TLS validation, two-network/CGNAT acceptance and independent security review.
+
+**Verification:** PR #63 merged to `main` as `07b5155243a90143ffa692d6015c4faa76ab5a1f`. CI run [#45767865172](https://github.com/syedfahadiqbal7/VOICEASSISTANT/actions/runs/45767865172) passed **451 Python regression tests**, **16 Phase 0 smoke checks**, Flutter analysis/tests, Android APK build and unsigned iOS build.
+
+## Next remote-connectivity phase
+
+Implement mobile device keypair provisioning and registry schema migration, then bind the enrolled mobile public key and desktop public-key fingerprint to the QR pairing flow. Add signed, expiring, replay-protected signaling envelopes and cross-language test vectors before starting the WebRTC/TURN runtime. Existing QR pairing still requires a reachable VPN or TLS/WSS endpoint; no built-in relay is delivered yet.
