@@ -89,9 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ws.connect(
       host,
       token: _tokenController.text.trim(),
-      deviceId: _deviceIdController.text.trim().isNotEmpty
-          ? _deviceIdController.text.trim()
-          : nullSafeDeviceId,
+      deviceId: _deviceIdController.text.trim(),
       remoteSessionId: _remoteSessionId,
       remoteSessionTicket: _remoteSessionTicket,
       remoteSessionExpiresAtMs: _remoteSessionExpiresAtMs,
