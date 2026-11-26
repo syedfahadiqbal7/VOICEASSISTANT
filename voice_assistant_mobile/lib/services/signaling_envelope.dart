@@ -29,7 +29,7 @@ List<int> canonicalSignalingBytes(Map<String, dynamic> value) {
     }
     if (item == null || item is bool) return item;
     if (item is String) {
-      if (item.length > 16384) {
+      if (utf8.encode(item).length > 16384) {
         throw const SignalingEnvelopeException('Payload string exceeds its limit');
       }
       return item;
@@ -89,7 +89,7 @@ class SignalingEnvelopeService {
   }) async {
     final now = nowMs ?? DateTime.now().toUtc().millisecondsSinceEpoch;
     if (!_isId(senderId) || !_isId(recipientId) || !_isId(sessionId) ||
-        sequence < 1 || sequence > _maxSafeInteger ||
+        sequence < 1 || sequence > _maxSafeInteger ||\n        now < 0 || now + ttlMs > _maxSafeInteger ||
         !RegExp(r'^[a-z][a-z0-9_.-]{0,63}$').hasMatch(messageType) ||
         ttlMs < 1000 || ttlMs > _maxSignalingTtlMs) {
       throw const SignalingEnvelopeException('Invalid signaling envelope metadata');
