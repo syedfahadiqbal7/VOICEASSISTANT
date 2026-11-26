@@ -134,10 +134,22 @@ class _HomeScreenState extends State<HomeScreen> {
             tooltip: "Scan desktop pairing QR",
             onPressed: ws.isPairing
                 ? null
-                : () {
-                    Navigator.of(context).push(
+                : () async {
+                    final connected = await Navigator.of(context).push<bool>(
                       MaterialPageRoute(builder: (_) => const QrPairingScreen()),
                     );
+                    if (connected != true || !mounted) return;
+                    final saved = await ws.loadSavedConnection();
+                    if (saved == null || !mounted) return;
+                    setState(() {
+                      _hostController.text = saved["host"] ?? "";
+                      _tokenController.text = saved["token"] ?? "";
+                      _deviceIdController.text = saved["device_id"] ?? "";
+                      _remoteSessionId = saved["remote_session_id"] ?? "";
+                      _remoteSessionTicket = saved["remote_session_ticket"] ?? "";
+                      _remoteSessionExpiresAtMs =
+                          int.tryParse(saved["remote_session_expires_at_ms"] ?? "") ?? 0;
+                    });
                   },
             icon: const Icon(Icons.qr_code_scanner),
           ),
@@ -164,6 +176,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 _hostController.clear();
                 _tokenController.clear();
                 _deviceIdController.clear();
+                _remoteSessionId = "";
+                _remoteSessionTicket = "";
+                _remoteSessionExpiresAtMs = 0;
               },
             ),
           // Connection status indicator
