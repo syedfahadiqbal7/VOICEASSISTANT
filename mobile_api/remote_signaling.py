@@ -161,6 +161,12 @@ def create_remote_signaling_router(
                         ):
                             await _close(websocket, 1008, "Remote session is no longer authorized")
                             break
+                        # Count every frame before cryptographic verification so invalid
+                        # signatures cannot bypass the per-device CPU/connection quota.
+                        decision = rate_limiter.consume(device_id, "remote_signaling")
+                        if not decision.allowed:
+                            await _close(websocket, 1013, "Remote signaling rate limit exceeded")
+                            break
                         verified = verify_mobile_signaling_envelope(
                             envelope, registry=device_registry,
                             expected_recipient_id=desktop_id,
@@ -169,10 +175,6 @@ def create_remote_signaling_router(
                         )
                         if verified["sender_id"] != device_id:
                             raise SignalingEnvelopeError("Envelope sender does not match authenticated device")
-                        decision = rate_limiter.consume(device_id, "remote_signaling")
-                        if not decision.allowed:
-                            await _close(websocket, 1013, "Remote signaling rate limit exceeded")
-                            break
                     else:
                         if not session_store.authorize_desktop(
                             session_id=session_id, device_id=device_id,
