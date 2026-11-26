@@ -157,6 +157,8 @@ class RendezvousHub:
     async def attach(self, session_id: str, side: str, socket: WebSocket,
                      expires_at_ms: int, grant_sha256: str) -> bool:
         now = int(time.time() * 1000)
+        if expires_at_ms <= now or side not in {"desktop", "mobile"}:
+            return False
         async with self._lock:
             expired = [key for key, value in self._sessions.items()
                        if value.expires_at_ms <= now or not value.peers]
@@ -179,6 +181,9 @@ class RendezvousHub:
         async with self._lock:
             session = self._sessions.get(session_id)
             if session is None:
+                return None
+            if session.expires_at_ms <= int(time.time() * 1000):
+                self._sessions.pop(session_id, None)
                 return None
             return session.peers.get("mobile" if side == "desktop" else "desktop")
 
@@ -310,7 +315,12 @@ def create_app(*, audience: str | None = None, hub: RendezvousHub | None = None)
                 return
 
             rate = FrameRate()
-            peer_deadline = time.monotonic() + PEER_WAIT_SECONDS
+            remaining_grant_seconds = max(
+                0.0, (grant["expires_at_ms"] - int(time.time() * 1000)) / 1000
+            )
+            peer_deadline = time.monotonic() + min(
+                PEER_WAIT_SECONDS, remaining_grant_seconds
+            )
             peer = await relay_hub.peer(session_id, side)
             while peer is None and time.monotonic() < peer_deadline:
                 await asyncio.sleep(0.05)
