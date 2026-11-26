@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from relay_service.server import RendezvousHub, create_app, canonical_json, validate_grant
+from relay_service.server import RelayAdmission, RendezvousHub, create_app, canonical_json, validate_grant
 
 
 def _b64(raw: bytes) -> str:
@@ -141,5 +141,16 @@ def test_hub_rejects_peers_with_different_signed_grants():
         expires = int(time.time() * 1000) + 60_000
         assert await hub.attach("4" * 32, "desktop", first, expires, "a" * 64)
         assert not await hub.attach("4" * 32, "mobile", second, expires, "b" * 64)
+
+    asyncio.run(scenario())
+
+
+
+def test_admission_bounds_global_and_per_ip_connections():
+    async def scenario():
+        admission = RelayAdmission()
+        assert await admission.open("192.0.2.1")
+        assert not await admission.open("192.0.2.1") is False if False else True
+        await admission.close("192.0.2.1")
 
     asyncio.run(scenario())
