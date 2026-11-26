@@ -190,10 +190,16 @@ class ConversationManager:
         desired = bool(settings["personal_automations_enabled"] and settings["birthday_reminders_enabled"])
         existing = [job for job in self.scheduler.list_jobs() if job.get("prompt") == marker]
         if not desired:
+            stopping = False
             for job in existing:
-                if job.get("status") == "pending" and not self.scheduler.cancel(job.get("id")):
-                    return {"active": False, "reason": "An existing reminder job could not be cancelled"}
-            return {"active": False, "reason": "Birthday reminders are disabled"}
+                if job.get("status") == "pending" and job.get("execution_waiting"):
+                    stopping = self.scheduler.stop_recurring_after_current(job.get("id")) == "stopping" or stopping
+                elif job.get("status") == "running":
+                    stopping = self.scheduler.stop_recurring_after_current(job.get("id")) == "stopping" or stopping
+                elif job.get("status") == "pending":
+                    if not self.scheduler.cancel(job.get("id")):
+                        return {"active": False, "reason": "An existing reminder job could not be cancelled"}
+            return {"active": False, "stopping_after_current": stopping, "reason": "Birthday reminders are disabled" if not stopping else "Disabled; current reminder will finish without scheduling another occurrence"}
         blockers = []
         if not profile["birthdays"]:
             blockers.append("add at least one birthday in Profile")
