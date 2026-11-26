@@ -383,7 +383,7 @@ class WebSocketService extends ChangeNotifier {
     final identityRecord = decoded["desktop_identity"] as Map;
     final grant = {
       "protocol_version": 1,
-      "endpoint": endpoint.toString(),
+      "endpoint": decoded["endpoint"] as String,
       "session_id": sessionId,
       "device_id": deviceId,
       "challenge": challenge,
@@ -820,12 +820,14 @@ class WebSocketService extends ChangeNotifier {
           if (generation != _connectionGeneration) return;
           final closeCode = channel.closeCode;
           final rejected = closeCode == 1008;
-          if (rejected && _lastRemoteSessionId.isNotEmpty) {
+          final rejectedRemoteSession =
+              rejected && _lastRemoteSessionId.isNotEmpty;
+          if (rejectedRemoteSession) {
             unawaited(_clearRemoteSessionCredentials());
           }
           _failConnect(
             rejected
-                ? (_lastRemoteSessionId.isNotEmpty
+                ? (rejectedRemoteSession
                     ? "Remote session expired or was revoked. Scan a fresh desktop QR code."
                     : "Desktop rejected the mobile token. Check the saved token.")
                 : "Connection lost",
