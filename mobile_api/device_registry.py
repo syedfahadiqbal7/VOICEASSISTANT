@@ -9,6 +9,8 @@ multiple VoiceAssistant processes are accidentally started against one profile.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import hmac
 import os
@@ -113,34 +115,78 @@ class MobileDeviceRegistry:
         return self.path.exists()
 
     def _load(self) -> dict[str, Any]:
-        value = load_json(self.path, default={"version": 1, "devices": []}, encrypt=True)
-        if not isinstance(value, dict) or value.get("version") != 1 or not isinstance(value.get("devices"), list):
+        value = load_json(self.path, default={"version": 2, "devices": []}, encrypt=True)
+        version = value.get("version") if isinstance(value, dict) else None
+        if (
+            not isinstance(value, dict)
+            or type(version) is not int
+            or version not in (1, 2)
+            or not isinstance(value.get("devices"), list)
+        ):
             raise ValueError("Mobile device registry has an unsupported or invalid shape")
 
-        # Pre-RBAC entries are least-privilege operators. Unknown/malformed roles
-        # are corruption/security errors and must never be interpreted permissively.
-        changed = False
+        # Version 1 devices remain valid direct-WebSocket credentials but have
+        # no remote-signaling identity until the user pairs them again.
+        legacy_schema = value.get("version") == 1
+        changed = legacy_schema
+        if legacy_schema:
+            value["version"] = 2
         for device in value["devices"]:
             if not isinstance(device, dict):
                 raise ValueError("Mobile device registry contains an invalid device entry")
-            if "role" not in device:
-                device["role"] = DEFAULT_ROLE
-                changed = True
-            elif not is_valid_role(device["role"]):
+            if legacy_schema:
+                if "role" not in device:
+                    device["role"] = DEFAULT_ROLE
+                    changed = True
+                if "key_algorithm" not in device:
+                    device["key_algorithm"] = None
+                    changed = True
+                if "public_key_ed25519" not in device:
+                    device["public_key_ed25519"] = None
+                    changed = True
+            elif "role" not in device or "key_algorithm" not in device or "public_key_ed25519" not in device:
+                raise ValueError("Mobile device registry v2 entry is missing required fields")
+            if not is_valid_role(device.get("role")):
                 raise ValueError("Mobile device registry contains an unsupported role")
+            algorithm = device.get("key_algorithm")
+            public_key = device.get("public_key_ed25519")
+            if algorithm is None and public_key is None:
+                continue
+            if algorithm != "Ed25519" or public_key is None:
+                raise ValueError("Mobile device registry contains an incomplete identity key")
+            self._validate_public_key(public_key)
         if changed:
             self._save(value)
+        return value
+
+    @staticmethod
+    def _validate_public_key(value: Any) -> str:
+        if not isinstance(value, str) or len(value) != 43 or "=" in value:
+            raise ValueError("Ed25519 public key must be canonical base64url for 32 bytes")
+        try:
+            decoded = base64.b64decode(value + "=", altchars=b"-_", validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("Ed25519 public key is malformed") from error
+        if len(decoded) != 32 or base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=") != value:
+            raise ValueError("Ed25519 public key is malformed")
         return value
 
     def _save(self, value: dict[str, Any]) -> None:
         atomic_write_json(self.path, value, encrypt=True)
 
-    def register(self, name: str, role: str = DEFAULT_ROLE) -> dict[str, str]:
+    def register(
+        self,
+        name: str,
+        role: str = DEFAULT_ROLE,
+        *,
+        public_key_ed25519: str | None = None,
+    ) -> dict[str, str]:
         label = str(name or "").strip()
         if not label or len(label) > 80 or any(ord(ch) < 32 for ch in label):
             raise ValueError("Device name must contain 1–80 printable characters")
         if not is_valid_role(role):
             raise ValueError("Unsupported device role")
+        public_key = self._validate_public_key(public_key_ed25519) if public_key_ed25519 is not None else None
         device_id = uuid.uuid4().hex
         secret = secrets.token_urlsafe(32)
         now = datetime.now(timezone.utc).isoformat()
@@ -153,6 +199,8 @@ class MobileDeviceRegistry:
                 "role": role,
                 "created_at": now,
                 "revoked_at": None,
+                "key_algorithm": "Ed25519" if public_key else None,
+                "public_key_ed25519": public_key,
             })
             self._save(data)
         return {"device_id": device_id, "device_token": secret, "name": label, "role": role}
@@ -234,6 +282,27 @@ class MobileDeviceRegistry:
                     return True
         return False
 
+    def get_device_identity(self, device_id: str) -> dict[str, str] | None:
+        """Return an active device public identity; never return private material."""
+        identifier = str(device_id or "").strip().lower()
+        if not _DEVICE_ID.fullmatch(identifier):
+            raise ValueError("Invalid device ID")
+        with self._registry_lock():
+            data = self._load()
+            target = next((item for item in data["devices"] if item["device_id"] == identifier), None)
+            if target is None or target.get("revoked_at") is not None:
+                return None
+            public_key = target.get("public_key_ed25519")
+            if not public_key:
+                return None
+            raw = base64.b64decode(public_key + "=", altchars=b"-_", validate=True)
+            return {
+                "device_id": identifier,
+                "algorithm": "Ed25519",
+                "public_key": public_key,
+                "fingerprint_sha256": hashlib.sha256(raw).hexdigest(),
+            }
+
     def list_devices(self) -> list[dict[str, Any]]:
         with self._registry_lock():
             data = self._load()
@@ -245,6 +314,10 @@ class MobileDeviceRegistry:
                 "role_updated_at": item.get("role_updated_at"),
                 "revoked_at": item.get("revoked_at"),
                 "status": "revoked" if item.get("revoked_at") else "active",
+                "identity_fingerprint": (
+                    hashlib.sha256(base64.b64decode(item["public_key_ed25519"] + "=", altchars=b"-_", validate=True)).hexdigest()
+                    if item.get("public_key_ed25519") else None
+                ),
             } for item in data["devices"]]
 
 
