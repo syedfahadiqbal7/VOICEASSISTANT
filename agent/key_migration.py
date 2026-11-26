@@ -51,7 +51,7 @@ def discover_runtime_targets(base_dir: Path | str) -> list[MigrationTarget]:
         return []
     names = {
         "conversation_history.json", "audit_log.json", "agent_memory.json",
-        "user_profile.json", "scheduled_execution_history.json",
+        "user_profile.json", "scheduled_execution_history.json", "desktop_remote_identity.json",
         "agent_policy.json", "scheduled_jobs.json", "undo_stack.json",
         "skill_packs.json", "data_retention.json",
     }
