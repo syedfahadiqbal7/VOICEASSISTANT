@@ -226,7 +226,7 @@ class UserProfileStore:
         if not isinstance(settings.get("daily_language_lesson_enabled"), bool):
             raise ValueError("daily_language_lesson_enabled must be boolean")
         language_time = _safe_text(settings.get("daily_language_lesson_time", "08:00"), "daily_language_lesson_time", 5)
-        if not re.fullmatch(r"(?:[01]\\d|2[0-3]):[0-5]\\d", language_time):
+        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", language_time):
             raise ValueError("daily_language_lesson_time must use HH:MM (24-hour time)")
         timezone_name = _safe_text(settings.get("timezone", ""), "timezone", 80)
         if timezone_name:
