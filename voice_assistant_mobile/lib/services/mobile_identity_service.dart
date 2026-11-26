@@ -169,35 +169,37 @@ class MobileIdentityService {
     }
 
     final keyPair = await _algorithm.newKeyPair();
-    List<int>? seed;
     try {
-      seed = await keyPair.extractPrivateKeyBytes();
-      final publicKey = (await keyPair.extractPublicKey()).bytes;
-      if (seed.length != 32 || publicKey.length != 32) {
-        throw const MobileIdentityException('Generated Ed25519 key has an invalid length');
+      final seed = await keyPair.extractPrivateKeyBytes();
+      try {
+        final publicKey = (await keyPair.extractPublicKey()).bytes;
+        if (seed.length != 32 || publicKey.length != 32) {
+          throw const MobileIdentityException('Generated Ed25519 key has an invalid length');
+        }
+        final record = <String, dynamic>{
+          'schema_version': _identitySchemaVersion,
+          'algorithm': 'Ed25519',
+          'private_seed': _encode(seed),
+          'public_key': _encode(publicKey),
+          'fingerprint_sha256': await _fingerprint(publicKey),
+        };
+        // One secure-storage item keeps the identity record atomic at the API boundary.
+        await _storage.write(_identityStorageKey, jsonEncode(record));
+        final verified = await _readRecord();
+        if (verified == null ||
+            verified['public_key'] != record['public_key'] ||
+            verified['fingerprint_sha256'] != record['fingerprint_sha256']) {
+          throw const MobileIdentityException('Saved mobile identity could not be verified');
+        }
+        return MobileIdentityInfo(
+          publicKey: record['public_key'] as String,
+          fingerprintSha256: record['fingerprint_sha256'] as String,
+        );
+      } finally {
+        seed.fillRange(0, seed.length, 0);
       }
-      final record = <String, dynamic>{
-        'schema_version': _identitySchemaVersion,
-        'algorithm': 'Ed25519',
-        'private_seed': _encode(seed),
-        'public_key': _encode(publicKey),
-        'fingerprint_sha256': await _fingerprint(publicKey),
-      };
-      // One secure-storage item keeps the identity record atomic at the API boundary.
-      await _storage.write(_identityStorageKey, jsonEncode(record));
-      final verified = await _readRecord();
-      if (verified == null ||
-          verified['public_key'] != record['public_key'] ||
-          verified['fingerprint_sha256'] != record['fingerprint_sha256']) {
-        throw const MobileIdentityException('Saved mobile identity could not be verified');
-      }
-      return MobileIdentityInfo(
-        publicKey: record['public_key'] as String,
-        fingerprintSha256: record['fingerprint_sha256'] as String,
-      );
     } finally {
       keyPair.destroy();
-      seed?.fillRange(0, seed.length, 0);
     }
   }
 
