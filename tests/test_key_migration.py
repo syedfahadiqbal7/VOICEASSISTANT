@@ -328,3 +328,19 @@ def test_discovery_excludes_new_file_undo_markers(tmp_path, monkeypatch):
     (undo / "new-file.new").write_text("NEW_FILE", encoding="utf-8")
     targets = discover_runtime_targets(root)
     assert [item.path.name for item in targets] == ["snapshot.bin"]
+
+
+def test_desktop_identity_is_migrated_with_registered_runtime_stores(tmp_path, monkeypatch):
+    root, history, legacy = _setup(tmp_path, monkeypatch)
+    target = history / "desktop_remote_identity.json"
+    clear = b'{"schema_version":1,"algorithm":"Ed25519","private_key":"not-a-real-key-for-inventory-test"}'
+    target.write_bytes(encrypt_bytes(clear, target.name))
+    keyring.create_initial_keyring(legacy, source="environment")
+    result = migrate_to_vaenc2(
+        root, discover_runtime_targets(root),
+        confirm=True, backup_verified=True,
+    )
+    assert result["complete"] is True
+    assert result["migrated"] == 1
+    assert target.read_bytes().startswith(b"VAENC2")
+    assert decrypt_bytes(target.read_bytes(), target.name) == clear
