@@ -315,8 +315,16 @@ class JobScheduler:
             if live is None:
                 return "missing"
             if live.get("status") == "running" or live.get("execution_waiting"):
+                previous = live.get("disable_after_run")
                 live["disable_after_run"] = True
-                self.save()
+                try:
+                    self.save()
+                except Exception:
+                    if previous is None:
+                        live.pop("disable_after_run", None)
+                    else:
+                        live["disable_after_run"] = previous
+                    raise
                 return "stopping"
             return "cancelled" if self.cancel(job_id) else "unchanged"
 
