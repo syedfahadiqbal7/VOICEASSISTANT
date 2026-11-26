@@ -277,3 +277,13 @@ def test_revoked_device_identity_is_not_available(tmp_path, monkeypatch):
     assert registry.get_device_identity(enrolled["device_id"]) is not None
     assert registry.revoke(enrolled["device_id"]) is True
     assert registry.get_device_identity(enrolled["device_id"]) is None
+
+
+@pytest.mark.parametrize("version", [True, 1.0, "2"])
+def test_registry_rejects_non_integer_schema_versions(tmp_path, monkeypatch, version):
+    monkeypatch.setenv("VOICEASSISTANT_DATA_KEY", "56" * 32)
+    path = tmp_path / "mobile_devices.json"
+    atomic_write_json(path, {"version": version, "devices": []}, encrypt=True)
+
+    with pytest.raises(ValueError, match="unsupported or invalid shape"):
+        MobileDeviceRegistry(path).list_devices()
