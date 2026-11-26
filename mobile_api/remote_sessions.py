@@ -8,6 +8,7 @@ Tickets are returned once and only their SHA-256 digests are retained.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import re
@@ -48,7 +49,7 @@ def _b64url_decode(value: Any, expected_length: int) -> bytes:
         raise RemoteSessionError("Invalid remote-session proof encoding")
     try:
         decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
-    except (ValueError, base64.binascii.Error) as error:
+    except (ValueError, binascii.Error) as error:
         raise RemoteSessionError("Invalid remote-session proof encoding") from error
     if len(decoded) != expected_length:
         raise RemoteSessionError("Invalid remote-session proof length")
@@ -150,7 +151,11 @@ class RemoteSessionStore:
             raise RemoteSessionError("Invalid remote-session ID")
         if not isinstance(device_id, str) or not _DEVICE_ID.fullmatch(device_id):
             raise RemoteSessionError("Invalid paired device ID")
-        if not isinstance(challenge, str) or not 20 <= len(challenge) <= 128:
+        if (
+            not isinstance(challenge, str)
+            or not 20 <= len(challenge) <= 128
+            or not _B64URL.fullmatch(challenge)
+        ):
             raise RemoteSessionError("Invalid remote-session challenge")
         now = self._now_ms(now_ms)
         if type(issued_at_ms) is not int or abs(now - issued_at_ms) > _MAX_PROOF_CLOCK_SKEW_MS:
@@ -162,6 +167,8 @@ class RemoteSessionStore:
                 raise RemoteSessionError("Remote-session challenge is unknown, expired or already used")
             if pending["device_id"] != device_id:
                 raise RemoteSessionError("Remote-session challenge is bound to another device")
+            if len(self._sessions) >= self._max_sessions:
+                raise RemoteSessionError("Remote-session capacity reached")
             supplied_challenge_hash = hashlib.sha256(challenge.encode("ascii", errors="strict")).hexdigest()
             if not hmac.compare_digest(supplied_challenge_hash, pending["challenge_sha256"]):
                 pending["attempts"] += 1
