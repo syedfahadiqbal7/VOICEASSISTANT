@@ -6,6 +6,8 @@ to the phone that proves possession of the challenge; the phone acknowledges rec
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import logging
 import hmac
@@ -85,6 +87,18 @@ class PairingCoordinator:
                 self._discard_session(key, item)
 
     @staticmethod
+    def _validate_public_key(value: Any) -> str:
+        if not isinstance(value, str) or len(value) != 43 or "=" in value:
+            raise PairingError("A valid Ed25519 mobile public key is required")
+        try:
+            raw = base64.b64decode(value + "=", altchars=b"-_", validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise PairingError("A valid Ed25519 mobile public key is required") from error
+        if len(raw) != 32 or base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=") != value:
+            raise PairingError("A valid Ed25519 mobile public key is required")
+        return value
+
+    @staticmethod
     def _secret_hash(secret: str) -> str:
         return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
@@ -144,11 +158,8 @@ class PairingCoordinator:
         name = device_name.strip()
         if not name or len(name) > 80 or any(ord(ch) < 32 for ch in name):
             raise PairingError("Device name must contain 1–80 printable characters")
-        try:
-            public_key = self._registry._validate_public_key(public_key_ed25519)
-        except (AttributeError, TypeError, ValueError) as error:
-            raise PairingError("A valid Ed25519 mobile public key is required") from error
-        public_raw = __import__("base64").b64decode(public_key + "=", altchars=b"-_", validate=True)
+        public_key = self._validate_public_key(public_key_ed25519)
+        public_raw = base64.b64decode(public_key + "=", altchars=b"-_", validate=True)
         fingerprint = hashlib.sha256(public_raw).hexdigest()
         with self._lock:
             self._purge_expired()
