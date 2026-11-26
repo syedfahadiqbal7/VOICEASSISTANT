@@ -113,6 +113,7 @@ class MobileIdentityService {
     };
     if (decoded.keys.toSet().difference(fields).isNotEmpty ||
         decoded.keys.toSet().length != fields.length ||
+        decoded['schema_version'] is! int ||
         decoded['schema_version'] != _identitySchemaVersion ||
         decoded['algorithm'] != 'Ed25519') {
       throw const MobileIdentityException('Mobile identity schema is unsupported');
