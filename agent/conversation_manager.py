@@ -153,8 +153,8 @@ class ConversationManager:
         except Exception as error:
             print(f"[Automations] Profile automation sync failed: {type(error).__name__}")
 
-    def set_birthday_reminders_enabled(self, enabled: bool) -> Dict[str, Any]:
-        """Explicitly enable/disable the local birthday reminder automation."""
+    def _set_local_automation_enabled(self, setting_key: str, automation_id: str, enabled: bool) -> Dict[str, Any]:
+        """Change one explicit local-automation opt-in and reconcile its schedule."""
         if not isinstance(enabled, bool):
             raise ValueError("enabled must be boolean")
         if self.profile is None:
@@ -164,38 +164,39 @@ class ConversationManager:
         if enabled:
             from agent.automation_catalog import automation_readiness
             readiness = automation_readiness(
-                "birthday_reminders",
+                automation_id,
                 profile=profile,
                 connected_integrations=(),
-                registered_handlers={"birthday_reminders"},
+                registered_handlers={"birthday_reminders", "daily_language_lesson"},
                 master_enabled=settings["personal_automations_enabled"],
             )
             if not readiness["can_enable"]:
-                raise ValueError("Cannot enable birthday reminders: " + "; ".join(readiness["blockers"]))
+                raise ValueError("Cannot enable " + automation_id + ": " + "; ".join(readiness["blockers"]))
             if self.scheduler.history is None:
                 raise RuntimeError("Scheduler execution history is unavailable; automation remains disabled")
-        previous = settings["birthday_reminders_enabled"]
-        self.profile.update_profile({"settings": {"birthday_reminders_enabled": enabled}})
+        previous = settings[setting_key]
+        self.profile.update_profile({"settings": {setting_key: enabled}})
         try:
-            result = self.sync_profile_automations()
+            result = self.sync_profile_automations()[automation_id]
         except Exception:
-            self.profile.update_profile({"settings": {"birthday_reminders_enabled": previous}})
+            self.profile.update_profile({"settings": {setting_key: previous}})
             raise
         if enabled and not result.get("active"):
-            self.profile.update_profile({"settings": {"birthday_reminders_enabled": False}})
-            raise RuntimeError(result.get("reason") or "Birthday reminder schedule could not be activated")
+            self.profile.update_profile({"settings": {setting_key: False}})
+            raise RuntimeError(result.get("reason") or "Automation schedule could not be activated")
         return result
 
-    def sync_profile_automations(self) -> Dict[str, Any]:
-        """Reconcile the one locally executable profile automation with scheduler state."""
-        marker = "__automation__:birthday_reminders"
-        if self.profile is None:
-            return {"active": False, "reason": "Encrypted profile storage is unavailable"}
-        profile = self.profile.get_profile()
-        settings = profile["settings"]
-        desired = bool(settings["personal_automations_enabled"] and settings["birthday_reminders_enabled"])
+    def set_birthday_reminders_enabled(self, enabled: bool) -> Dict[str, Any]:
+        return self._set_local_automation_enabled("birthday_reminders_enabled", "birthday_reminders", enabled)
+
+    def set_daily_language_lesson_enabled(self, enabled: bool) -> Dict[str, Any]:
+        return self._set_local_automation_enabled("daily_language_lesson_enabled", "daily_language_lesson", enabled)
+
+    def _sync_local_calendar_automation(
+        self, *, marker: str, label: str, desired: bool, recurrence: Dict[str, Any], blockers: List[str]
+    ) -> Dict[str, Any]:
         existing = [job for job in self.scheduler.list_jobs() if job.get("prompt") == marker]
-        if not desired:
+        if not desired or blockers:
             stopping = False
             for job in existing:
                 if job.get("status") == "pending" and job.get("execution_waiting"):
@@ -204,36 +205,69 @@ class ConversationManager:
                     stopping = self.scheduler.stop_recurring_after_current(job.get("id")) == "stopping" or stopping
                 elif job.get("status") == "pending":
                     if not self.scheduler.cancel(job.get("id")):
-                        return {"active": False, "reason": "An existing reminder job could not be cancelled"}
-            return {"active": False, "stopping_after_current": stopping, "reason": "Birthday reminders are disabled" if not stopping else "Disabled; current reminder will finish without scheduling another occurrence"}
-        blockers = []
-        if not profile["birthdays"]:
-            blockers.append("add at least one birthday in Profile")
-        timezone_name = settings["timezone"]
-        if not timezone_name:
-            blockers.append("set an IANA timezone in Profile")
-        if self.scheduler.history is None:
-            blockers.append("scheduler execution history is unavailable")
-        if blockers:
-            for job in existing:
-                if job.get("status") == "pending":
-                    self.scheduler.cancel(job.get("id"))
-            return {"active": False, "reason": "; ".join(blockers)}
-        recurrence = {
-            "type": "calendar", "frequency": "daily",
-            "local_time": settings["birthday_reminder_time"],
-            "timezone": timezone_name,
-        }
+                        return {"active": False, "reason": "An existing schedule could not be cancelled"}
+            reason = "; ".join(blockers) if blockers else "Automation is disabled"
+            if stopping:
+                reason += "; current execution will finish without another occurrence"
+            return {"active": False, "stopping_after_current": stopping, "reason": reason}
         for job in existing:
             if job.get("enabled") and job.get("status") in {"pending", "running"}:
                 if job.get("repeat") == recurrence:
                     return {"active": True, "job_id": job.get("id"), "status": job.get("status")}
                 if job.get("status") == "running":
-                    return {"active": False, "reason": "A reminder is currently running; retry the schedule change after it finishes"}
+                    return {"active": False, "reason": "The current execution is running; retry the schedule change after it finishes"}
                 if not self.scheduler.cancel(job.get("id")):
-                    return {"active": False, "reason": "The previous reminder schedule could not be replaced"}
-        job = self.scheduler.add_calendar(marker, recurrence, label="Birthday reminders")
+                    return {"active": False, "reason": "The previous schedule could not be replaced"}
+        job = self.scheduler.add_calendar(marker, recurrence, label=label)
         return {"active": True, "job_id": job["id"], "status": "pending"}
+
+    def sync_profile_automations(self) -> Dict[str, Any]:
+        """Reconcile enabled local profile automations before and after profile changes."""
+        if self.profile is None:
+            unavailable = {"active": False, "reason": "Encrypted profile storage is unavailable"}
+            return {"birthday_reminders": unavailable, "daily_language_lesson": unavailable}
+        profile = self.profile.get_profile()
+        settings = profile["settings"]
+        master = bool(settings["personal_automations_enabled"])
+        history_ok = self.scheduler.history is not None
+
+        birthday_blockers = []
+        if not profile["birthdays"]:
+            birthday_blockers.append("add at least one birthday in Profile")
+        if not settings["timezone"]:
+            birthday_blockers.append("set an IANA timezone in Profile")
+        if not history_ok:
+            birthday_blockers.append("scheduler execution history is unavailable")
+        birthday = self._sync_local_calendar_automation(
+            marker="__automation__:birthday_reminders",
+            label="Birthday reminders",
+            desired=master and settings["birthday_reminders_enabled"],
+            recurrence={
+                "type": "calendar", "frequency": "daily",
+                "local_time": settings["birthday_reminder_time"], "timezone": settings["timezone"],
+            },
+            blockers=birthday_blockers,
+        )
+
+        language_blockers = []
+        language = profile["language"]
+        if not language["target_language"]:
+            language_blockers.append("set a target language in Profile")
+        if not settings["timezone"]:
+            language_blockers.append("set an IANA timezone in Profile")
+        if not history_ok:
+            language_blockers.append("scheduler execution history is unavailable")
+        lesson = self._sync_local_calendar_automation(
+            marker="__automation__:daily_language_lesson",
+            label="Daily language lesson",
+            desired=master and settings["daily_language_lesson_enabled"],
+            recurrence={
+                "type": "calendar", "frequency": "daily",
+                "local_time": settings["daily_language_lesson_time"], "timezone": settings["timezone"],
+            },
+            blockers=language_blockers,
+        )
+        return {"birthday_reminders": birthday, "daily_language_lesson": lesson}
 
     def _ts(self) -> str:
         return datetime.now().strftime("%H:%M:%S")
