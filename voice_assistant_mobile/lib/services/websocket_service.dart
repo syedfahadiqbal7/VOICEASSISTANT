@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
@@ -187,6 +188,60 @@ class WebSocketService extends ChangeNotifier {
     return endpoint;
   }
 
+  /// Validate the desktop public identity carried in a QR before the UI
+  /// asks the user to compare its fingerprint with the trusted desktop window.
+  static Future<Map<String, String>> inspectDesktopIdentity(String rawPayload) async {
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(rawPayload);
+    } catch (_) {
+      throw const FormatException("QR code is not valid JSON");
+    }
+    if (decoded is! Map ||
+        decoded["type"] != "voiceassistant_mobile_pairing" ||
+        decoded["version"] != 2) {
+      throw const FormatException("This is not a VoiceAssistant pairing QR code");
+    }
+    final identity = decoded["desktop_identity"];
+    if (identity is! Map ||
+        identity["identity_id"] is! String ||
+        !RegExp(r"^[0-9a-f]{32}$").hasMatch(identity["identity_id"] as String) ||
+        identity["algorithm"] != "Ed25519" ||
+        identity["public_key"] is! String ||
+        identity["fingerprint_sha256"] is! String) {
+      throw const FormatException("QR code has no valid desktop identity");
+    }
+    final publicKey = identity["public_key"] as String;
+    if (publicKey.length != 43 || publicKey.contains("=")) {
+      throw const FormatException("Desktop public key is malformed");
+    }
+    List<int> publicBytes;
+    try {
+      publicBytes = base64Url.decode(
+        publicKey.padRight(publicKey.length + ((4 - publicKey.length % 4) % 4), "="),
+      );
+    } catch (_) {
+      throw const FormatException("Desktop public key is malformed");
+    }
+    if (publicBytes.length != 32 ||
+        base64Url.encode(publicBytes).replaceAll("=", "") != publicKey) {
+      throw const FormatException("Desktop public key is not canonical Ed25519");
+    }
+    final digest = await Sha256().hash(publicBytes);
+    final fingerprint = digest.bytes
+        .map((byte) => byte.toRadixString(16).padLeft(2, "0"))
+        .join();
+    if (identity["fingerprint_sha256"] != fingerprint) {
+      throw const FormatException("Desktop identity fingerprint does not match its public key");
+    }
+    return {
+      "identity_id": identity["identity_id"] as String,
+      "algorithm": "Ed25519",
+      "public_key": publicKey,
+      "fingerprint_sha256": fingerprint,
+    };
+  }
+
   static Future<Map<String, dynamic>> _postPairingJson(
     HttpClient client,
     Uri endpoint,
@@ -227,6 +282,7 @@ class WebSocketService extends ChangeNotifier {
         decoded["version"] != 2) {
       throw const FormatException("This is not a VoiceAssistant pairing QR code");
     }
+    final desktopIdentity = await inspectDesktopIdentity(rawPayload);
     final endpoint = _validatePairingEndpoint(decoded["endpoint"]);
     final sessionId = decoded["session_id"];
     final secret = decoded["secret"];
@@ -253,6 +309,17 @@ class WebSocketService extends ChangeNotifier {
     lastError = null;
     notifyListeners();
     try {
+      final pinnedIdentityId = await _secureStorage.read(key: "desktop_identity_id");
+      if (pinnedIdentityId == desktopIdentity["identity_id"]) {
+        final pinnedPublicKey = await _secureStorage.read(key: "desktop_identity_public_key");
+        final pinnedFingerprint = await _secureStorage.read(key: "desktop_identity_fingerprint");
+        if (pinnedPublicKey != desktopIdentity["public_key"] ||
+            pinnedFingerprint != desktopIdentity["fingerprint_sha256"]) {
+          throw StateError(
+            "This desktop identity changed unexpectedly. Pairing is blocked; verify recovery or re-pair explicitly.",
+          );
+        }
+      }
       final requestUri = endpoint.replace(path: "/pairing/request");
       final resultUri = endpoint.replace(path: "/pairing/result");
       // Generate the device signing identity only after the user explicitly
@@ -304,6 +371,9 @@ class WebSocketService extends ChangeNotifier {
           await _secureStorage.write(key: "desktop_host", value: socketEndpoint.toString());
           await _secureStorage.write(key: "mobile_token", value: deviceToken);
           await _secureStorage.write(key: "mobile_device_id", value: deviceId);
+          await _secureStorage.write(key: "desktop_identity_id", value: desktopIdentity["identity_id"]!);
+          await _secureStorage.write(key: "desktop_identity_public_key", value: desktopIdentity["public_key"]!);
+          await _secureStorage.write(key: "desktop_identity_fingerprint", value: desktopIdentity["fingerprint_sha256"]!);
           await _secureStorage.write(key: "auto_connect", value: "false");
           hasSavedConnection = true;
           notifyListeners();
