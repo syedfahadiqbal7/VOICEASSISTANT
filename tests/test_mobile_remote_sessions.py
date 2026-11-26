@@ -219,3 +219,16 @@ def test_malformed_signature_attempts_are_bounded(tmp_path, monkeypatch):
                 now_ms=1_700_000_000_001,
             )
     assert store.snapshot(now_ms=1_700_000_000_002)["pending_challenges"] == 0
+
+
+def test_session_state_reports_pending_active_and_unknown(tmp_path, monkeypatch):
+    registry, private, enrolled, store, challenge = _setup(tmp_path, monkeypatch)
+    assert store.state(challenge["session_id"], now_ms=1_700_000_000_001) == "pending"
+    ticket = store.complete_challenge(
+        session_id=challenge["session_id"], device_id=enrolled["device_id"],
+        challenge=challenge["challenge"], issued_at_ms=1_700_000_000_000,
+        signature=_proof(private, challenge), registry=registry,
+        now_ms=1_700_000_000_001,
+    )
+    assert store.state(ticket["session_id"], now_ms=1_700_000_000_002) == "active"
+    assert store.state(ticket["session_id"], now_ms=ticket["expires_at_ms"]) == "unknown"
