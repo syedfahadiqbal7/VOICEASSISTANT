@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
@@ -61,6 +62,25 @@ class MobileIdentityService {
 
   final MobileIdentitySecretStorage _storage;
   static final Ed25519 _algorithm = Ed25519();
+
+  // Serialize explicit pairing identity creation across service instances in
+  // this app isolate. Two simultaneous QR-pairing actions must never persist
+  // different keys while returning different public identities.
+  static Future<void> _pairingQueue = Future<void>.value();
+
+  Future<T> _withPairingLock<T>(Future<T> Function() action) {
+    final previous = _pairingQueue;
+    final release = Completer<void>();
+    _pairingQueue = release.future;
+    return () async {
+      await previous;
+      try {
+        return await action();
+      } finally {
+        release.complete();
+      }
+    }();
+  }
 
   static String _encode(List<int> bytes) =>
       base64Url.encode(bytes).replaceAll('=', '');
@@ -160,7 +180,10 @@ class MobileIdentityService {
   }
 
   /// Create on first explicit pairing action; never overwrite an existing key.
-  Future<MobileIdentityInfo> loadOrCreateForPairing() async {
+  Future<MobileIdentityInfo> loadOrCreateForPairing() =>
+      _withPairingLock(_loadOrCreateForPairing);
+
+  Future<MobileIdentityInfo> _loadOrCreateForPairing() async {
     final existing = await _readRecord();
     if (existing != null) {
       return MobileIdentityInfo(
