@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import hashlib
 import json
 import re
 import threading
@@ -45,7 +44,11 @@ def _b64url_encode(value: bytes) -> str:
 
 
 def _b64url_decode(value: Any, *, expected_length: int) -> bytes:
-    if (not isinstance(value, str) or len(value) != (expected_length * 8 + 5) // 6\n            or not _B64URL.fullmatch(value)):
+    if (
+        not isinstance(value, str)
+        or len(value) != (expected_length * 8 + 5) // 6
+        or not _B64URL.fullmatch(value)
+    ):
         raise SignalingEnvelopeError("Invalid base64url value")
     try:
         decoded = base64.b64decode(value + "=", altchars=b"-_", validate=True)
@@ -79,8 +82,8 @@ def _validate_json_value(value: Any, depth: int = 0) -> None:
         if len(value) > 256 or any(not isinstance(key, str) for key in value):
             raise SignalingEnvelopeError("Payload object is invalid or too large")
         for key, item in value.items():
-            if len(key) > 128:
-                raise SignalingEnvelopeError("Payload key exceeds its limit")
+            if len(key) > 128 or not key.isascii():
+                raise SignalingEnvelopeError("Payload keys must be ASCII and within their size limit")
             _validate_json_value(item, depth + 1)
         return
     raise SignalingEnvelopeError("Payload contains a non-JSON value")
