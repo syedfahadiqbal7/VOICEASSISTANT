@@ -124,7 +124,7 @@ Security properties:
 - Pairing administration endpoints accept loopback clients only.
 - QR pairing cannot grant the `admin` role; owner-admin enrollment remains a trusted local operation.
 - The endpoint supplied in the QR must be a clean HTTPS origin with a trusted certificate. A public relay or NAT traversal service is not included in this backend phase.
-- This is the backend foundation only. The desktop QR display / approval UI and mobile camera scanner are separate integration steps and are not yet available in this phase.
+- The desktop QR display/approval UI and Flutter camera scanner are integrated. The current QR protocol still enrolls token-only devices; the signed mobile identity foundation described below is not yet connected to pairing or remote signaling.
 
 
 ## Desktop-approved QR pairing
@@ -141,6 +141,14 @@ The desktop and Flutter companion support a short-lived QR enrollment flow:
 The QR code expires after two minutes by default, permits one enrollment request, and contains no permanent device credential. Approved credentials are kept in memory and re-delivered only to the QR challenge holder until the phone acknowledges secure storage; the acknowledgement is idempotent. If receipt is never acknowledged, the provisional device is revoked when the session expires. If approval is abandoned before credentials are delivered, the provisional device is revoked. The QR flow requires a valid trusted HTTPS certificate; self-signed certificates that are not trusted by the phone will fail validation.
 
 **Not included:** a hosted internet relay, automatic NAT traversal, or a vendor-operated cloud service. A VPN or user-managed TLS reverse proxy is still required for cross-network reachability.
+
+## Device signing identity foundation (not yet active in QR pairing)
+
+The mobile device registry now migrates encrypted schema v1 records to schema v2 without changing existing device IDs, token digests, roles, creation timestamps or revocation state. Legacy entries receive null Ed25519 identity fields and continue to authenticate through the existing direct WebSocket token flow; they are not eligible for a future signed relay until explicitly re-paired.
+
+The Flutter companion now has a device identity service based on Ed25519. Its private seed is stored as one record in Flutter Secure Storage, using Android encrypted shared preferences with Android backup disabled and an iOS non-synchronizable Keychain item with the ThisDeviceOnly accessibility class. The service creates a key only when its explicit pairing method is called; app startup does not create one. A malformed existing record fails closed and is not silently replaced.
+
+This is a foundation only: the current QR flow does not yet request or register the mobile public key, pin the desktop fingerprint, or sign pairing/signaling messages. Do not treat this as internet relay or cross-network support. The next phase connects mobile key proof-of-possession and the desktop identity to a versioned QR pairing protocol.
 
 ## TLS certificate lifecycle and reverse-proxy trust
 
