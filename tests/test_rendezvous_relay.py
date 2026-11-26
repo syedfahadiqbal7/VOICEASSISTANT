@@ -146,11 +146,19 @@ def test_hub_rejects_peers_with_different_signed_grants():
 
 
 
+
 def test_admission_bounds_global_and_per_ip_connections():
     async def scenario():
-        admission = RelayAdmission()
-        assert await admission.open("192.0.2.1")
-        assert not await admission.open("192.0.2.1") is False if False else True
-        await admission.close("192.0.2.1")
+        per_ip = RelayAdmission()
+        for _ in range(32):
+            assert await per_ip.open("192.0.2.10")
+        assert not await per_ip.open("192.0.2.10")
+        for _ in range(32):
+            await per_ip.close("192.0.2.10")
+
+        global_limit = RelayAdmission()
+        for index in range(512):
+            assert await global_limit.open(f"198.51.100.{index}")
+        assert not await global_limit.open("203.0.113.1")
 
     asyncio.run(scenario())
