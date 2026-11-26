@@ -78,10 +78,11 @@ part of a coordinated client configuration.
 - Do not enable access logs that capture WebSocket query strings, authorization
   headers or message frames.
 - Do not expose the container's port 8080 publicly.
-- This prototype currently has in-memory per-connection frame rate limits and
-  session capacity limits. Production deployment still requires global/IP
-  admission controls, abuse/load testing, independent security review and
-  operational alerting.
+- This prototype has in-memory global connection/session caps, per-IP active
+  connection and handshake-attempt limits, and per-connection frame rate limits.
+  These limits reset on process restart and are not a distributed abuse-control
+  system. Production deployment still requires abuse/load testing, independent
+  security review and operational alerting.
 
 ## Next implementation gates
 
