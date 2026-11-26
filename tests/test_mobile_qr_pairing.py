@@ -66,7 +66,7 @@ def _submit(coordinator, session_id, secret, name):
 
 def test_qr_payload_contains_only_short_lived_challenge_not_device_credentials():
     coordinator = PairingCoordinator(FakeRegistry())
-    payload = coordinator.create_session("https://assistant.example.com")
+    payload = coordinator.create_session("https://assistant.example.com", desktop_identity=TEST_DESKTOP_IDENTITY)
 
     assert payload["type"] == "voiceassistant_mobile_pairing"
     assert payload["version"] == 2
