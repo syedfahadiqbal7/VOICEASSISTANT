@@ -203,7 +203,7 @@ def create_remote_signaling_router(
                 except Exception:
                     await _close(websocket, 1011, "The other signaling endpoint disconnected")
                     break
-                if verified["message_type"] == "end_session":
+                if verified["message_type"] == "session.end":
                     await _close(peer, 1000, "Remote session ended")
                     await _close(websocket, 1000, "Remote session ended")
                     break
