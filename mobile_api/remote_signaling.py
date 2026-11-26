@@ -23,7 +23,7 @@ from mobile_api.signaling import (
 )
 
 logger = logging.getLogger("voiceassistant.remote_signaling")
-_ALLOWED_MESSAGE_TYPES = {"offer", "answer", "ice_candidate", "end_session"}
+_ALLOWED_MESSAGE_TYPES = {"sdp.offer", "sdp.answer", "ice.candidate", "session.end"}
 _PEER_WAIT_SECONDS = 30
 _REVALIDATE_SECONDS = 10
 
