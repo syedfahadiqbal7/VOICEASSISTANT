@@ -162,3 +162,24 @@ def test_admission_bounds_global_and_per_ip_connections():
         assert not await global_limit.open("203.0.113.1")
 
     asyncio.run(scenario())
+
+
+
+def test_hub_rejects_expired_session_and_does_not_return_expired_peer():
+    async def scenario():
+        hub = RendezvousHub()
+        peer = object()
+        expired_at = int(time.time() * 1000) - 1
+        assert not await hub.attach(
+            "5" * 32, "desktop", peer, expired_at, "c" * 64
+        )
+        assert await hub.peer("5" * 32, "desktop") is None
+
+        valid_until = int(time.time() * 1000) + 60_000
+        assert await hub.attach(
+            "6" * 32, "desktop", peer, valid_until, "d" * 64
+        )
+        hub._sessions["6" * 32].expires_at_ms = expired_at
+        assert await hub.peer("6" * 32, "desktop") is None
+
+    asyncio.run(scenario())
