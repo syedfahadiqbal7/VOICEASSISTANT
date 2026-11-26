@@ -51,7 +51,7 @@ def _b64url_decode(value: Any, *, expected_length: int) -> bytes:
     ):
         raise SignalingEnvelopeError("Invalid base64url value")
     try:
-        decoded = base64.b64decode(value + "=", altchars=b"-_", validate=True)
+        decoded = base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
     except (binascii.Error, ValueError) as error:
         raise SignalingEnvelopeError("Invalid base64url value") from error
     if len(decoded) != expected_length or _b64url_encode(decoded) != value:
@@ -63,7 +63,7 @@ def _validate_json_value(value: Any, depth: int = 0) -> None:
     if depth > 12:
         raise SignalingEnvelopeError("Payload nesting exceeds its limit")
     if value is None or isinstance(value, (str, bool)):
-        if isinstance(value, str) and len(value) > 16_384:
+        if isinstance(value, str) and len(value.encode("utf-8")) > 16_384:
             raise SignalingEnvelopeError("Payload string exceeds its limit")
         return
     if isinstance(value, int) and not isinstance(value, bool):
