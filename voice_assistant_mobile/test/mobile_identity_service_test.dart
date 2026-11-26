@@ -3,6 +3,14 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:voice_assistant_mobile/services/mobile_identity_service.dart';
 
+class DelayedIdentitySecretStorage extends FakeIdentitySecretStorage {
+  @override
+  Future<String?> read(String key) async {
+    await Future<void>.delayed(Duration.zero);
+    return super.read(key);
+  }
+}
+
 class FakeIdentitySecretStorage implements MobileIdentitySecretStorage {
   final Map<String, String> values = {};
 
@@ -52,6 +60,23 @@ void main() {
       expect(repeated.publicKey, created.publicKey);
       expect(repeated.fingerprintSha256, created.fingerprintSha256);
       expect(storage.values.length, 1);
+    });
+
+    test('concurrent pairing requests across service instances reuse one identity', () async {
+      final storage = DelayedIdentitySecretStorage();
+      final firstService = MobileIdentityService(storage: storage);
+      final secondService = MobileIdentityService(storage: storage);
+
+      final identities = await Future.wait([
+        firstService.loadOrCreateForPairing(),
+        secondService.loadOrCreateForPairing(),
+      ]);
+
+      expect(identities[0].publicKey, identities[1].publicKey);
+      expect(identities[0].fingerprintSha256, identities[1].fingerprintSha256);
+      expect(storage.values.length, 1);
+      final loaded = await firstService.load();
+      expect(loaded?.publicKey, identities[0].publicKey);
     });
 
     test('signatures verify and changed messages are rejected', () async {
