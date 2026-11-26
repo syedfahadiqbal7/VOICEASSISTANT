@@ -121,23 +121,27 @@ class MobileDeviceRegistry:
 
         # Version 1 devices remain valid direct-WebSocket credentials but have
         # no remote-signaling identity until the user pairs them again.
-        changed = value.get("version") == 1
-        if changed:
+        legacy_schema = value.get("version") == 1
+        changed = legacy_schema
+        if legacy_schema:
             value["version"] = 2
         for device in value["devices"]:
             if not isinstance(device, dict):
                 raise ValueError("Mobile device registry contains an invalid device entry")
-            if "role" not in device:
-                device["role"] = DEFAULT_ROLE
-                changed = True
-            elif not is_valid_role(device["role"]):
+            if legacy_schema:
+                if "role" not in device:
+                    device["role"] = DEFAULT_ROLE
+                    changed = True
+                if "key_algorithm" not in device:
+                    device["key_algorithm"] = None
+                    changed = True
+                if "public_key_ed25519" not in device:
+                    device["public_key_ed25519"] = None
+                    changed = True
+            elif "role" not in device or "key_algorithm" not in device or "public_key_ed25519" not in device:
+                raise ValueError("Mobile device registry v2 entry is missing required fields")
+            if not is_valid_role(device.get("role")):
                 raise ValueError("Mobile device registry contains an unsupported role")
-            if "key_algorithm" not in device:
-                device["key_algorithm"] = None
-                changed = True
-            if "public_key_ed25519" not in device:
-                device["public_key_ed25519"] = None
-                changed = True
             algorithm = device.get("key_algorithm")
             public_key = device.get("public_key_ed25519")
             if algorithm is None and public_key is None:
