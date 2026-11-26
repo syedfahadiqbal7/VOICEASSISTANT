@@ -155,9 +155,9 @@ def test_expired_challenge_and_ticket_are_rejected(tmp_path, monkeypatch):
     with pytest.raises(RemoteSessionError, match="unknown, expired"):
         store.complete_challenge(
             session_id=challenge["session_id"], device_id=enrolled["device_id"],
-            challenge=challenge["challenge"], issued_at_ms=1_700_000_000_000,
-            signature=_proof(private, challenge), registry=registry,
-            now_ms=1_700_000_091_000,
+            challenge=challenge["challenge"], issued_at_ms=1_700_000_091_000,
+            signature=_proof(private, challenge, issued_at_ms=1_700_000_091_000),
+            registry=registry, now_ms=1_700_000_091_000,
         )
 
 
@@ -190,4 +190,19 @@ def test_session_can_be_revoked_explicitly(tmp_path, monkeypatch):
         session_id=ticket["session_id"], device_id=enrolled["device_id"],
         access_ticket=ticket["access_ticket"], registry=registry,
         now_ms=1_700_000_000_002,
+    )
+
+
+def test_expired_access_ticket_is_rejected(tmp_path, monkeypatch):
+    registry, private, enrolled, store, challenge = _setup(tmp_path, monkeypatch)
+    ticket = store.complete_challenge(
+        session_id=challenge["session_id"], device_id=enrolled["device_id"],
+        challenge=challenge["challenge"], issued_at_ms=1_700_000_000_000,
+        signature=_proof(private, challenge), registry=registry,
+        now_ms=1_700_000_000_001,
+    )
+    assert not store.authenticate(
+        session_id=ticket["session_id"], device_id=enrolled["device_id"],
+        access_ticket=ticket["access_ticket"], registry=registry,
+        now_ms=ticket["expires_at_ms"],
     )
