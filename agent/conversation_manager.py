@@ -1115,7 +1115,7 @@ class ConversationManager:
             if not isinstance(content, str) or not content.strip():
                 raise RuntimeError("Local model returned an empty lesson")
             lesson = content.strip()[:8000]
-            self.on_transcript("[Daily Language Lesson]\\n" + lesson)
+            self.on_transcript("[Daily Language Lesson]\n" + lesson)
             self.on_status("Daily language lesson is ready in the transcript.", "#1ABC9C")
             try:
                 self.on_speak("Your daily language lesson is ready. Please see the transcript.")
