@@ -45,6 +45,64 @@ class _QrPairingScreenState extends State<QrPairingScreen> {
     unawaited(_scannerController.stop());
 
     try {
+      final desktopIdentity =
+          await WebSocketService.inspectDesktopIdentity(raw);
+      final fingerprint = desktopIdentity["fingerprint_sha256"]!;
+      final groupedFingerprint = List.generate(
+        fingerprint.length ~/ 4,
+        (index) => fingerprint.substring(index * 4, index * 4 + 4),
+      ).join(" ");
+      final trusted = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text("Verify this desktop"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Compare this fingerprint with the one displayed in the "
+                "VoiceAssistant desktop pairing window. Continue only if "
+                "every group matches exactly.",
+              ),
+              const SizedBox(height: 16),
+              SelectableText(
+                groupedFingerprint,
+                style: const TextStyle(
+                  fontFamily: "monospace",
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "Identity: ${desktopIdentity["identity_id"]}",
+                style: Theme.of(dialogContext).textTheme.bodySmall,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text("Cancel"),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text("Fingerprint matches"),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      if (trusted != true) {
+        setState(() {
+          _pairing = false;
+          _scanHandled = false;
+        });
+        await _scannerController.start();
+        return;
+      }
       await context.read<WebSocketService>().pairFromQr(
             raw,
             deviceName: _nameController.text.trim(),

@@ -105,8 +105,38 @@ class PairingCoordinator:
     def _secret_hash(secret: str) -> str:
         return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
-    def create_session(self, endpoint_url: str, ttl_seconds: int = _DEFAULT_TTL_SECONDS) -> dict[str, Any]:
+    def create_session(
+        self, endpoint_url: str, ttl_seconds: int = _DEFAULT_TTL_SECONDS,
+        *, desktop_identity: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         endpoint = self._validate_endpoint(endpoint_url)
+        if not isinstance(desktop_identity, dict):
+            raise PairingError("An initialized desktop identity is required for QR pairing")
+        identity_id = desktop_identity.get("identity_id")
+        algorithm = desktop_identity.get("algorithm")
+        public_key = desktop_identity.get("public_key")
+        fingerprint = desktop_identity.get("fingerprint_sha256")
+        if (
+            not isinstance(identity_id, str)
+            or len(identity_id) != 32
+            or any(ch not in "0123456789abcdef" for ch in identity_id)
+            or algorithm != "Ed25519"
+        ):
+            raise PairingError("Desktop identity metadata is invalid")
+        try:
+            public_key = self._validate_public_key(public_key)
+        except PairingError as error:
+            raise PairingError("Desktop identity public key is invalid") from error
+        public_raw = base64.b64decode(public_key + "=", altchars=b"-_", validate=True)
+        expected_fingerprint = hashlib.sha256(public_raw).hexdigest()
+        if not isinstance(fingerprint, str) or not hmac.compare_digest(fingerprint, expected_fingerprint):
+            raise PairingError("Desktop identity fingerprint does not match its public key")
+        public_identity = {
+            "identity_id": identity_id,
+            "algorithm": "Ed25519",
+            "public_key": public_key,
+            "fingerprint_sha256": expected_fingerprint,
+        }
         if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, int) or not 30 <= ttl_seconds <= 300:
             raise PairingError("Pairing lifetime must be between 30 and 300 seconds")
         secret = secrets.token_urlsafe(32)
@@ -136,6 +166,7 @@ class PairingCoordinator:
             "session_id": session_id,
             "secret": secret,
             "expires_at": datetime.fromtimestamp(expires_utc, timezone.utc).isoformat(),
+            "desktop_identity": public_identity,
         }
 
     def _get_session(self, session_id: str, secret: str) -> dict[str, Any]:

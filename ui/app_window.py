@@ -34,6 +34,7 @@ from ui.skill_author import open_skill_author
 from ui.profile_viewer import open_profile_viewer
 from ui.automation_catalog_viewer import open_automation_catalog_viewer
 from agent.app_restart import restart_app
+from agent.remote_identity import RemoteIdentityStore
 
 logger = logging.getLogger("voiceassistant.ui")
 
@@ -323,8 +324,23 @@ class AgenticVoiceAssistant(ctk.CTk):
             return
 
         try:
+            identity_store = RemoteIdentityStore()
+            desktop_identity = identity_store.status()
+            if not desktop_identity.get("initialized"):
+                confirmed = messagebox.askyesno(
+                    "Create desktop security identity",
+                    "This PC does not have a remote identity yet. Create its unique Ed25519 identity now? "
+                    "You will compare its fingerprint with the one shown on your phone. "
+                    "The identity is encrypted locally and will not be silently replaced.",
+                    parent=self,
+                )
+                if not confirmed:
+                    return
+                desktop_identity = identity_store.bootstrap(confirmed=True)
             import qrcode
-            payload = pairing_coordinator.create_session(endpoint)
+            payload = pairing_coordinator.create_session(
+                endpoint, desktop_identity=desktop_identity
+            )
             qr_bitmap = qrcode.make(json.dumps(payload, separators=(",", ":"))).get_image()
         except Exception as error:
             logger.exception("Could not create mobile pairing QR", extra={"event": "mobile.pairing_qr_failed"})
@@ -344,6 +360,20 @@ class AgenticVoiceAssistant(ctk.CTk):
         image_label = ctk.CTkLabel(window, text="", image=qr_image)
         image_label.image = qr_image
         image_label.pack(padx=20, pady=8)
+        desktop_fingerprint = desktop_identity["fingerprint_sha256"]
+        grouped_desktop_fingerprint = " ".join(
+            desktop_fingerprint[index:index + 4]
+            for index in range(0, len(desktop_fingerprint), 4)
+        )
+        identity_label = ctk.CTkLabel(
+            window,
+            text="Verify this PC on your phone. Compare this fingerprint exactly:\\n"
+                 + grouped_desktop_fingerprint,
+            wraplength=480,
+            justify="center",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        identity_label.pack(padx=20, pady=(4, 8))
         status = ctk.CTkLabel(window, text="Waiting for a phone to scan this code...", wraplength=470, justify="center")
         status.pack(padx=20, pady=8)
 
