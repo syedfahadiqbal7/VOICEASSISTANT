@@ -28,7 +28,7 @@ MAX_FRAME_BYTES = 64 * 1024
 MAX_GRANT_TTL_MS = 15 * 60 * 1000
 CLOCK_SKEW_MS = 30_000
 AUTH_TIMEOUT_SECONDS = 5
-PEER_WAIT_SECONDS = 30
+PEER_WAIT_SECONDS = 120
 SEND_TIMEOUT_SECONDS = 5
 MAX_SESSIONS = 2048
 MAX_FRAMES_PER_WINDOW = 120
@@ -139,7 +139,6 @@ class PeerSession:
     expires_at_ms: int
     grant_sha256: str
     peers: dict[str, WebSocket] = field(default_factory=dict)
-    changed: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class RendezvousHub:
@@ -169,7 +168,6 @@ class RendezvousHub:
                     or side in session.peers):
                 return False
             session.peers[side] = socket
-            session.changed.set()
             return True
 
     async def peer(self, session_id: str, side: str) -> WebSocket | None:
