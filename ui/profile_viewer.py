@@ -70,7 +70,12 @@ class ProfileViewer(ctk.CTkToplevel):
         ctk.CTkLabel(timezone_row, text="IANA timezone (optional)", width=180, anchor="w").pack(side="left")
         self.timezone_entry = ctk.CTkEntry(timezone_row, placeholder_text="e.g. Asia/Dubai", width=220)
         self.timezone_entry.pack(side="left")
-
+        reminder_row = ctk.CTkFrame(frame, fg_color="transparent")
+        reminder_row.pack(fill="x", padx=8, pady=(0, 8))
+        ctk.CTkLabel(reminder_row, text="Birthday reminder time", width=180, anchor="w").pack(side="left")
+        self.birthday_time_entry = ctk.CTkEntry(reminder_row, width=100, placeholder_text="09:00")
+        self.birthday_time_entry.pack(side="left")
+        ctk.CTkLabel(reminder_row, text="24-hour local time", text_color=("gray45", "gray65")).pack(side="left", padx=8)
     def _add_list_field(self, label: str, key: str, values=None, hint: str = ""):
         frame = ctk.CTkFrame(self.body)
         frame.pack(fill="x", padx=4, pady=4)
@@ -157,6 +162,7 @@ class ProfileViewer(ctk.CTkToplevel):
         self.context_var.set(settings["assistant_context_enabled"])
         self.automation_var.set(settings["personal_automations_enabled"])
         self.timezone_entry.insert(0, settings["timezone"])
+        self.birthday_time_entry.insert(0, settings["birthday_reminder_time"])
         career = profile["career"]
         self.remote_var.set(career["remote_preference"])
         self.language_entry.insert(0, profile["language"]["target_language"])
@@ -231,6 +237,8 @@ class ProfileViewer(ctk.CTkToplevel):
                 "settings": {
                     "assistant_context_enabled": bool(self.context_var.get()),
                     "personal_automations_enabled": bool(self.automation_var.get()),
+                    "birthday_reminders_enabled": self.profile_store.get_profile()["settings"]["birthday_reminders_enabled"],
+                    "birthday_reminder_time": self.birthday_time_entry.get().strip(),
                     "timezone": self.timezone_entry.get().strip(),
                 },
                 "interests": self._read_lines(self.fields["interests"]),
