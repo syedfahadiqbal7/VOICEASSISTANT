@@ -110,10 +110,12 @@ class SignalingEnvelopeService {
     };
     final bytes = canonicalSignalingBytes(unsigned);
     final signature = await _identity.sign(bytes);
-    return <String, dynamic>{
+    final signed = <String, dynamic>{
       ...unsigned,
       'signature': base64Url.encode(signature).replaceAll('=', ''),
     };
+    canonicalSignalingBytes(signed);
+    return signed;
   }
 
   static bool _isId(String value) => RegExp(r'^[0-9a-f]{32}$').hasMatch(value);
