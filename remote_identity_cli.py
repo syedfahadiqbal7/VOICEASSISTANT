@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 
+from agent.data_protection import DataProtectionError
 from agent.remote_identity import RemoteIdentityError, RemoteIdentityStore
 
 
@@ -54,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
                 "created_at": created["created_at"],
             }, indent=2))
             return 0
-    except (RemoteIdentityError, PermissionError, OSError, ValueError) as error:
+    except (RemoteIdentityError, DataProtectionError, PermissionError, OSError, ValueError) as error:
         print(f"Operation refused: {error}")
         return 2
     return 2
