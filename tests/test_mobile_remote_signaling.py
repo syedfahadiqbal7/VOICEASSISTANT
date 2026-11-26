@@ -7,6 +7,7 @@ import time
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -127,7 +128,7 @@ def test_relay_rejects_bad_signature_and_does_not_forward(tmp_path, monkeypatch)
             )
             envelope["payload"]["sdp"] = "tampered"
             mobile_socket.send_text(json.dumps(envelope))
-            with pytest.raises(Exception):
+            with pytest.raises(WebSocketDisconnect):
                 mobile_socket.receive_text()
             # The peer is not sent an unauthenticated payload.
             assert desktop_socket.scope["type"] == "websocket"
@@ -138,7 +139,7 @@ def test_remote_signaling_requires_active_device_bound_ticket(tmp_path, monkeypa
     client = TestClient(app)
     registry.revoke(device["device_id"])
 
-    with pytest.raises(Exception):
+    with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect(
             f"/remote/signaling/mobile/{ticket['session_id']}",
             headers={
@@ -189,3 +190,17 @@ def test_signaling_hub_enforces_one_socket_per_side_and_cleans_up():
         assert session_id not in hub._replay_guards
 
     asyncio.run(scenario())
+
+def test_desktop_authorization_is_bound_to_active_device_identity(tmp_path, monkeypatch):
+    _app, registry, sessions, _private, device, _identity, _desktop, ticket = _prepare(tmp_path, monkeypatch)
+    assert sessions.authorize_desktop(
+        session_id=ticket["session_id"], device_id=device["device_id"], registry=registry,
+    )
+    assert not sessions.authorize_desktop(
+        session_id=ticket["session_id"], device_id="f" * 32, registry=registry,
+    )
+    assert registry.revoke(device["device_id"])
+    assert not sessions.authorize_desktop(
+        session_id=ticket["session_id"], device_id=device["device_id"], registry=registry,
+    )
+
