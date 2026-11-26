@@ -39,6 +39,8 @@ def test_inventory_is_read_only_and_only_reports_explicit_runtime_files(tmp_path
     profile.write_bytes(encrypt_bytes(b"{\"version\":1}", profile.name))
     execution_history = history / "scheduled_execution_history.json"
     execution_history.write_bytes(encrypt_bytes(b"{\"version\":1,\"records\":[]}", execution_history.name))
+    identity = history / "desktop_remote_identity.json"
+    identity.write_bytes(encrypt_bytes(b"{\"schema_version\":1}", identity.name))
     plaintext = history / "notes.txt"
     plaintext.write_text("not a managed store", encoding="utf-8")
     nested = history / "custom_skills"
@@ -49,10 +51,11 @@ def test_inventory_is_read_only_and_only_reports_explicit_runtime_files(tmp_path
     before = legacy_file.read_bytes()
     inventory = inspect_migration(root)
 
-    assert inventory["legacy_vaenc1"] == 4
+    assert inventory["legacy_vaenc1"] == 5
     assert {row["path"] for row in inventory["files"]} == {
         "history/conversation_history.json", "history/user_profile.json",
-        "history/scheduled_execution_history.json", "history/custom_skills/example.json"
+        "history/scheduled_execution_history.json", "history/desktop_remote_identity.json",
+        "history/custom_skills/example.json"
     }
     assert legacy_file.read_bytes() == before
     assert not (history / ".voiceassistant_migration_v1.json").exists()
