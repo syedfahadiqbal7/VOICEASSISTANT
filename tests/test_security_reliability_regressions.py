@@ -373,10 +373,8 @@ def test_mobile_tls_configuration_requires_a_matching_certificate_and_key(tmp_pa
         _tls_options_from_env()
 
     monkeypatch.setenv("VOICEASSISTANT_TLS_KEYFILE", str(key))
-    assert _tls_options_from_env() == {
-        "ssl_certfile": str(cert),
-        "ssl_keyfile": str(key),
-    }
+    with pytest.raises(RuntimeError, match="not a valid PEM X.509 certificate"):
+        _tls_options_from_env()
 
 
 def test_mobile_approval_disconnect_is_denied_when_desktop_fallback_is_absent():
@@ -765,3 +763,14 @@ def test_connection_manager_capacity_reservation_is_atomic_under_concurrent_hand
     assert sum(result is not None for result in results) == 2
     assert sum(socket.accepted for socket in sockets) == 2
     assert manager.connection_count() == 2
+
+def test_mobile_trusted_proxy_allowlist_rejects_wildcard_and_worldwide(monkeypatch):
+    from mobile_api.server import _trusted_proxy_ips_from_env
+    monkeypatch.delenv("VOICEASSISTANT_TRUSTED_PROXY_IPS", raising=False)
+    assert _trusted_proxy_ips_from_env() == "127.0.0.1,::1"
+    monkeypatch.setenv("VOICEASSISTANT_TRUSTED_PROXY_IPS", "10.20.0.5,192.168.1.0/24")
+    assert _trusted_proxy_ips_from_env() == "10.20.0.5,192.168.1.0/24"
+    for value in ("*", "0.0.0.0/0", "::/0", "not-an-ip"):
+        monkeypatch.setenv("VOICEASSISTANT_TRUSTED_PROXY_IPS", value)
+        with pytest.raises(RuntimeError):
+            _trusted_proxy_ips_from_env()

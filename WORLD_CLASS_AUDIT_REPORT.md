@@ -190,7 +190,7 @@ The installer does not claim cryptographic publisher authentication. SHA-256 che
 
 ### P1 — complete before exposing to a wider network
 
-- **TLS certificate lifecycle.** Direct `wss://` can be configured with a certificate/key or TLS reverse proxy, and the Flutter client relies on the operating-system trust store. Certificate provisioning/rotation, certificate pinning, per-device client certificates and an in-app token rotation workflow are not implemented. Per-device credentials, revocation and server-side device roles are implemented through the trusted desktop CLI. Plain `ws://` remains available after explicit confirmation and must be restricted to a trusted private LAN/VPN.
+- **TLS certificate lifecycle.** Direct TLS now preflights the PEM certificate, matching private key, validity window and optional public-host SAN at startup, with a 30-day renewal warning. Certificate hot-reload, online OCSP/CRL checks, certificate pinning, per-device client certificates and an in-app token rotation workflow are not implemented. Reverse-proxy deployments must explicitly trust proxy source IPs/CIDRs for forwarded HTTPS headers. Per-device credentials, revocation and server-side device roles are implemented through the trusted desktop CLI. Plain `ws://` remains available after explicit confirmation and must be restricted to a trusted private LAN/VPN.
 - **Legacy shared-token compatibility.** The shared-token mode remains available only before a device registry is created and provides operator-level permissions without per-device attribution. Once the encrypted registry exists, per-device credentials and roles are mandatory. There is not yet a per-human identity provider, device certificate identity or in-app token rotation.
 - **Mobile release signing.** Android's release build currently uses the debug signing configuration and iOS CI uses `--no-codesign`. Configure protected Android signing material and Apple signing/provisioning before public distribution.
 - **Plugin isolation is partial and opt-in.** The JSON formatter and no-permission hello example are the currently reviewed plugins routed through AppContainer for both metadata discovery and execution. Plugins in the default worker mode still run with the desktop user's OS permissions; checksums are integrity controls, not cryptographic publisher signatures, and the author field is unverified metadata.
@@ -614,3 +614,11 @@ Implement and test the host-owned capability broker, then implement Windows rest
 - ACL removal retries and reports failures. Broker shutdown, each ACL removal, profile deletion, SID release and workspace deletion are isolated so one cleanup failure does not skip subsequent cleanup.
 - Static plugin inventory distinguishes read-only `open(..., "r")` from write/append/update modes and treats dynamic open modes conservatively as read+write.
 - Remaining gate: validate ACL cleanup and disk-pressure behavior on supported Windows 10/11 target builds, including forced termination and cleanup failure injection. A watchdog does not replace independent Windows security review.
+
+## 12. Mobile TLS certificate preflight and reverse-proxy trust
+
+- Direct TLS startup validates the PEM X.509 certificate, matching private key, validity window and (when configured) Subject Alternative Name against `VOICEASSISTANT_MOBILE_PUBLIC_URL`.
+- Expired, not-yet-valid, malformed, mismatched-key and public-host mismatch configurations fail startup. Certificates with 30 days or fewer remaining produce a renewal warning.
+- TLS certificate renewal is restart-based; Uvicorn does not hot-reload the configured certificate files. Reverse-proxy TLS is renewed/reloaded at the proxy.
+- Uvicorn forwarded-header trust is explicit: loopback-only by default, configurable through `VOICEASSISTANT_TRUSTED_PROXY_IPS`, and rejects wildcard/world-wide networks.
+- Remaining: validate certificate renewal/restart and proxy-forwarded scheme behavior on target Windows deployments; this preflight does not perform online OCSP/CRL revocation checks or CA-chain trust verification on behalf of mobile clients.
