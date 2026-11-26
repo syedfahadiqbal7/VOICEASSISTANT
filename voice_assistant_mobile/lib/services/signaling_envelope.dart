@@ -50,7 +50,9 @@ List<int> canonicalSignalingBytes(Map<String, dynamic> value) {
       return item.map((value) => normalize(value, depth + 1)).toList();
     }
     if (item is Map) {
-      if (item.length > 256 || item.keys.any((key) => key is! String)) {
+      if (item.length > 256 || item.keys.any((key) =>
+          key is! String || (key as String).length > 128 ||
+          (key as String).codeUnits.any((unit) => unit > 0x7f))) {
         throw const SignalingEnvelopeException('Payload object is invalid or too large');
       }
       final keys = item.keys.cast<String>().toList()..sort();
