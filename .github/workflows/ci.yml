@@ -116,6 +116,19 @@ jobs:
       - name: Build iOS Simulator (unsigned)
         run: flutter build ios --simulator --debug --no-codesign
 
+  relay-container:
+    name: Relay container and Compose validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Validate Compose configuration
+        run: |
+          cp deploy/relay/.env.example deploy/relay/.env
+          docker compose --env-file deploy/relay/.env -f deploy/relay/compose.yaml config --quiet
+      - name: Build relay container
+        run: docker build --file relay_service/Dockerfile --tag voiceassistant-relay:ci .
+
   github-release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
