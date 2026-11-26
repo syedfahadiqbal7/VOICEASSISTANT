@@ -116,7 +116,13 @@ class MobileDeviceRegistry:
 
     def _load(self) -> dict[str, Any]:
         value = load_json(self.path, default={"version": 2, "devices": []}, encrypt=True)
-        if not isinstance(value, dict) or value.get("version") not in (1, 2) or not isinstance(value.get("devices"), list):
+        version = value.get("version") if isinstance(value, dict) else None
+        if (
+            not isinstance(value, dict)
+            or type(version) is not int
+            or version not in (1, 2)
+            or not isinstance(value.get("devices"), list)
+        ):
             raise ValueError("Mobile device registry has an unsupported or invalid shape")
 
         # Version 1 devices remain valid direct-WebSocket credentials but have
