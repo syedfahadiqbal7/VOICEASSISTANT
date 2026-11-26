@@ -8,6 +8,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
 
+import 'mobile_identity_service.dart';
+
 class WebSocketService extends ChangeNotifier {
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
@@ -253,10 +255,14 @@ class WebSocketService extends ChangeNotifier {
     try {
       final requestUri = endpoint.replace(path: "/pairing/request");
       final resultUri = endpoint.replace(path: "/pairing/result");
+      // Generate the device signing identity only after the user explicitly
+      // scans a pairing QR. The private seed remains in platform secure storage.
+      final identity = await MobileIdentityService().loadOrCreateForPairing();
       await _postPairingJson(client, requestUri, {
         "session_id": sessionId,
         "secret": secret,
         "device_name": deviceName.trim(),
+        "public_key_ed25519": identity.publicKey,
       });
 
       while (DateTime.now().isBefore(expiresAt)) {
