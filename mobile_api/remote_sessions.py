@@ -185,7 +185,13 @@ class RemoteSessionStore:
                     pending["identity_fingerprint"],
                 ):
                     raise RemoteSessionError("Paired device identity changed after challenge creation")
-                signature_bytes = _b64url_decode(signature, 64)
+                try:
+                    signature_bytes = _b64url_decode(signature, 64)
+                except RemoteSessionError as error:
+                    pending["attempts"] += 1
+                    if pending["attempts"] >= 5:
+                        self._challenges.pop(session_id, None)
+                    raise RemoteSessionError("Remote-session device signature is invalid") from error
                 public_bytes = _b64url_decode(identity["public_key"], 32)
                 proof = {
                     "protocol_version": 1,
