@@ -138,12 +138,18 @@ class PairingCoordinator:
             raise PairingError("Invalid or expired pairing session")
         return item
 
-    def submit_request(self, session_id: str, secret: str, device_name: str) -> dict[str, str]:
+    def submit_request(self, session_id: str, secret: str, device_name: str, public_key_ed25519: str) -> dict[str, str]:
         if not isinstance(device_name, str):
             raise PairingError("Device name must be text")
         name = device_name.strip()
         if not name or len(name) > 80 or any(ord(ch) < 32 for ch in name):
             raise PairingError("Device name must contain 1–80 printable characters")
+        try:
+            public_key = self._registry._validate_public_key(public_key_ed25519)
+        except (AttributeError, TypeError, ValueError) as error:
+            raise PairingError("A valid Ed25519 mobile public key is required") from error
+        public_raw = __import__("base64").b64decode(public_key + "=", altchars=b"-_", validate=True)
+        fingerprint = hashlib.sha256(public_raw).hexdigest()
         with self._lock:
             self._purge_expired()
             item = self._get_session(session_id, secret)
@@ -152,6 +158,8 @@ class PairingCoordinator:
             request_id = uuid.uuid4().hex
             item["request_id"] = request_id
             item["device_name"] = name
+            item["public_key_ed25519"] = public_key
+            item["identity_fingerprint"] = fingerprint
             item["state"] = "pending_approval"
             return {"request_id": request_id, "status": "pending_approval"}
 
@@ -163,6 +171,8 @@ class PairingCoordinator:
                     "session_id": session_id,
                     "request_id": item["request_id"],
                     "device_name": item["device_name"],
+                    "identity_algorithm": "Ed25519",
+                    "identity_fingerprint": item["identity_fingerprint"],
                     "created_state": item["state"],
                     "expires_at": item["expires_at_utc"],
                 }
@@ -180,7 +190,10 @@ class PairingCoordinator:
             if item is None or item["state"] != "pending_approval":
                 return False
             # Registration persists only a digest in the encrypted device registry.
-            credentials = self._registry.register(item["device_name"], role=role)
+            credentials = self._registry.register(
+                item["device_name"], role=role,
+                public_key_ed25519=item["public_key_ed25519"],
+            )
             item["credentials"] = credentials
             item["state"] = "approved"
             return True
