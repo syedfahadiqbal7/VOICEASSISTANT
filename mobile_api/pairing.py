@@ -19,6 +19,9 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from typing import Any
 
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
 from mobile_api.authorization import ROLE_APPROVER, ROLE_OPERATOR, ROLE_VIEWER
 
 _ALLOWED_PAIRING_ROLES = {ROLE_OPERATOR, ROLE_APPROVER, ROLE_VIEWER}
@@ -152,7 +155,10 @@ class PairingCoordinator:
             raise PairingError("Invalid or expired pairing session")
         return item
 
-    def submit_request(self, session_id: str, secret: str, device_name: str, public_key_ed25519: str) -> dict[str, str]:
+    def submit_request(
+        self, session_id: str, secret: str, device_name: str,
+        public_key_ed25519: str, proof_signature: str,
+    ) -> dict[str, str]:
         if not isinstance(device_name, str):
             raise PairingError("Device name must be text")
         name = device_name.strip()
@@ -161,9 +167,28 @@ class PairingCoordinator:
         public_key = self._validate_public_key(public_key_ed25519)
         public_raw = base64.b64decode(public_key + "=", altchars=b"-_", validate=True)
         fingerprint = hashlib.sha256(public_raw).hexdigest()
+        if not isinstance(proof_signature, str) or len(proof_signature) != 86 or "=" in proof_signature:
+            raise PairingError("Mobile identity proof-of-possession signature is required")
+        try:
+            signature = base64.b64decode(proof_signature + "==", altchars=b"-_", validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise PairingError("Mobile identity proof-of-possession signature is malformed") from error
+        if len(signature) != 64 or base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=") != proof_signature:
+            raise PairingError("Mobile identity proof-of-possession signature is malformed")
         with self._lock:
             self._purge_expired()
             item = self._get_session(session_id, secret)
+            proof_message = (
+                "voiceassistant-mobile-pairing-v2\\n"
+                + str(session_id).strip().lower() + "\\n"
+                + name + "\\n"
+                + public_key + "\\n"
+                + secret
+            ).encode("utf-8")
+            try:
+                Ed25519PublicKey.from_public_bytes(public_raw).verify(signature, proof_message)
+            except (InvalidSignature, ValueError) as error:
+                raise PairingError("Mobile identity proof-of-possession verification failed") from error
             if item["state"] != "waiting" or item["request_id"] is not None:
                 raise PairingError("This QR pairing request has already been used")
             request_id = uuid.uuid4().hex
