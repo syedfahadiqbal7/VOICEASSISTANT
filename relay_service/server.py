@@ -179,16 +179,18 @@ class RendezvousHub:
                 return None
             return session.peers.get("mobile" if side == "desktop" else "desktop")
 
-    async def detach(self, session_id: str, side: str, socket: WebSocket) -> None:
+    async def detach(self, session_id: str, side: str, socket: WebSocket) -> WebSocket | None:
         async with self._lock:
             session = self._sessions.get(session_id)
             if session is None or session.peers.get(side) is not socket:
-                return
+                return None
             session.peers.pop(side, None)
+            remaining = next(iter(session.peers.values()), None)
             if not session.peers:
                 self._sessions.pop(session_id, None)
             else:
                 session.changed.set()
+            return remaining
 
 
 class FrameRate:
@@ -263,7 +265,16 @@ def create_app(*, audience: str | None = None, hub: RendezvousHub | None = None)
 
             await websocket.send_text('{"type":"relay.peer_ready","protocol_version":1}')
             while True:
-                raw = await websocket.receive_text()
+                remaining_seconds = max(
+                    0.1, (grant["expires_at_ms"] - int(time.time() * 1000)) / 1000
+                )
+                try:
+                    raw = await asyncio.wait_for(
+                        websocket.receive_text(), timeout=remaining_seconds
+                    )
+                except asyncio.TimeoutError:
+                    await websocket.close(code=1008, reason="Relay grant expired")
+                    break
                 if len(raw.encode("utf-8")) > MAX_FRAME_BYTES:
                     await websocket.close(code=1009, reason="Frame too large")
                     break
@@ -282,7 +293,12 @@ def create_app(*, audience: str | None = None, hub: RendezvousHub | None = None)
         except Exception:
             await websocket.close(code=1011, reason="Relay unavailable")
         finally:
-            await relay_hub.detach(session_id, side, websocket)
+            remaining_peer = await relay_hub.detach(session_id, side, websocket)
+            if remaining_peer is not None:
+                try:
+                    await remaining_peer.close(code=1013, reason="Peer disconnected")
+                except Exception:
+                    pass
 
     return app
 
