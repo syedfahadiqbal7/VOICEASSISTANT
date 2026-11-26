@@ -127,7 +127,7 @@ class PairingCoordinator:
                 "result_consumed": False,
             }
         return {
-            "version": 1,
+            "version": 2,
             "type": "voiceassistant_mobile_pairing",
             "endpoint": endpoint,
             "session_id": session_id,
