@@ -45,6 +45,10 @@ class _QrPairingScreenState extends State<QrPairingScreen> {
     unawaited(_scannerController.stop());
 
     try {
+      final decoded = jsonDecode(raw);
+      final isRemoteSession = decoded is Map &&
+          decoded["type"] == "voiceassistant_remote_session" &&
+          decoded["version"] == 1;
       final desktopIdentity =
           await WebSocketService.inspectDesktopIdentity(raw);
       final fingerprint = desktopIdentity["fingerprint_sha256"]!;
@@ -103,10 +107,15 @@ class _QrPairingScreenState extends State<QrPairingScreen> {
         await _scannerController.start();
         return;
       }
-      await context.read<WebSocketService>().pairFromQr(
-            raw,
-            deviceName: _nameController.text.trim(),
-          );
+      final service = context.read<WebSocketService>();
+      if (isRemoteSession) {
+        await service.connectRemoteFromQr(raw);
+      } else {
+        await service.pairFromQr(
+          raw,
+          deviceName: _nameController.text.trim(),
+        );
+      }
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
       if (!mounted) return;
@@ -135,7 +144,7 @@ class _QrPairingScreenState extends State<QrPairingScreen> {
           padding: const EdgeInsets.all(20),
           children: [
             const Text(
-              "Scan the QR code shown in the VoiceAssistant desktop app.",
+              "Scan a new-pairing or remote-session QR code shown in the VoiceAssistant desktop app.",
               style: TextStyle(color: Colors.white, fontSize: 16),
               textAlign: TextAlign.center,
             ),
@@ -177,7 +186,7 @@ class _QrPairingScreenState extends State<QrPairingScreen> {
                             ),
                             const SizedBox(height: 8),
                             const Text(
-                              "Approve this device in the desktop application.",
+                              "Complete the requested approval or remote-session verification.",
                               textAlign: TextAlign.center,
                               style: TextStyle(color: Colors.white70),
                             ),
@@ -209,7 +218,7 @@ class _QrPairingScreenState extends State<QrPairingScreen> {
             ],
             const SizedBox(height: 16),
             const Text(
-              "Only scan a code displayed by a desktop you trust. Pairing uses an encrypted HTTPS connection and the desktop owner must approve the request.",
+              "Only scan a code displayed by a desktop you trust. QR grants are signed by the desktop identity and exchanged over HTTPS. New devices still require desktop approval.",
               style: TextStyle(color: Colors.white70, fontSize: 12),
               textAlign: TextAlign.center,
             ),
