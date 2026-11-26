@@ -217,3 +217,48 @@ def test_replay_guard_fails_closed_at_capacity():
                     expected_recipient_id=recipient, expected_session_id=session,
                     replay_guard=guard, now_ms=1_700_000_000_001,
                 )
+
+
+def test_replay_guard_rejects_reused_message_id_even_with_new_sequence():
+    private, public = _keypair()
+    sender, recipient, session = "a" * 32, "b" * 32, "c" * 32
+    first = _envelope(private, sender, recipient, session, sequence=1)
+    guard = ReplayGuard()
+    verify_signed_envelope(
+        first, public_key=public, expected_sender_id=sender,
+        expected_recipient_id=recipient, expected_session_id=session,
+        replay_guard=guard, now_ms=1_700_000_000_001,
+    )
+    second = _envelope(private, sender, recipient, session, sequence=2)
+    second["message_id"] = first["message_id"]
+    unsigned = {key: value for key, value in second.items() if key != "signature"}
+    second["signature"] = _b64(private.sign(canonical_json(unsigned)))
+    with pytest.raises(SignalingEnvelopeError, match="Replayed"):
+        verify_signed_envelope(
+            second, public_key=public, expected_sender_id=sender,
+            expected_recipient_id=recipient, expected_session_id=session,
+            replay_guard=guard, now_ms=1_700_000_000_002,
+        )
+
+
+def test_replay_guard_releases_expired_session_capacity():
+    guard = ReplayGuard(max_entries=1)
+    guard.accept("c" * 32, "a" * 32, 1, "d" * 32, 1000, 500)
+    guard.accept("e" * 32, "a" * 32, 1, "f" * 32, 2000, 1000)
+    assert len(guard._highest) == 1
+
+
+def test_complete_signed_envelope_size_includes_signature():
+    private, _public = _keypair()
+    payload = {
+        "a": "x" * 16384,
+        "b": "x" * 16384,
+        "c": "x" * 16384,
+        "d": "x" * 16000,
+    }
+    with pytest.raises(SignalingEnvelopeError, match="size limit"):
+        create_signed_envelope(
+            sender_id="a" * 32, recipient_id="b" * 32,
+            session_id="c" * 32, sequence=1, message_type="sdp.offer",
+            payload=payload, sign=private.sign, now_ms=1_700_000_000_000,
+        )
