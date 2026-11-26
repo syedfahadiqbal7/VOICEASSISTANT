@@ -153,6 +153,7 @@ async def submit_pairing_request(request: Request):
             data.get("secret", ""),
             data.get("device_name", ""),
             data.get("public_key_ed25519", ""),
+            data.get("proof_signature", ""),
         )
         return {"ok": True, **result}
     except PairingError as error:
