@@ -122,14 +122,15 @@ class ConversationManager:
 
         self.scheduler = JobScheduler(on_job=None)
         self.scheduler.on_job = self._on_scheduled_job
-        try:
-            self.scheduler.start()
-        except Exception as e:
-            print(f"[Scheduler] start failed: {e}")
+        # Reconcile explicit automation consent before the worker can fire overdue jobs.
         try:
             self.sync_profile_automations()
         except Exception as error:
             print(f"[Automations] Profile automation sync deferred: {type(error).__name__}")
+        try:
+            self.scheduler.start()
+        except Exception as e:
+            print(f"[Scheduler] start failed: {e}")
 
     def refresh_profile_context(self) -> None:
         """Refresh the system context after an explicit profile preference change."""
