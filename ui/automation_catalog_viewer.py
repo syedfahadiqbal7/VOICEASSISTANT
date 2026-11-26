@@ -7,14 +7,14 @@ from agent.automation_catalog import AUTOMATION_CATALOG, automation_readiness
 
 
 class AutomationCatalogViewer(ctk.CTkToplevel):
-    def __init__(self, parent, profile_store, scheduler=None, on_birthday_toggle=None):
+    def __init__(self, parent, profile_store, scheduler=None, on_automation_toggle=None):
         super().__init__(parent)
         self.title("Personal Automation Catalog")
         self.geometry("920x780")
         self.minsize(760, 560)
         self.profile_store = profile_store
         self.scheduler = scheduler
-        self.on_birthday_toggle = on_birthday_toggle
+        self.on_automation_toggle = on_automation_toggle
 
         self.profile = profile_store.get_profile()
         self.global_enabled = bool(self.profile.get("settings", {}).get("personal_automations_enabled", False))
@@ -79,14 +79,18 @@ class AutomationCatalogViewer(ctk.CTkToplevel):
             item.id,
             profile=profile,
             connected_integrations=(),
-            registered_handlers={"birthday_reminders"},
+            registered_handlers={"birthday_reminders", "daily_language_lesson"},
             master_enabled=bool(settings.get("personal_automations_enabled", False)),
         )
-        enabled = bool(settings.get("birthday_reminders_enabled", False)) if item.id == "birthday_reminders" else False
-        active_job = self._birthday_job()
+        setting_key = {
+            "birthday_reminders": "birthday_reminders_enabled",
+            "daily_language_lesson": "daily_language_lesson_enabled",
+        }.get(item.id)
+        enabled = bool(settings.get(setting_key, False)) if setting_key else False
+        active_job = self._automation_job(item.id) if setting_key else None
         active = bool(active_job and active_job.get("enabled") and active_job.get("status") in {"pending", "running"})
 
-        if item.id == "birthday_reminders":
+        if setting_key:
             if active:
                 status_text = "ACTIVE · LOCAL DESKTOP"
             elif enabled:
@@ -112,9 +116,9 @@ class AutomationCatalogViewer(ctk.CTkToplevel):
 
         detail = f"{item.description}\nCadence: {self._cadence(item)}\nSetup: {self._requirements(item)}"
         blockers = readiness["blockers"]
-        if item.id == "birthday_reminders" and blockers and not enabled:
+        if setting_key and blockers:
             detail += "\nCannot enable yet: " + "; ".join(blockers)
-        elif item.id != "birthday_reminders":
+        elif not setting_key:
             detail += "\nStatus: no executable workflow handler is registered yet."
             if blockers:
                 detail += "\nRemaining setup: " + "; ".join(blockers[:3])
@@ -126,40 +130,42 @@ class AutomationCatalogViewer(ctk.CTkToplevel):
             text_color=("gray25", "gray75"),
         ).pack(anchor="w", padx=10, pady=(0, 8))
 
-        if item.id == "birthday_reminders":
+        if setting_key:
+            action_label = "birthday reminders" if item.id == "birthday_reminders" else "daily language lesson"
             button = ctk.CTkButton(
                 card,
-                text="Disable birthday reminders" if enabled else "Enable birthday reminders",
-                width=190,
+                text=f"Disable {action_label}" if enabled else f"Enable {action_label}",
+                width=210,
                 state="normal" if enabled or readiness["can_enable"] else "disabled",
-                command=lambda value=not enabled: self._toggle_birthday(value),
+                command=lambda key=item.id, value=not enabled: self._toggle_automation(key, value),
             )
             button.pack(anchor="e", padx=10, pady=(0, 8))
 
-    def _birthday_job(self):
+    def _automation_job(self, automation_id):
         if self.scheduler is None:
             return None
-        return next(
-            (job for job in self.scheduler.list_jobs() if job.get("prompt") == "__automation__:birthday_reminders"),
-            None,
-        )
+        marker = "__automation__:" + automation_id
+        return next((job for job in self.scheduler.list_jobs() if job.get("prompt") == marker), None)
 
-    def _toggle_birthday(self, enabled: bool):
-        if self.on_birthday_toggle is None:
-            self.status.configure(text="Birthday reminder activation is unavailable.", text_color="#E74C3C")
+    def _toggle_automation(self, automation_id: str, enabled: bool):
+        if self.on_automation_toggle is None:
+            self.status.configure(text="Automation activation is unavailable.", text_color="#E74C3C")
             return
         try:
-            result = self.on_birthday_toggle(enabled)
+            result = self.on_automation_toggle(automation_id, enabled)
             if result.get("active"):
+                settings = self.profile_store.get_profile()["settings"]
+                time_key = "birthday_reminder_time" if automation_id == "birthday_reminders" else "daily_language_lesson_time"
+                label = "Birthday reminders" if automation_id == "birthday_reminders" else "Daily language lesson"
                 self.status.configure(
-                    text=f"Birthday reminders are scheduled for {self.profile_store.get_profile()['settings']['birthday_reminder_time']} local time. The desktop app must remain open.",
+                    text=f"{label} scheduled for {settings[time_key]} local time. The desktop app must remain open.",
                     text_color="#27AE60",
                 )
             else:
-                self.status.configure(text=result.get("reason", "Birthday reminders are disabled."), text_color="#9A6700")
+                self.status.configure(text=result.get("reason", "Automation is disabled."), text_color="#9A6700")
             self.destroy()
         except Exception as error:
-            self.status.configure(text=f"Could not update birthday reminders: {error}", text_color="#E74C3C")
+            self.status.configure(text=f"Could not update automation: {error}", text_color="#E74C3C")
 
     @staticmethod
     def _requirements(item) -> str:
@@ -188,10 +194,10 @@ class AutomationCatalogViewer(ctk.CTkToplevel):
         }.get(item.cadence, item.cadence)
 
 
-def open_automation_catalog_viewer(parent, profile_store, scheduler=None, on_birthday_toggle=None):
+def open_automation_catalog_viewer(parent, profile_store, scheduler=None, on_automation_toggle=None):
     return AutomationCatalogViewer(
         parent,
         profile_store,
         scheduler=scheduler,
-        on_birthday_toggle=on_birthday_toggle,
+        on_automation_toggle=on_automation_toggle,
     )
