@@ -98,6 +98,22 @@ Before writing, restore validates the authenticated archive, format version, pat
 - The backup passphrase must be stored separately from the backup file. Anyone with both can restore the included data.
 
 
+## Desktop remote-session signing identity
+
+The desktop signing identity is a separate Ed25519 keypair, not a data-encryption key. Its private key is stored only in the authenticated-encrypted history/desktop_remote_identity.json record; the public key and SHA-256 fingerprint are safe to display. It is never derived from the AES data key, written to logs, or generated automatically at application startup.
+
+Create the identity only from the trusted desktop after reviewing the prompt:
+
+```powershell
+python remote_identity_cli.py status
+python remote_identity_cli.py bootstrap
+python remote_identity_cli.py public
+```
+
+The bootstrap command requires the exact typed confirmation CREATE DESKTOP IDENTITY. If an identity file already exists but is malformed, unreadable or fails authentication, the CLI refuses to replace it. There is no automatic reset or rotation command. Preserve the identity across device migration by creating and verifying a portable encrypted backup before moving the runtime data; the identity store is included in the backup allowlist and explicit key-migration inventory. A restore should preserve the same public fingerprint. Losing the private identity without a verified backup requires a future explicit re-pairing/identity-reset procedure; do not delete the file manually.
+
+This phase provisions and protects the key only. Existing QR pairing does not yet pin or sign with this identity, and the key does not enable a hosted relay or cross-network connectivity by itself.
+
 ## User-controlled retention
 
 Retention settings are stored encrypted in `history/data_retention.json`. All retention rules are disabled by default; nothing is purged automatically at application startup. Use the interactive CLI:
