@@ -146,32 +146,66 @@ def create_signed_envelope(
     signature = sign(canonical_json(unsigned))
     if not isinstance(signature, bytes) or len(signature) != 64:
         raise SignalingEnvelopeError("Signing provider returned an invalid Ed25519 signature")
-    return {**unsigned, "signature": _b64url_encode(signature)}
+    signed = {**unsigned, "signature": _b64url_encode(signature)}
+    if len(canonical_json(signed)) > MAX_ENVELOPE_BYTES:
+        raise SignalingEnvelopeError("Signaling envelope exceeds its size limit")
+    return signed
 
 
 class ReplayGuard:
-    """Bounded in-memory replay protection; state is scoped to session and sender."""
+    """Bounded in-memory replay protection scoped to session and sender."""
 
     def __init__(self, *, max_entries: int = MAX_REPLAY_ENTRIES):
         self._max_entries = max(1, min(int(max_entries), MAX_REPLAY_ENTRIES))
         self._lock = threading.RLock()
         self._seen: OrderedDict[tuple[str, str, int], int] = OrderedDict()
-        self._highest: dict[tuple[str, str], int] = {}
+        self._message_ids: OrderedDict[tuple[str, str, str], int] = OrderedDict()
+        self._highest: dict[tuple[str, str], tuple[int, int]] = {}
 
-    def accept(self, session_id: str, sender_id: str, sequence: int, message_id: str, expires_at_ms: int, now_ms: int) -> None:
+    def accept(
+        self, session_id: str, sender_id: str, sequence: int,
+        message_id: str, expires_at_ms: int, now_ms: int,
+    ) -> None:
         key = (session_id, sender_id)
         replay_key = (session_id, sender_id, sequence)
+        message_key = (session_id, sender_id, message_id)
         with self._lock:
-            expired = [item for item, expiry in self._seen.items() if expiry < now_ms]
-            for item in expired:
+            expired_sequences = [
+                item for item, expiry in self._seen.items() if expiry <= now_ms
+            ]
+            for item in expired_sequences:
                 self._seen.pop(item, None)
-            highest = self._highest.get(key, 0)
-            if sequence <= highest or replay_key in self._seen:
+            expired_messages = [
+                item for item, expiry in self._message_ids.items() if expiry <= now_ms
+            ]
+            for item in expired_messages:
+                self._message_ids.pop(item, None)
+            expired_sessions = [
+                item for item, (_sequence, expiry) in self._highest.items()
+                if expiry <= now_ms
+            ]
+            for item in expired_sessions:
+                self._highest.pop(item, None)
+
+            highest = self._highest.get(key)
+            if (
+                (highest is not None and sequence <= highest[0])
+                or replay_key in self._seen
+                or message_key in self._message_ids
+            ):
                 raise SignalingEnvelopeError("Replayed or out-of-order signaling sequence")
-            if len(self._seen) >= self._max_entries:
-                raise SignalingEnvelopeError("Replay-protection capacity reached; refusing new signaling")
+            if (
+                len(self._seen) >= self._max_entries
+                or len(self._message_ids) >= self._max_entries
+                or (highest is None and len(self._highest) >= self._max_entries)
+            ):
+                raise SignalingEnvelopeError(
+                    "Replay-protection capacity reached; refusing new signaling"
+                )
+
             self._seen[replay_key] = expires_at_ms
-            self._highest[key] = sequence
+            self._message_ids[message_key] = expires_at_ms
+            self._highest[key] = (sequence, expires_at_ms)
 
 
 def verify_signed_envelope(
@@ -181,6 +215,8 @@ def verify_signed_envelope(
 ) -> dict[str, Any]:
     if not isinstance(envelope, dict) or set(envelope) != _FIELDS:
         raise SignalingEnvelopeError("Invalid signaling envelope shape")
+    if len(canonical_json(envelope)) > MAX_ENVELOPE_BYTES:
+        raise SignalingEnvelopeError("Signaling envelope exceeds its size limit")
     unsigned = {key: value for key, value in envelope.items() if key != "signature"}
     _validate_unsigned(unsigned)
     if unsigned["sender_id"] != expected_sender_id:
