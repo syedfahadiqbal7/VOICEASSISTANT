@@ -171,7 +171,7 @@ class MobileIdentityService {
 
     final keyPair = await _algorithm.newKeyPair();
     try {
-      final seed = await keyPair.extractPrivateKeyBytes();
+      final seed = List<int>.from(await keyPair.extractPrivateKeyBytes());
       try {
         final publicKey = (await keyPair.extractPublicKey()).bytes;
         if (seed.length != 32 || publicKey.length != 32) {
