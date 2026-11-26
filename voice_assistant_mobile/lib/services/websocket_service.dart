@@ -10,6 +10,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
 
 import 'mobile_identity_service.dart';
+import 'signaling_envelope.dart';
 
 class WebSocketService extends ChangeNotifier {
   WebSocketChannel? _channel;
@@ -24,6 +25,9 @@ class WebSocketService extends ChangeNotifier {
   String? _lastHost;
   String _lastToken = "";
   String _lastDeviceId = "";
+  String _lastRemoteSessionId = "";
+  String _lastRemoteSessionTicket = "";
+  int _lastRemoteSessionExpiresAtMs = 0;
   int _lastPort = 8765;
 
   bool isConnected = false;
@@ -69,13 +73,35 @@ class WebSocketService extends ChangeNotifier {
       }
       final token = await _secureStorage.read(key: "mobile_token") ?? "";
       final deviceId = await _secureStorage.read(key: "mobile_device_id") ?? "";
+      final remoteSessionId = await _secureStorage.read(key: "remote_session_id") ?? "";
+      final remoteSessionTicket = await _secureStorage.read(key: "remote_session_ticket") ?? "";
+      final remoteExpiry = await _secureStorage.read(key: "remote_session_expires_at_ms") ?? "";
       final autoConnect = await _secureStorage.read(key: "auto_connect") ?? "true";
+      if (remoteSessionId.isNotEmpty || remoteSessionTicket.isNotEmpty) {
+        final expiresAt = int.tryParse(remoteExpiry);
+        if (remoteSessionId.isEmpty ||
+            remoteSessionTicket.isEmpty ||
+            expiresAt == null ||
+            expiresAt <= DateTime.now().millisecondsSinceEpoch) {
+          await _secureStorage.delete(key: "remote_session_id");
+          await _secureStorage.delete(key: "remote_session_ticket");
+          await _secureStorage.delete(key: "remote_session_expires_at_ms");
+          await _secureStorage.write(key: "auto_connect", value: "false");
+          hasSavedConnection = false;
+          lastError = "Remote session expired. Scan a fresh desktop QR code.";
+          notifyListeners();
+          return null;
+        }
+      }
       hasSavedConnection = true;
       notifyListeners();
       return {
         "host": host,
         "token": token,
         "device_id": deviceId,
+        "remote_session_id": remoteSessionId,
+        "remote_session_ticket": remoteSessionTicket,
+        "remote_session_expires_at_ms": remoteExpiry,
         "auto_connect": autoConnect,
       };
     } catch (error) {
@@ -101,6 +127,19 @@ class WebSocketService extends ChangeNotifier {
       if (generation != _connectionGeneration || _manualDisconnect) return;
       await _secureStorage.write(key: "mobile_device_id", value: _lastDeviceId);
       if (generation != _connectionGeneration || _manualDisconnect) return;
+      if (_lastRemoteSessionId.isNotEmpty && _lastRemoteSessionTicket.isNotEmpty) {
+        await _secureStorage.write(key: "remote_session_id", value: _lastRemoteSessionId);
+        await _secureStorage.write(key: "remote_session_ticket", value: _lastRemoteSessionTicket);
+        await _secureStorage.write(
+          key: "remote_session_expires_at_ms",
+          value: _lastRemoteSessionExpiresAtMs.toString(),
+        );
+      } else {
+        await _secureStorage.delete(key: "remote_session_id");
+        await _secureStorage.delete(key: "remote_session_ticket");
+        await _secureStorage.delete(key: "remote_session_expires_at_ms");
+      }
+      if (generation != _connectionGeneration || _manualDisconnect) return;
       await _secureStorage.write(key: "auto_connect", value: "true");
       if (generation != _connectionGeneration || _manualDisconnect) return;
       hasSavedConnection = true;
@@ -120,6 +159,20 @@ class WebSocketService extends ChangeNotifier {
       await _secureStorage.write(key: "auto_connect", value: enabled ? "true" : "false");
     } catch (error) {
       debugPrint("Auto-connect preference update failed: $error");
+    }
+  }
+
+  Future<void> _clearRemoteSessionCredentials() async {
+    _lastRemoteSessionId = "";
+    _lastRemoteSessionTicket = "";
+    _lastRemoteSessionExpiresAtMs = 0;
+    try {
+      await _secureStorage.delete(key: "remote_session_id");
+      await _secureStorage.delete(key: "remote_session_ticket");
+      await _secureStorage.delete(key: "remote_session_expires_at_ms");
+      await _secureStorage.write(key: "auto_connect", value: "false");
+    } catch (error) {
+      debugPrint("Remote session credential cleanup failed: $error");
     }
   }
 
@@ -154,12 +207,18 @@ class WebSocketService extends ChangeNotifier {
     _lastHost = null;
     _lastToken = "";
     _lastDeviceId = "";
+    _lastRemoteSessionId = "";
+    _lastRemoteSessionTicket = "";
+    _lastRemoteSessionExpiresAtMs = 0;
     _lastPort = 8765;
 
     try {
       await _secureStorage.delete(key: "desktop_host");
       await _secureStorage.delete(key: "mobile_token");
       await _secureStorage.delete(key: "mobile_device_id");
+      await _secureStorage.delete(key: "remote_session_id");
+      await _secureStorage.delete(key: "remote_session_ticket");
+      await _secureStorage.delete(key: "remote_session_expires_at_ms");
       await _secureStorage.delete(key: "auto_connect");
       hasSavedConnection = false;
       lastError = null;
@@ -198,12 +257,17 @@ class WebSocketService extends ChangeNotifier {
       throw const FormatException("QR code is not valid JSON");
     }
     if (decoded is! Map ||
-        decoded["type"] != "voiceassistant_mobile_pairing" ||
-        decoded["version"] != 2) {
-      throw const FormatException("This is not a VoiceAssistant pairing QR code");
+        !((decoded["type"] == "voiceassistant_mobile_pairing" && decoded["version"] == 2) ||
+          (decoded["type"] == "voiceassistant_remote_session" && decoded["version"] == 1))) {
+      throw const FormatException("This is not a supported VoiceAssistant desktop QR code");
     }
     final identity = decoded["desktop_identity"];
+    const identityFields = {
+      "identity_id", "algorithm", "public_key", "fingerprint_sha256",
+    };
     if (identity is! Map ||
+        identity.keys.toSet().difference(identityFields).isNotEmpty ||
+        identity.keys.toSet().length != identityFields.length ||
         identity["identity_id"] is! String ||
         !RegExp(r"^[0-9a-f]{32}$").hasMatch(identity["identity_id"] as String) ||
         identity["algorithm"] != "Ed25519" ||
@@ -268,6 +332,182 @@ class WebSocketService extends ChangeNotifier {
       throw StateError(result["detail"]?.toString() ?? "Pairing request was rejected");
     }
     return result;
+  }
+
+  Future<void> connectRemoteFromQr(String rawPayload) async {
+    if (isPairing) return;
+    final decoded = jsonDecode(rawPayload);
+    if (decoded is! Map ||
+        decoded["type"] != "voiceassistant_remote_session" ||
+        decoded["version"] != 1) {
+      throw const FormatException("This is not a VoiceAssistant remote-session QR code");
+    }
+    const qrFields = {
+      "type", "version", "endpoint", "session_id", "device_id", "challenge",
+      "issued_at_ms", "expires_at_ms", "desktop_identity", "grant_signature",
+    };
+    if (decoded.keys.toSet().difference(qrFields).isNotEmpty ||
+        decoded.keys.toSet().length != qrFields.length) {
+      throw const FormatException("Remote-session QR contains unsupported fields");
+    }
+    final endpoint = _validatePairingEndpoint(decoded["endpoint"]);
+    final sessionId = decoded["session_id"];
+    final deviceId = decoded["device_id"];
+    final challenge = decoded["challenge"];
+    final issuedAtMs = decoded["issued_at_ms"];
+    final expiresAtMs = decoded["expires_at_ms"];
+    final grantSignature = decoded["grant_signature"];
+    if (sessionId is! String ||
+        !RegExp(r"^[0-9a-f]{32}$").hasMatch(sessionId) ||
+        deviceId is! String ||
+        !RegExp(r"^[0-9a-f]{32}$").hasMatch(deviceId) ||
+        challenge is! String ||
+        !RegExp(r"^[A-Za-z0-9_-]{40,64}$").hasMatch(challenge) ||
+        issuedAtMs is! int ||
+        expiresAtMs is! int ||
+        grantSignature is! String ||
+        grantSignature.length != 86 ||
+        !RegExp(r"^[A-Za-z0-9_-]+$").hasMatch(grantSignature)) {
+      throw const FormatException("Remote-session QR data is incomplete or invalid");
+    }
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (issuedAtMs > nowMs + 10000 ||
+        nowMs - issuedAtMs > 180000 ||
+        expiresAtMs <= nowMs ||
+        expiresAtMs <= issuedAtMs ||
+        expiresAtMs - issuedAtMs > 180000) {
+      throw const FormatException("Remote-session QR has expired or has an invalid lifetime");
+    }
+
+    final desktopIdentity = await inspectDesktopIdentity(rawPayload);
+    final identityRecord = decoded["desktop_identity"] as Map;
+    final grant = {
+      "protocol_version": 1,
+      "endpoint": decoded["endpoint"] as String,
+      "session_id": sessionId,
+      "device_id": deviceId,
+      "challenge": challenge,
+      "issued_at_ms": issuedAtMs,
+      "expires_at_ms": expiresAtMs,
+      "desktop_identity_id": desktopIdentity["identity_id"],
+    };
+    final signatureBytes = base64Url.decode(
+      grantSignature.padRight(grantSignature.length + ((4 - grantSignature.length % 4) % 4), "="),
+    );
+    if (signatureBytes.length != 64 ||
+        base64Url.encode(signatureBytes).replaceAll("=", "") != grantSignature ||
+        !await MobileIdentityService.verify(
+          publicKey: desktopIdentity["public_key"]!,
+          message: canonicalSignalingBytes(grant),
+          signature: signatureBytes,
+        )) {
+      throw const FormatException("Desktop remote-session QR signature is invalid");
+    }
+    if (identityRecord["identity_id"] != desktopIdentity["identity_id"] ||
+        identityRecord["public_key"] != desktopIdentity["public_key"] ||
+        identityRecord["fingerprint_sha256"] != desktopIdentity["fingerprint_sha256"]) {
+      throw const FormatException("Desktop identity metadata changed during QR validation");
+    }
+
+    final pinnedIdentityId = await _secureStorage.read(key: "desktop_identity_id");
+    if (pinnedIdentityId == desktopIdentity["identity_id"]) {
+      final pinnedPublicKey = await _secureStorage.read(key: "desktop_identity_public_key");
+      final pinnedFingerprint = await _secureStorage.read(key: "desktop_identity_fingerprint");
+      if (pinnedPublicKey != desktopIdentity["public_key"] ||
+          pinnedFingerprint != desktopIdentity["fingerprint_sha256"]) {
+        throw StateError("This desktop identity changed unexpectedly. Remote connection is blocked.");
+      }
+    }
+
+    final savedDeviceId = await _secureStorage.read(key: "mobile_device_id");
+    if (savedDeviceId == null || savedDeviceId != deviceId) {
+      throw StateError("This remote QR was created for a different paired mobile device.");
+    }
+    final mobileIdentity = MobileIdentityService();
+    final mobileKey = await mobileIdentity.load();
+    if (mobileKey == null) {
+      throw StateError("This phone is not paired with the desktop yet. Complete normal QR pairing first.");
+    }
+
+    final proofIssuedAtMs = DateTime.now().millisecondsSinceEpoch;
+    final proof = {
+      "protocol_version": 1,
+      "session_id": sessionId,
+      "device_id": deviceId,
+      "challenge": challenge,
+      "issued_at_ms": proofIssuedAtMs,
+    };
+    final proofSignature = base64Url
+        .encode(await mobileIdentity.sign(canonicalSignalingBytes(proof)))
+        .replaceAll("=", "");
+
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    isPairing = true;
+    statusMessage = "Verifying signed remote session...";
+    statusColor = "#F39C12";
+    lastError = null;
+    notifyListeners();
+    try {
+      final result = await _postPairingJson(
+        client,
+        endpoint.replace(path: "/remote/sessions/redeem"),
+        {
+          "session_id": sessionId,
+          "device_id": deviceId,
+          "challenge": challenge,
+          "issued_at_ms": proofIssuedAtMs,
+          "signature": proofSignature,
+        },
+      );
+      final accessTicket = result["access_ticket"];
+      final returnedExpiry = result["expires_at_ms"];
+      if (result["ok"] != true ||
+          result["session_id"] != sessionId ||
+          result["device_id"] != deviceId ||
+          accessTicket is! String ||
+          accessTicket.length < 32 ||
+          accessTicket.length > 128 ||
+          returnedExpiry is! int ||
+          returnedExpiry <= DateTime.now().millisecondsSinceEpoch ||
+          returnedExpiry > DateTime.now().millisecondsSinceEpoch + 900000) {
+        throw const FormatException("Desktop returned an invalid remote-session ticket");
+      }
+
+      final socketEndpoint = endpoint.replace(scheme: "wss", path: "/ws");
+      await _secureStorage.write(key: "desktop_host", value: socketEndpoint.toString());
+      await _secureStorage.write(key: "mobile_device_id", value: deviceId);
+      await _secureStorage.delete(key: "mobile_token");
+      await _secureStorage.write(key: "remote_session_id", value: sessionId);
+      await _secureStorage.write(key: "remote_session_ticket", value: accessTicket);
+      await _secureStorage.write(key: "remote_session_expires_at_ms", value: returnedExpiry.toString());
+      await _secureStorage.write(key: "desktop_identity_id", value: desktopIdentity["identity_id"]!);
+      await _secureStorage.write(key: "desktop_identity_public_key", value: desktopIdentity["public_key"]!);
+      await _secureStorage.write(key: "desktop_identity_fingerprint", value: desktopIdentity["fingerprint_sha256"]!);
+      await _secureStorage.write(key: "auto_connect", value: "true");
+      hasSavedConnection = true;
+      isPairing = false;
+      notifyListeners();
+      connect(
+        socketEndpoint.toString(),
+        deviceId: deviceId,
+        remoteSessionId: sessionId,
+        remoteSessionTicket: accessTicket,
+        remoteSessionExpiresAtMs: returnedExpiry,
+      );
+    } catch (error) {
+      isPairing = false;
+      statusMessage = "Remote connection failed";
+      statusColor = "#E74C3C";
+      lastError = error.toString();
+      notifyListeners();
+      rethrow;
+    } finally {
+      client.close(force: true);
+      if (isPairing) {
+        isPairing = false;
+        notifyListeners();
+      }
+    }
   }
 
   Future<void> pairFromQr(String rawPayload, {required String deviceName}) async {
@@ -371,6 +611,9 @@ class WebSocketService extends ChangeNotifier {
           await _secureStorage.write(key: "desktop_host", value: socketEndpoint.toString());
           await _secureStorage.write(key: "mobile_token", value: deviceToken);
           await _secureStorage.write(key: "mobile_device_id", value: deviceId);
+          await _secureStorage.delete(key: "remote_session_id");
+          await _secureStorage.delete(key: "remote_session_ticket");
+          await _secureStorage.delete(key: "remote_session_expires_at_ms");
           await _secureStorage.write(key: "desktop_identity_id", value: desktopIdentity["identity_id"]!);
           await _secureStorage.write(key: "desktop_identity_public_key", value: desktopIdentity["public_key"]!);
           await _secureStorage.write(key: "desktop_identity_fingerprint", value: desktopIdentity["fingerprint_sha256"]!);
@@ -432,11 +675,22 @@ class WebSocketService extends ChangeNotifier {
     }
   }
 
-  void connect(String host, {int port = 8765, String token = "", String deviceId = ""}) {
+  void connect(
+    String host, {
+    int port = 8765,
+    String token = "",
+    String deviceId = "",
+    String remoteSessionId = "",
+    String remoteSessionTicket = "",
+    int remoteSessionExpiresAtMs = 0,
+  }) {
     _manualDisconnect = false;
     _lastHost = host.trim();
     _lastToken = token.trim();
     _lastDeviceId = deviceId.trim();
+    _lastRemoteSessionId = remoteSessionId.trim();
+    _lastRemoteSessionTicket = remoteSessionTicket.trim();
+    _lastRemoteSessionExpiresAtMs = remoteSessionExpiresAtMs;
     _lastPort = port;
     _reconnectAttempts = 0;
     _reconnectTimer?.cancel();
@@ -506,6 +760,18 @@ class WebSocketService extends ChangeNotifier {
       return;
     }
 
+    if (_lastRemoteSessionId.isNotEmpty &&
+        (_lastRemoteSessionTicket.isEmpty ||
+            _lastRemoteSessionExpiresAtMs <= DateTime.now().millisecondsSinceEpoch)) {
+      unawaited(_clearRemoteSessionCredentials());
+      _failConnect(
+        "Remote session expired. Scan a fresh desktop QR code.",
+        generation: generation,
+        retry: false,
+      );
+      return;
+    }
+
     isConnecting = true;
     isConnected = false;
     statusMessage = "Connecting...";
@@ -516,14 +782,21 @@ class WebSocketService extends ChangeNotifier {
     try {
       final channel = IOWebSocketChannel.connect(
         Uri.parse(url),
-        headers: _lastToken.isEmpty
-            ? null
-            : (_lastDeviceId.isNotEmpty
-                ? {
-                    "x-voiceassistant-device-id": _lastDeviceId,
-                    "x-voiceassistant-device-token": _lastToken,
-                  }
-                : {"x-voiceassistant-token": _lastToken}),
+        headers: _lastRemoteSessionId.isNotEmpty &&
+                _lastRemoteSessionTicket.isNotEmpty
+            ? {
+                "x-voiceassistant-device-id": _lastDeviceId,
+                "x-voiceassistant-session-id": _lastRemoteSessionId,
+                "x-voiceassistant-session-ticket": _lastRemoteSessionTicket,
+              }
+            : (_lastToken.isEmpty
+                ? null
+                : (_lastDeviceId.isNotEmpty
+                    ? {
+                        "x-voiceassistant-device-id": _lastDeviceId,
+                        "x-voiceassistant-device-token": _lastToken,
+                      }
+                    : {"x-voiceassistant-token": _lastToken})),
         connectTimeout: const Duration(seconds: 5),
         pingInterval: const Duration(seconds: 20),
       );
@@ -547,9 +820,16 @@ class WebSocketService extends ChangeNotifier {
           if (generation != _connectionGeneration) return;
           final closeCode = channel.closeCode;
           final rejected = closeCode == 1008;
+          final rejectedRemoteSession =
+              rejected && _lastRemoteSessionId.isNotEmpty;
+          if (rejectedRemoteSession) {
+            unawaited(_clearRemoteSessionCredentials());
+          }
           _failConnect(
             rejected
-                ? "Desktop rejected the mobile token. Check the saved token."
+                ? (rejectedRemoteSession
+                    ? "Remote session expired or was revoked. Scan a fresh desktop QR code."
+                    : "Desktop rejected the mobile token. Check the saved token.")
                 : "Connection lost",
             generation: generation,
             retry: !rejected,

@@ -61,6 +61,8 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - View scheduled jobs, refresh schedule state and inspect recent execution history.
 - Save connection settings using platform secure storage and optionally restore a saved connection.
 - Pair individual devices with unique credentials using a desktop-displayed, short-lived QR code and explicit desktop approval; revoke devices and enforce server-side roles (admin, operator, approver, viewer).
+- For an already paired phone, generate a separate signed remote-session QR from the desktop. The phone verifies the pinned desktop Ed25519 identity, proves possession of its enrolled mobile key and receives a 10-minute ticket stored in platform secure storage.
+- Authenticate the existing WebSocket API with the short-lived remote ticket; device identity, current role and revocation are rechecked during the connection. Remote QR access does not enroll a new device or replace the original device credential.
 - Route sensitive approval prompts to an authenticated admin/approver device, with desktop approval as fallback.
 - Supports secure WSS/TLS deployments; QR enrollment requires HTTPS and never embeds permanent credentials. Non-loopback cleartext WS requires an explicit warning/confirmation and is intended only for a trusted private LAN/VPN.
 
@@ -76,7 +78,8 @@ Voice Assistant combines a local-first Windows desktop AI agent with a Flutter c
 - Redacted structured diagnostics and audit/policy controls support troubleshooting and accountability.
 
 ### 8. Current limitations to understand
-- The desktop application must be running for mobile connectivity and scheduled jobs; the mobile app does not independently execute desktop tools. Cross-network connectivity still requires a trusted VPN or user-managed TLS reverse proxy; a hosted relay and automatic NAT traversal are not included.
+- The desktop application must be running for mobile connectivity and scheduled jobs; the mobile app does not independently execute desktop tools. Remote-session QR access requires the desktop API to be reachable through a trusted VPN or a user-managed HTTPS/WSS reverse proxy with WebSocket support. A hosted relay, automatic NAT traversal and CGNAT traversal are not included; networks that cannot route to the desktop still cannot connect.
+- Remote-session tickets currently expire after 10 minutes. Re-scan a fresh remote-session QR to establish another session; automatic ticket refresh is not yet implemented.
 - AppContainer enforcement is currently a per-plugin Windows pilot, not a blanket sandbox for every plugin. Plugins without an explicit AppContainer manifest declaration still use the same-user crash-contained worker and retain the desktop user's OS permissions.
 - The AppContainer pilot currently supports a narrow low-dependency plugin set and policy-approved filesystem reads; remaining broker capabilities and plugin dependency migrations are not complete.
 - Windows GUI, microphone/speaker, Ollama lifecycle, physical Android/iOS behavior and real private-LAN/TLS deployment require target-environment validation.
@@ -165,6 +168,16 @@ flutter build apk
 ```
 
 By default, the desktop mobile API listens on `127.0.0.1`, so it is local-only. For trusted private-LAN pairing, configure `VOICEASSISTANT_MOBILE_HOST=0.0.0.0`; use either a legacy `VOICEASSISTANT_MOBILE_TOKEN` (at least 32 characters) or enroll per-device credentials with `python mobile_device_cli.py add "Device name"`. Once the encrypted device registry exists, per-device credentials are mandatory and the legacy shared token is disabled. Device roles (admin/operator/approver/viewer) are enforced server-side; manage them only from the trusted desktop with `python mobile_device_cli.py add --role admin`, `list`, or `set-role DEVICE_ID viewer`. See [MOBILE_SECURITY_SETUP.md](MOBILE_SECURITY_SETUP.md) for the permission matrix and setup guidance. The Flutter client supports direct `wss://` TLS or a TLS-terminating reverse proxy. The server allows five concurrent mobile clients by default; set `VOICEASSISTANT_MOBILE_MAX_CONNECTIONS` to 1–32 to change the process-local cap; non-loopback `ws://` requires explicit user confirmation and is suitable only for a trusted private LAN/VPN. Never expose port 8765 directly to the public internet.
+
+### Remote mobile session setup
+
+1. Pair the phone normally first using **Pair Mobile** and approve it on the desktop.
+2. Configure `VOICEASSISTANT_MOBILE_PUBLIC_URL` with the HTTPS origin that the phone can reach. Route it to the desktop API through a trusted TLS reverse proxy or VPN and enable WebSocket upgrades; do not expose the desktop port directly to the public internet.
+3. Check the desktop identity with `python remote_identity_cli.py status`. If it is not initialized, create it on the trusted desktop with `python remote_identity_cli.py bootstrap` and confirm the operation.
+4. In the desktop toolbar choose **Remote Mobile**, select the already paired phone and generate the QR. The QR challenge expires in 90 seconds.
+5. On that same phone, scan the remote QR and compare the desktop fingerprint shown on both screens. The resulting remote ticket lasts 10 minutes and is device-bound; revoked devices cannot reconnect.
+
+This remote mode is currently direct HTTPS/WSS routing to the desktop. It does not yet provide a hosted/self-hosted signaling relay or NAT traversal, so a VPN or reachable reverse-proxy route is still required.
 
 The remote-session identity foundation is managed separately from mobile device tokens. Check its state with `python remote_identity_cli.py status`; create it only on the trusted desktop with `python remote_identity_cli.py bootstrap` and the exact interactive confirmation. `python remote_identity_cli.py public` displays only the Ed25519 public key and SHA-256 fingerprint. The private key is stored in the encrypted `history/desktop_remote_identity.json` record, is not auto-generated at application startup, and is included in portable backups and explicit data-key migration. Do not delete or replace this record: identity rotation/re-pairing is not yet exposed. This is a foundation for future signed remote sessions; it does not itself enable internet relay or change current QR pairing behavior.
 

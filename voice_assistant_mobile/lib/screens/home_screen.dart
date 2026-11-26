@@ -18,6 +18,9 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _hostController = TextEditingController();
   final TextEditingController _tokenController = TextEditingController();
   final TextEditingController _deviceIdController = TextEditingController();
+  String _remoteSessionId = "";
+  String _remoteSessionTicket = "";
+  int _remoteSessionExpiresAtMs = 0;
   final SpeechService _speech = SpeechService();
   final ScrollController _scrollController = ScrollController();
 
@@ -37,6 +40,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _hostController.text = saved["host"] ?? "";
     _tokenController.text = saved["token"] ?? "";
     _deviceIdController.text = saved["device_id"] ?? "";
+    _remoteSessionId = saved["remote_session_id"] ?? "";
+    _remoteSessionTicket = saved["remote_session_ticket"] ?? "";
+    _remoteSessionExpiresAtMs =
+        int.tryParse(saved["remote_session_expires_at_ms"] ?? "") ?? 0;
     if (saved["auto_connect"] == "true" && _hostController.text.isNotEmpty) {
       await _connectToDesktop(ws);
     }
@@ -83,6 +90,9 @@ class _HomeScreenState extends State<HomeScreen> {
       host,
       token: _tokenController.text.trim(),
       deviceId: _deviceIdController.text.trim(),
+      remoteSessionId: _remoteSessionId,
+      remoteSessionTicket: _remoteSessionTicket,
+      remoteSessionExpiresAtMs: _remoteSessionExpiresAtMs,
     );
   }
 
@@ -124,10 +134,22 @@ class _HomeScreenState extends State<HomeScreen> {
             tooltip: "Scan desktop pairing QR",
             onPressed: ws.isPairing
                 ? null
-                : () {
-                    Navigator.of(context).push(
+                : () async {
+                    final connected = await Navigator.of(context).push<bool>(
                       MaterialPageRoute(builder: (_) => const QrPairingScreen()),
                     );
+                    if (connected != true || !mounted) return;
+                    final saved = await ws.loadSavedConnection();
+                    if (saved == null || !mounted) return;
+                    setState(() {
+                      _hostController.text = saved["host"] ?? "";
+                      _tokenController.text = saved["token"] ?? "";
+                      _deviceIdController.text = saved["device_id"] ?? "";
+                      _remoteSessionId = saved["remote_session_id"] ?? "";
+                      _remoteSessionTicket = saved["remote_session_ticket"] ?? "";
+                      _remoteSessionExpiresAtMs =
+                          int.tryParse(saved["remote_session_expires_at_ms"] ?? "") ?? 0;
+                    });
                   },
             icon: const Icon(Icons.qr_code_scanner),
           ),
@@ -154,6 +176,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 _hostController.clear();
                 _tokenController.clear();
                 _deviceIdController.clear();
+                _remoteSessionId = "";
+                _remoteSessionTicket = "";
+                _remoteSessionExpiresAtMs = 0;
               },
             ),
           // Connection status indicator
