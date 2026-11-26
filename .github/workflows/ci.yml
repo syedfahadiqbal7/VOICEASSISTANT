@@ -114,7 +114,7 @@ jobs:
       - name: Resolve packages
         run: flutter pub get
       - name: Build iOS Simulator (unsigned)
-        run: flutter build ios --simulator --release --no-codesign
+        run: flutter build ios --simulator --debug --no-codesign
 
   github-release:
     name: Publish GitHub Release
