@@ -174,8 +174,13 @@ class ConversationManager:
                 raise ValueError("Cannot enable birthday reminders: " + "; ".join(readiness["blockers"]))
             if self.scheduler.history is None:
                 raise RuntimeError("Scheduler execution history is unavailable; automation remains disabled")
+        previous = settings["birthday_reminders_enabled"]
         self.profile.update_profile({"settings": {"birthday_reminders_enabled": enabled}})
-        result = self.sync_profile_automations()
+        try:
+            result = self.sync_profile_automations()
+        except Exception:
+            self.profile.update_profile({"settings": {"birthday_reminders_enabled": previous}})
+            raise
         if enabled and not result.get("active"):
             self.profile.update_profile({"settings": {"birthday_reminders_enabled": False}})
             raise RuntimeError(result.get("reason") or "Birthday reminder schedule could not be activated")
