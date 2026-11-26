@@ -508,7 +508,7 @@ class JobScheduler:
             history_status = (
                 "deferred" if defer else
                 "succeeded" if succeeded else
-                "retrying" if retryable and int(live.get("attempts", 1)) < MAX_ATTEMPTS else
+                "retrying" if live.get("status") == "pending" and retryable else
                 "uncertain" if not retryable else
                 "failed"
             )
