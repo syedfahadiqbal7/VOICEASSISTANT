@@ -191,8 +191,6 @@ class RendezvousHub:
             remaining = next(iter(session.peers.values()), None)
             if not session.peers:
                 self._sessions.pop(session_id, None)
-            else:
-                session.changed.set()
             return remaining
 
 
