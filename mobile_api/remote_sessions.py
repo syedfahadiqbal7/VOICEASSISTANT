@@ -287,6 +287,19 @@ class RemoteSessionStore:
                 self._challenges.pop(key, None)
             return len(keys)
 
+    def state(self, session_id: str, *, now_ms: int | None = None) -> str:
+        """Return a non-secret lifecycle state for desktop UI status."""
+        if not isinstance(session_id, str) or not _DEVICE_ID.fullmatch(session_id):
+            return "unknown"
+        now = self._now_ms(now_ms)
+        with self._lock:
+            self._prune(now)
+            if session_id in self._challenges:
+                return "pending"
+            if session_id in self._sessions:
+                return "active"
+            return "unknown"
+
     def snapshot(self, *, now_ms: int | None = None) -> dict[str, int]:
         """Return counts only; never expose ticket/challenge material."""
         now = self._now_ms(now_ms)
