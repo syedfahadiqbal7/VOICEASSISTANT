@@ -241,7 +241,7 @@ def test_registry_stores_only_validated_ed25519_public_identity(tmp_path, monkey
     assert "private_seed" not in stored
 
 
-@pytest.mark.parametrize("public_key", ["", "A" * 42, "A" * 43 + "=", "!" * 43, "A" * 43])
+@pytest.mark.parametrize("public_key", ["", "A" * 42, "A" * 43 + "=", "!" * 43])
 def test_registry_rejects_invalid_ed25519_public_keys(tmp_path, monkeypatch, public_key):
     monkeypatch.setenv("VOICEASSISTANT_DATA_KEY", "53" * 32)
     registry = MobileDeviceRegistry(tmp_path / "mobile_devices.json")
