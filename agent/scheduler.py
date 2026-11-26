@@ -308,6 +308,26 @@ class JobScheduler:
                 raise
             return True
 
+    def stop_recurring_after_current(self, job_id: str) -> str:
+        """Cancel a pending job or stop a running/deferred recurrence after its current outcome."""
+        with self._lock:
+            live = next((item for item in self.jobs if item.get("id") == job_id), None)
+            if live is None:
+                return "missing"
+            if live.get("status") == "running" or live.get("execution_waiting"):
+                previous = live.get("disable_after_run")
+                live["disable_after_run"] = True
+                try:
+                    self.save()
+                except Exception:
+                    if previous is None:
+                        live.pop("disable_after_run", None)
+                    else:
+                        live["disable_after_run"] = previous
+                    raise
+                return "stopping"
+            return "cancelled" if self.cancel(job_id) else "unchanged"
+
     def list_jobs(self) -> List[Dict[str, Any]]:
         with self._lock:
             return [dict(job) for job in self.jobs]
@@ -455,28 +475,32 @@ class JobScheduler:
                 if succeeded:
                     live["last_error"] = None
                     live["attempts"] = 0
-                    repeat_rule = live.get("repeat")
-                    interval = (repeat_rule or {}).get("every_minutes")
-                    if interval is not None:
-                        interval = _validated_interval(interval)
-                        live["run_at"] = (_now() + timedelta(minutes=interval)).isoformat()
-                        live["execution_id"] = str(uuid.uuid4())
-                        live["status"] = "pending"
-                        live["enabled"] = True
-                    elif isinstance(repeat_rule, dict) and repeat_rule.get("type") == "calendar":
-                        live["run_at"] = next_calendar_occurrence(
-                            repeat_rule, datetime.now().astimezone()
-                        ).isoformat()
-                        live["execution_id"] = str(uuid.uuid4())
-                        live["status"] = "pending"
-                        live["enabled"] = True
-                    else:
+                    if live.pop("disable_after_run", False):
                         live["status"] = "completed"
                         live["enabled"] = False
+                    else:
+                        repeat_rule = live.get("repeat")
+                        interval = (repeat_rule or {}).get("every_minutes")
+                        if interval is not None:
+                            interval = _validated_interval(interval)
+                            live["run_at"] = (_now() + timedelta(minutes=interval)).isoformat()
+                            live["execution_id"] = str(uuid.uuid4())
+                            live["status"] = "pending"
+                            live["enabled"] = True
+                        elif isinstance(repeat_rule, dict) and repeat_rule.get("type") == "calendar":
+                            live["run_at"] = next_calendar_occurrence(
+                                repeat_rule, datetime.now().astimezone()
+                            ).isoformat()
+                            live["execution_id"] = str(uuid.uuid4())
+                            live["status"] = "pending"
+                            live["enabled"] = True
+                        else:
+                            live["status"] = "completed"
+                            live["enabled"] = False
                 else:
                     live["last_error"] = error_text or "Handler reported failure"
                     attempts = int(live.get("attempts", 1))
-                    if not retryable:
+                    if live.pop("disable_after_run", False) or not retryable:
                         live["status"] = "failed"
                         live["enabled"] = False
                     elif attempts < MAX_ATTEMPTS:
@@ -492,7 +516,7 @@ class JobScheduler:
             history_status = (
                 "deferred" if defer else
                 "succeeded" if succeeded else
-                "retrying" if retryable and int(live.get("attempts", 1)) < MAX_ATTEMPTS else
+                "retrying" if live.get("status") == "pending" and retryable else
                 "uncertain" if not retryable else
                 "failed"
             )

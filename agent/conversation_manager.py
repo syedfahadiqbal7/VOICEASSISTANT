@@ -122,6 +122,11 @@ class ConversationManager:
 
         self.scheduler = JobScheduler(on_job=None)
         self.scheduler.on_job = self._on_scheduled_job
+        # Reconcile explicit automation consent before the worker can fire overdue jobs.
+        try:
+            self.sync_profile_automations()
+        except Exception as error:
+            print(f"[Automations] Profile automation sync deferred: {type(error).__name__}")
         try:
             self.scheduler.start()
         except Exception as e:
@@ -143,6 +148,92 @@ class ConversationManager:
             self.session_messages[0]["content"] = content
         else:
             self.session_messages.insert(0, {"role": "system", "content": content})
+        try:
+            self.sync_profile_automations()
+        except Exception as error:
+            print(f"[Automations] Profile automation sync failed: {type(error).__name__}")
+
+    def set_birthday_reminders_enabled(self, enabled: bool) -> Dict[str, Any]:
+        """Explicitly enable/disable the local birthday reminder automation."""
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled must be boolean")
+        if self.profile is None:
+            raise RuntimeError("Encrypted profile storage is unavailable")
+        profile = self.profile.get_profile()
+        settings = profile["settings"]
+        if enabled:
+            from agent.automation_catalog import automation_readiness
+            readiness = automation_readiness(
+                "birthday_reminders",
+                profile=profile,
+                connected_integrations=(),
+                registered_handlers={"birthday_reminders"},
+                master_enabled=settings["personal_automations_enabled"],
+            )
+            if not readiness["can_enable"]:
+                raise ValueError("Cannot enable birthday reminders: " + "; ".join(readiness["blockers"]))
+            if self.scheduler.history is None:
+                raise RuntimeError("Scheduler execution history is unavailable; automation remains disabled")
+        previous = settings["birthday_reminders_enabled"]
+        self.profile.update_profile({"settings": {"birthday_reminders_enabled": enabled}})
+        try:
+            result = self.sync_profile_automations()
+        except Exception:
+            self.profile.update_profile({"settings": {"birthday_reminders_enabled": previous}})
+            raise
+        if enabled and not result.get("active"):
+            self.profile.update_profile({"settings": {"birthday_reminders_enabled": False}})
+            raise RuntimeError(result.get("reason") or "Birthday reminder schedule could not be activated")
+        return result
+
+    def sync_profile_automations(self) -> Dict[str, Any]:
+        """Reconcile the one locally executable profile automation with scheduler state."""
+        marker = "__automation__:birthday_reminders"
+        if self.profile is None:
+            return {"active": False, "reason": "Encrypted profile storage is unavailable"}
+        profile = self.profile.get_profile()
+        settings = profile["settings"]
+        desired = bool(settings["personal_automations_enabled"] and settings["birthday_reminders_enabled"])
+        existing = [job for job in self.scheduler.list_jobs() if job.get("prompt") == marker]
+        if not desired:
+            stopping = False
+            for job in existing:
+                if job.get("status") == "pending" and job.get("execution_waiting"):
+                    stopping = self.scheduler.stop_recurring_after_current(job.get("id")) == "stopping" or stopping
+                elif job.get("status") == "running":
+                    stopping = self.scheduler.stop_recurring_after_current(job.get("id")) == "stopping" or stopping
+                elif job.get("status") == "pending":
+                    if not self.scheduler.cancel(job.get("id")):
+                        return {"active": False, "reason": "An existing reminder job could not be cancelled"}
+            return {"active": False, "stopping_after_current": stopping, "reason": "Birthday reminders are disabled" if not stopping else "Disabled; current reminder will finish without scheduling another occurrence"}
+        blockers = []
+        if not profile["birthdays"]:
+            blockers.append("add at least one birthday in Profile")
+        timezone_name = settings["timezone"]
+        if not timezone_name:
+            blockers.append("set an IANA timezone in Profile")
+        if self.scheduler.history is None:
+            blockers.append("scheduler execution history is unavailable")
+        if blockers:
+            for job in existing:
+                if job.get("status") == "pending":
+                    self.scheduler.cancel(job.get("id"))
+            return {"active": False, "reason": "; ".join(blockers)}
+        recurrence = {
+            "type": "calendar", "frequency": "daily",
+            "local_time": settings["birthday_reminder_time"],
+            "timezone": timezone_name,
+        }
+        for job in existing:
+            if job.get("enabled") and job.get("status") in {"pending", "running"}:
+                if job.get("repeat") == recurrence:
+                    return {"active": True, "job_id": job.get("id"), "status": job.get("status")}
+                if job.get("status") == "running":
+                    return {"active": False, "reason": "A reminder is currently running; retry the schedule change after it finishes"}
+                if not self.scheduler.cancel(job.get("id")):
+                    return {"active": False, "reason": "The previous reminder schedule could not be replaced"}
+        job = self.scheduler.add_calendar(marker, recurrence, label="Birthday reminders")
+        return {"active": True, "job_id": job["id"], "status": "pending"}
 
     def _ts(self) -> str:
         return datetime.now().strftime("%H:%M:%S")
@@ -983,6 +1074,25 @@ class ConversationManager:
         self._log(f"[Scheduler] Running job {jid}: {prompt}")
         if not prompt:
             return False
+        if prompt == "__automation__:birthday_reminders":
+            try:
+                from agent.birthday_reminders import due_birthday_reminders
+                profile = self.profile.get_profile() if self.profile is not None else {}
+                reminders = due_birthday_reminders(profile)
+                if not reminders:
+                    self.on_status("Birthday reminders: no reminders due today.", "#7F8C8D")
+                    return True
+                message = "Birthday reminders: " + " ".join(reminders)
+                self.on_transcript(message)
+                self.on_status(message[:160], "#1ABC9C")
+                try:
+                    self.on_speak(message)
+                except Exception:
+                    pass
+                return True
+            except Exception as error:
+                self._log(f"[Automations] Birthday reminder failed: {type(error).__name__}")
+                return False
         try:
             fast_result = self._execute_scheduled_prompt_fast(prompt, execution_id)
             if fast_result is not None:

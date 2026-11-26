@@ -179,3 +179,15 @@ def test_conversation_manager_refreshes_only_opted_in_profile_context(tmp_path):
     manager.refresh_profile_context()
     assert "Technology" in manager.session_messages[0]["content"]
     assert "[User Preferences]" in manager.session_messages[0]["content"]
+
+def test_birthday_reminder_settings_default_and_validation(tmp_path):
+    store = UserProfileStore(tmp_path / "profile.json")
+    settings = store.get_profile()["settings"]
+    assert settings["birthday_reminders_enabled"] is False
+    assert settings["birthday_reminder_time"] == "09:00"
+    store.update_profile({"settings": {"birthday_reminder_time": "18:45"}})
+    assert store.get_profile()["settings"]["birthday_reminder_time"] == "18:45"
+    with pytest.raises(ValueError, match="HH:MM"):
+        store.update_profile({"settings": {"birthday_reminder_time": "25:90"}})
+    with pytest.raises(ValueError, match="birthday_reminders_enabled"):
+        store.update_profile({"settings": {"birthday_reminders_enabled": "yes"}})

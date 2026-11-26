@@ -154,3 +154,24 @@ def test_desktop_catalog_cadence_labels_match_schedule_rules():
     assert AutomationCatalogViewer._cadence(get_automation("birthday_gift_planning")) == "Event-driven (30 days before)"
     requirements = AutomationCatalogViewer._requirements(get_automation("daily_package_tracking"))
     assert "email" in requirements and "carrier_tracking" in requirements
+
+def test_birthday_reminders_require_timezone_and_a_real_registered_handler():
+    profile = _profile()
+    result = automation_readiness(
+        "birthday_reminders",
+        profile=profile,
+        connected_integrations=(),
+        registered_handlers={"birthday_reminders"},
+        master_enabled=True,
+    )
+    assert result["can_enable"] is True
+    profile["settings"]["timezone"] = ""
+    blocked = automation_readiness(
+        "birthday_reminders",
+        profile=profile,
+        connected_integrations=(),
+        registered_handlers={"birthday_reminders"},
+        master_enabled=True,
+    )
+    assert blocked["can_enable"] is False
+    assert "settings.timezone" in blocked["missing_profile_fields"]
