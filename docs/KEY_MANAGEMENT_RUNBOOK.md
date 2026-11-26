@@ -82,7 +82,13 @@ Retirement removes the selected key from the live keyring. It cannot erase copie
 - Verify key status and decrypt/read representative stores before resuming service.
 - If all usable key copies and recovery passphrases are lost, existing ciphertext is unrecoverable. Reinitializing a new key does not recover old data.
 
-## 9. Incident handling
+## 9. Desktop remote-session signing identity
+
+The Ed25519 desktop signing identity is separate from the data-encryption keyring. Its private key is stored in the encrypted desktop_remote_identity.json runtime store and is included in portable backups and explicit VAENC1-to-VAENC2 migration. It is not a DEK and must never be copied into the keyring or derived from a data key.
+
+Use remote_identity_cli.py status/public/bootstrap for local administration. Bootstrap requires an exact typed owner confirmation and refuses to overwrite an existing identity. No rotation or reset command is available yet; preserving the identity in a verified backup is necessary for future mobile identity pinning. Do not delete the identity store to recover from a decryption or integrity error. Restore from a verified backup or follow a separately reviewed re-pairing procedure.
+
+## 10. Incident handling
 
 If a backup, recovery kit, passphrase or environment key may have been exposed:
 1. Restrict access to the affected host and storage location.

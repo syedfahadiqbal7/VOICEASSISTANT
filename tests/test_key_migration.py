@@ -39,6 +39,8 @@ def test_inventory_is_read_only_and_only_reports_explicit_runtime_files(tmp_path
     profile.write_bytes(encrypt_bytes(b"{\"version\":1}", profile.name))
     execution_history = history / "scheduled_execution_history.json"
     execution_history.write_bytes(encrypt_bytes(b"{\"version\":1,\"records\":[]}", execution_history.name))
+    identity = history / "desktop_remote_identity.json"
+    identity.write_bytes(encrypt_bytes(b"{\"schema_version\":1}", identity.name))
     plaintext = history / "notes.txt"
     plaintext.write_text("not a managed store", encoding="utf-8")
     nested = history / "custom_skills"
@@ -49,10 +51,11 @@ def test_inventory_is_read_only_and_only_reports_explicit_runtime_files(tmp_path
     before = legacy_file.read_bytes()
     inventory = inspect_migration(root)
 
-    assert inventory["legacy_vaenc1"] == 4
+    assert inventory["legacy_vaenc1"] == 5
     assert {row["path"] for row in inventory["files"]} == {
         "history/conversation_history.json", "history/user_profile.json",
-        "history/scheduled_execution_history.json", "history/custom_skills/example.json"
+        "history/scheduled_execution_history.json", "history/desktop_remote_identity.json",
+        "history/custom_skills/example.json"
     }
     assert legacy_file.read_bytes() == before
     assert not (history / ".voiceassistant_migration_v1.json").exists()
@@ -325,3 +328,19 @@ def test_discovery_excludes_new_file_undo_markers(tmp_path, monkeypatch):
     (undo / "new-file.new").write_text("NEW_FILE", encoding="utf-8")
     targets = discover_runtime_targets(root)
     assert [item.path.name for item in targets] == ["snapshot.bin"]
+
+
+def test_desktop_identity_is_migrated_with_registered_runtime_stores(tmp_path, monkeypatch):
+    root, history, legacy = _setup(tmp_path, monkeypatch)
+    target = history / "desktop_remote_identity.json"
+    clear = b'{"schema_version":1,"algorithm":"Ed25519","private_key":"not-a-real-key-for-inventory-test"}'
+    target.write_bytes(encrypt_bytes(clear, target.name))
+    keyring.create_initial_keyring(legacy, source="environment")
+    result = migrate_to_vaenc2(
+        root, discover_runtime_targets(root),
+        confirm=True, backup_verified=True,
+    )
+    assert result["complete"] is True
+    assert result["migrated"] == 1
+    assert target.read_bytes().startswith(b"VAENC2")
+    assert decrypt_bytes(target.read_bytes(), target.name) == clear
