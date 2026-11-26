@@ -303,6 +303,30 @@ class MobileDeviceRegistry:
                 "fingerprint_sha256": hashlib.sha256(raw).hexdigest(),
             }
 
+    def get_device_principal(self, device_id: str) -> dict[str, str] | None:
+        """Resolve current name and role for an active, identity-bound device."""
+        identifier = str(device_id or "").strip().lower()
+        if not _DEVICE_ID.fullmatch(identifier):
+            raise ValueError("Invalid device ID")
+        with self._registry_lock():
+            data = self._load()
+            target = next(
+                (item for item in data["devices"] if item["device_id"] == identifier),
+                None,
+            )
+            if target is None or target.get("revoked_at") is not None:
+                return None
+            if target.get("key_algorithm") != "Ed25519" or not target.get("public_key_ed25519"):
+                return None
+            role = target.get("role")
+            if not is_valid_role(role):
+                return None
+            return {
+                "device_id": identifier,
+                "name": str(target.get("name", "")),
+                "role": role,
+            }
+
     def list_devices(self) -> list[dict[str, Any]]:
         with self._registry_lock():
             data = self._load()

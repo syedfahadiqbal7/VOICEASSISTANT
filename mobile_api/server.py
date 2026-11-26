@@ -5,11 +5,13 @@ Port 8765 pe chalega.
 """
 
 import asyncio
+import base64
 import hmac
 import ipaddress
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +23,9 @@ from mobile_api.authorization import is_allowed
 from mobile_api.rate_limiter import DeviceRateLimiter
 from mobile_api.pairing import PairingCoordinator, PairingError
 from mobile_api.tls_config import TLSCertificateError, validate_tls_certificate
+from mobile_api.remote_sessions import RemoteSessionError, RemoteSessionStore
+from mobile_api.signaling import canonical_json
+from agent.remote_identity import RemoteIdentityError, get_remote_identity_store
 
 logger = logging.getLogger("voiceassistant.mobile_api")
 _server_lock = threading.Lock()
@@ -30,6 +35,8 @@ _active_server_loop = None
 manager.on_disconnect = bridge.client_disconnected
 mobile_rate_limiter = DeviceRateLimiter()
 pairing_coordinator = PairingCoordinator(mobile_devices)
+remote_session_store = RemoteSessionStore()
+remote_identity_store = get_remote_identity_store()
 
 app = FastAPI(title="VoiceAssistant Mobile API", version="1.1")
 
@@ -99,6 +106,128 @@ async def create_pairing_session(request: Request):
     except PairingError as error:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+def _b64url_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _create_remote_session_qr(data: dict) -> dict:
+    """Create a signed, short-lived QR grant for an already paired device."""
+    allowed = {"device_id", "endpoint_url", "challenge_ttl_seconds", "session_ttl_seconds"}
+    if set(data) - allowed:
+        raise RemoteSessionError("Remote-session request contains unsupported fields")
+    endpoint = pairing_coordinator._validate_endpoint(data.get("endpoint_url", ""))
+    device_id = data.get("device_id", "")
+    now_ms = int(time.time() * 1000)
+    identity = remote_identity_store.status()
+    if not identity.get("initialized"):
+        raise RemoteSessionError(
+            "Desktop remote identity is not initialized; run remote_identity_cli.py bootstrap first"
+        )
+    challenge = remote_session_store.create_challenge(
+        device_id,
+        mobile_devices,
+        challenge_ttl_seconds=data.get("challenge_ttl_seconds", 90),
+        session_ttl_seconds=data.get("session_ttl_seconds", 600),
+        now_ms=now_ms,
+    )
+    grant = {
+        "protocol_version": 1,
+        "endpoint": endpoint,
+        "session_id": challenge["session_id"],
+        "device_id": device_id,
+        "challenge": challenge["challenge"],
+        "issued_at_ms": now_ms,
+        "expires_at_ms": challenge["expires_at_ms"],
+        "desktop_identity_id": identity["identity_id"],
+    }
+    try:
+        signature = remote_identity_store.sign(canonical_json(grant))
+    except Exception:
+        remote_session_store.revoke_session(challenge["session_id"])
+        raise
+    return {
+        "type": "voiceassistant_remote_session",
+        "version": 1,
+        "endpoint": endpoint,
+        "session_id": challenge["session_id"],
+        "device_id": device_id,
+        "challenge": challenge["challenge"],
+        "issued_at_ms": now_ms,
+        "expires_at_ms": challenge["expires_at_ms"],
+        "desktop_identity": {
+            "identity_id": identity["identity_id"],
+            "algorithm": identity["algorithm"],
+            "public_key": identity["public_key"],
+            "fingerprint_sha256": identity["fingerprint_sha256"],
+        },
+        "grant_signature": _b64url_encode(signature),
+    }
+
+
+def _redeem_remote_session_challenge(data: dict) -> dict:
+    required = {
+        "session_id", "device_id", "challenge", "issued_at_ms", "signature",
+    }
+    if set(data) != required:
+        raise RemoteSessionError("Remote-session proof fields are incomplete or unsupported")
+    return remote_session_store.complete_challenge(
+        session_id=data["session_id"],
+        device_id=data["device_id"],
+        challenge=data["challenge"],
+        issued_at_ms=data["issued_at_ms"],
+        signature=data["signature"],
+        registry=mobile_devices,
+    )
+
+
+@app.post("/remote/sessions")
+async def create_remote_session(request: Request):
+    _require_loopback(request)
+    try:
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise RemoteSessionError("Invalid remote-session request")
+        return {"ok": True, "qr_payload": _create_remote_session_qr(data)}
+    except (RemoteSessionError, PairingError, RemoteIdentityError, ValueError) as error:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/remote/sessions/redeem")
+async def redeem_remote_session(request: Request):
+    _require_https_pairing_request(request)
+    try:
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise RemoteSessionError("Invalid remote-session proof")
+        ticket = _redeem_remote_session_challenge(data)
+        return {"ok": True, **ticket}
+    except RemoteSessionError as error:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail=str(error)) from error
+
+
+@app.post("/remote/sessions/revoke")
+async def revoke_remote_session(request: Request):
+    _require_loopback(request)
+    data = await request.json()
+    if not isinstance(data, dict):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid remote-session revocation")
+    if "session_id" in data and len(data) == 1:
+        return {"revoked": remote_session_store.revoke_session(data["session_id"])}
+    if "device_id" in data and len(data) == 1:
+        return {"revoked_sessions": remote_session_store.revoke_device(data["device_id"])}
+    from fastapi import HTTPException
+    raise HTTPException(status_code=400, detail="Specify exactly one session_id or device_id")
+
+
+@app.get("/remote/sessions/status")
+async def remote_session_status(request: Request):
+    _require_loopback(request)
+    return remote_session_store.snapshot()
 
 
 @app.get("/pairing/pending")
@@ -203,7 +332,22 @@ def _expected_mobile_token() -> str:
 
 
 def _mobile_principal(headers):
-    """Authenticate and resolve the server-owned role for this connection."""
+    """Authenticate direct credentials or a short-lived device-bound remote ticket."""
+    remote_session_id = headers.get("x-voiceassistant-session-id", "")
+    remote_ticket = headers.get("x-voiceassistant-session-ticket", "")
+    if remote_session_id or remote_ticket:
+        device_id = headers.get("x-voiceassistant-device-id", "")
+        if not remote_session_id or not remote_ticket or not device_id:
+            return None
+        if not remote_session_store.authenticate(
+            session_id=remote_session_id,
+            device_id=device_id,
+            access_ticket=remote_ticket,
+            registry=mobile_devices,
+        ):
+            return None
+        return mobile_devices.get_device_principal(device_id)
+
     if mobile_devices.is_configured():
         return mobile_devices.authenticate_principal(
             headers.get("x-voiceassistant-device-id", ""),
