@@ -472,7 +472,7 @@ class JobScheduler:
                         live["enabled"] = False
                     else:
                         repeat_rule = live.get("repeat")
-                    interval = (repeat_rule or {}).get("every_minutes")
+                        interval = (repeat_rule or {}).get("every_minutes")
                         if interval is not None:
                             interval = _validated_interval(interval)
                             live["run_at"] = (_now() + timedelta(minutes=interval)).isoformat()
