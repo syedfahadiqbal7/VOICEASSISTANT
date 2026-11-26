@@ -35,6 +35,8 @@ DEFAULT_PROFILE: Dict[str, Any] = {
         "personal_automations_enabled": False,
         "birthday_reminders_enabled": False,
         "birthday_reminder_time": "09:00",
+        "daily_language_lesson_enabled": False,
+        "daily_language_lesson_time": "08:00",
         "timezone": "",
     },
     "interests": [],
@@ -221,6 +223,11 @@ class UserProfileStore:
         reminder_time = _safe_text(settings.get("birthday_reminder_time", "09:00"), "birthday_reminder_time", 5)
         if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", reminder_time):
             raise ValueError("birthday_reminder_time must use HH:MM (24-hour time)")
+        if not isinstance(settings.get("daily_language_lesson_enabled"), bool):
+            raise ValueError("daily_language_lesson_enabled must be boolean")
+        language_time = _safe_text(settings.get("daily_language_lesson_time", "08:00"), "daily_language_lesson_time", 5)
+        if not re.fullmatch(r"(?:[01]\\d|2[0-3]):[0-5]\\d", language_time):
+            raise ValueError("daily_language_lesson_time must use HH:MM (24-hour time)")
         timezone_name = _safe_text(settings.get("timezone", ""), "timezone", 80)
         if timezone_name:
             try:
@@ -232,6 +239,8 @@ class UserProfileStore:
             "personal_automations_enabled": settings["personal_automations_enabled"],
             "birthday_reminders_enabled": settings["birthday_reminders_enabled"],
             "birthday_reminder_time": reminder_time,
+            "daily_language_lesson_enabled": settings["daily_language_lesson_enabled"],
+            "daily_language_lesson_time": language_time,
             "timezone": timezone_name,
         }
 
