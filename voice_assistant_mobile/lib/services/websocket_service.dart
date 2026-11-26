@@ -224,7 +224,7 @@ class WebSocketService extends ChangeNotifier {
     final decoded = jsonDecode(rawPayload);
     if (decoded is! Map ||
         decoded["type"] != "voiceassistant_mobile_pairing" ||
-        decoded["version"] != 1) {
+        decoded["version"] != 2) {
       throw const FormatException("This is not a VoiceAssistant pairing QR code");
     }
     final endpoint = _validatePairingEndpoint(decoded["endpoint"]);
