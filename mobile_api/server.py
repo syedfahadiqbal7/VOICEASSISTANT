@@ -25,6 +25,7 @@ from mobile_api.pairing import PairingCoordinator, PairingError
 from mobile_api.tls_config import TLSCertificateError, validate_tls_certificate
 from mobile_api.remote_sessions import RemoteSessionError, RemoteSessionStore
 from mobile_api.signaling import canonical_json
+from mobile_api.remote_signaling import create_remote_signaling_router
 from agent.remote_identity import RemoteIdentityError, get_remote_identity_store
 
 logger = logging.getLogger("voiceassistant.mobile_api")
@@ -39,6 +40,13 @@ remote_session_store = RemoteSessionStore()
 remote_identity_store = get_remote_identity_store()
 
 app = FastAPI(title="VoiceAssistant Mobile API", version="1.1")
+
+app.include_router(create_remote_signaling_router(
+    session_store=remote_session_store,
+    device_registry=mobile_devices,
+    identity_store=remote_identity_store,
+    rate_limiter=mobile_rate_limiter,
+))
 
 app.add_middleware(
     CORSMiddleware,
