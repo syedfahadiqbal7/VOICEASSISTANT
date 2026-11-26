@@ -252,9 +252,13 @@ def verify_mobile_signaling_envelope(
     expected_session_id: str, replay_guard: ReplayGuard, now_ms: int | None = None,
 ) -> dict[str, Any]:
     """Resolve the mobile key from the active registry; never trust a key in the message."""
-    if not isinstance(envelope, dict):
-        raise SignalingEnvelopeError("Invalid signaling envelope")
-    identity = registry.get_device_identity(envelope.get("sender_id", ""))
+    if (
+        not isinstance(envelope, dict)
+        or not isinstance(envelope.get("sender_id"), str)
+        or not _ID.fullmatch(envelope["sender_id"])
+    ):
+        raise SignalingEnvelopeError("Invalid signaling sender identity")
+    identity = registry.get_device_identity(envelope["sender_id"])
     if identity is None:
         raise SignalingEnvelopeError("Unknown, unpaired, or revoked mobile identity")
     return verify_signed_envelope(
