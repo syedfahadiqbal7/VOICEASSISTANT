@@ -175,3 +175,24 @@ def test_birthday_reminders_require_timezone_and_a_real_registered_handler():
     )
     assert blocked["can_enable"] is False
     assert "settings.timezone" in blocked["missing_profile_fields"]
+
+def test_daily_language_lesson_readiness_requires_local_timezone_and_profile():
+    profile = _profile()
+    result = automation_readiness(
+        "daily_language_lesson",
+        profile=profile,
+        connected_integrations=(),
+        registered_handlers={"daily_language_lesson"},
+        master_enabled=True,
+    )
+    assert result["can_enable"] is True
+    profile["settings"]["timezone"] = ""
+    blocked = automation_readiness(
+        "daily_language_lesson",
+        profile=profile,
+        connected_integrations=(),
+        registered_handlers={"daily_language_lesson"},
+        master_enabled=True,
+    )
+    assert blocked["can_enable"] is False
+    assert "settings.timezone" in blocked["missing_profile_fields"]
