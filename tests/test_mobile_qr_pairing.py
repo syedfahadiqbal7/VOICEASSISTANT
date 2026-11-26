@@ -39,10 +39,10 @@ def _session(coordinator):
 
 def _submit(coordinator, session_id, secret, name):
     proof_message = (
-        "voiceassistant-mobile-pairing-v2\\n"
-        + session_id.lower() + "\\n"
-        + name + "\\n"
-        + VALID_PUBLIC_KEY + "\\n"
+        "voiceassistant-mobile-pairing-v2\n"
+        + session_id.lower() + "\n"
+        + name + "\n"
+        + VALID_PUBLIC_KEY + "\n"
         + secret
     ).encode("utf-8")
     signature = _TEST_PRIVATE_KEY.sign(proof_message)
