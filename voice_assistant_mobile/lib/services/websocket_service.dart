@@ -248,7 +248,12 @@ class WebSocketService extends ChangeNotifier {
       throw const FormatException("This is not a supported VoiceAssistant desktop QR code");
     }
     final identity = decoded["desktop_identity"];
+    const identityFields = {
+      "identity_id", "algorithm", "public_key", "fingerprint_sha256",
+    };
     if (identity is! Map ||
+        identity.keys.toSet().difference(identityFields).isNotEmpty ||
+        identity.keys.toSet().length != identityFields.length ||
         identity["identity_id"] is! String ||
         !RegExp(r"^[0-9a-f]{32}$").hasMatch(identity["identity_id"] as String) ||
         identity["algorithm"] != "Ed25519" ||
