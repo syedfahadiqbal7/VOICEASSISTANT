@@ -206,3 +206,16 @@ def test_expired_access_ticket_is_rejected(tmp_path, monkeypatch):
         access_ticket=ticket["access_ticket"], registry=registry,
         now_ms=ticket["expires_at_ms"],
     )
+
+
+def test_malformed_signature_attempts_are_bounded(tmp_path, monkeypatch):
+    registry, _private, enrolled, store, challenge = _setup(tmp_path, monkeypatch)
+    for _ in range(5):
+        with pytest.raises(RemoteSessionError, match="signature is invalid"):
+            store.complete_challenge(
+                session_id=challenge["session_id"], device_id=enrolled["device_id"],
+                challenge=challenge["challenge"], issued_at_ms=1_700_000_000_000,
+                signature="not-base64url", registry=registry,
+                now_ms=1_700_000_000_001,
+            )
+    assert store.snapshot(now_ms=1_700_000_000_002)["pending_challenges"] == 0
