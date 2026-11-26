@@ -72,7 +72,6 @@ void main() {
     );
     service.dispose();
   });
-}
 
 
   test('QR desktop identity fingerprint is validated before pairing', () async {
@@ -118,3 +117,4 @@ void main() {
       throwsFormatException,
     );
   });
+}
