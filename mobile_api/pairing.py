@@ -6,6 +6,8 @@ to the phone that proves possession of the challenge; the phone acknowledges rec
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import logging
 import hmac
@@ -16,6 +18,9 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from typing import Any
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from mobile_api.authorization import ROLE_APPROVER, ROLE_OPERATOR, ROLE_VIEWER
 
@@ -85,6 +90,18 @@ class PairingCoordinator:
                 self._discard_session(key, item)
 
     @staticmethod
+    def _validate_public_key(value: Any) -> str:
+        if not isinstance(value, str) or len(value) != 43 or "=" in value:
+            raise PairingError("A valid Ed25519 mobile public key is required")
+        try:
+            raw = base64.b64decode(value + "=", altchars=b"-_", validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise PairingError("A valid Ed25519 mobile public key is required") from error
+        if len(raw) != 32 or base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=") != value:
+            raise PairingError("A valid Ed25519 mobile public key is required")
+        return value
+
+    @staticmethod
     def _secret_hash(secret: str) -> str:
         return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
@@ -113,7 +130,7 @@ class PairingCoordinator:
                 "result_consumed": False,
             }
         return {
-            "version": 1,
+            "version": 2,
             "type": "voiceassistant_mobile_pairing",
             "endpoint": endpoint,
             "session_id": session_id,
@@ -138,20 +155,47 @@ class PairingCoordinator:
             raise PairingError("Invalid or expired pairing session")
         return item
 
-    def submit_request(self, session_id: str, secret: str, device_name: str) -> dict[str, str]:
+    def submit_request(
+        self, session_id: str, secret: str, device_name: str,
+        public_key_ed25519: str, proof_signature: str,
+    ) -> dict[str, str]:
         if not isinstance(device_name, str):
             raise PairingError("Device name must be text")
         name = device_name.strip()
         if not name or len(name) > 80 or any(ord(ch) < 32 for ch in name):
             raise PairingError("Device name must contain 1–80 printable characters")
+        public_key = self._validate_public_key(public_key_ed25519)
+        public_raw = base64.b64decode(public_key + "=", altchars=b"-_", validate=True)
+        fingerprint = hashlib.sha256(public_raw).hexdigest()
+        if not isinstance(proof_signature, str) or len(proof_signature) != 86 or "=" in proof_signature:
+            raise PairingError("Mobile identity proof-of-possession signature is required")
+        try:
+            signature = base64.b64decode(proof_signature + "==", altchars=b"-_", validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise PairingError("Mobile identity proof-of-possession signature is malformed") from error
+        if len(signature) != 64 or base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=") != proof_signature:
+            raise PairingError("Mobile identity proof-of-possession signature is malformed")
         with self._lock:
             self._purge_expired()
             item = self._get_session(session_id, secret)
+            proof_message = (
+                "voiceassistant-mobile-pairing-v2\n"
+                + str(session_id).strip().lower() + "\n"
+                + name + "\n"
+                + public_key + "\n"
+                + secret
+            ).encode("utf-8")
+            try:
+                Ed25519PublicKey.from_public_bytes(public_raw).verify(signature, proof_message)
+            except (InvalidSignature, ValueError) as error:
+                raise PairingError("Mobile identity proof-of-possession verification failed") from error
             if item["state"] != "waiting" or item["request_id"] is not None:
                 raise PairingError("This QR pairing request has already been used")
             request_id = uuid.uuid4().hex
             item["request_id"] = request_id
             item["device_name"] = name
+            item["public_key_ed25519"] = public_key
+            item["identity_fingerprint"] = fingerprint
             item["state"] = "pending_approval"
             return {"request_id": request_id, "status": "pending_approval"}
 
@@ -163,6 +207,8 @@ class PairingCoordinator:
                     "session_id": session_id,
                     "request_id": item["request_id"],
                     "device_name": item["device_name"],
+                    "identity_algorithm": "Ed25519",
+                    "identity_fingerprint": item["identity_fingerprint"],
                     "created_state": item["state"],
                     "expires_at": item["expires_at_utc"],
                 }
@@ -180,7 +226,10 @@ class PairingCoordinator:
             if item is None or item["state"] != "pending_approval":
                 return False
             # Registration persists only a digest in the encrypted device registry.
-            credentials = self._registry.register(item["device_name"], role=role)
+            credentials = self._registry.register(
+                item["device_name"], role=role,
+                public_key_ed25519=item["public_key_ed25519"],
+            )
             item["credentials"] = credentials
             item["state"] = "approved"
             return True

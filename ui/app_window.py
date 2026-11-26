@@ -424,7 +424,23 @@ class AgenticVoiceAssistant(ctk.CTk):
                 match = next((item for item in requests if item["session_id"] == session_id), None)
                 if match and active_request["id"] is None:
                     active_request["id"] = match["request_id"]
-                    status.configure(text=match["device_name"] + " wants to connect. Approve only if you recognize this device.")
+                    fingerprint = match.get("identity_fingerprint", "")
+                    if not isinstance(fingerprint, str) or len(fingerprint) != 64:
+                        status.configure(text="Pairing request has no valid mobile identity fingerprint. It cannot be approved.")
+                        pairing_coordinator.deny(match["request_id"])
+                        active_request["decided"] = True
+                        return
+                    grouped_fingerprint = " ".join(
+                        fingerprint[index:index + 4] for index in range(0, len(fingerprint), 4)
+                    )
+                    status.configure(
+                        text=(
+                            match["device_name"]
+                            + " wants to connect. Verify this device before approval.\n"
+                            + "Ed25519 SHA-256 fingerprint:\n"
+                            + grouped_fingerprint
+                        )
+                    )
                     approve_button.configure(state="normal")
                     deny_button.configure(state="normal")
             window.after(1000, poll)
