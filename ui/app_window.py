@@ -1005,19 +1005,27 @@ class AgenticVoiceAssistant(ctk.CTk):
         if profile is None:
             self.update_transcript("[Automations] Profile storage is unavailable; catalog cannot load.")
             return
-        def _toggle_birthday_reminders(enabled):
-            result = self.conversation.set_birthday_reminders_enabled(enabled)
+        def _toggle_automation(automation_id, enabled):
+            handlers = {
+                "birthday_reminders": self.conversation.set_birthday_reminders_enabled,
+                "daily_language_lesson": self.conversation.set_daily_language_lesson_enabled,
+            }
+            handler = handlers.get(automation_id)
+            if handler is None:
+                raise ValueError("This automation cannot be enabled yet")
+            result = handler(enabled)
+            label = "Birthday reminders" if automation_id == "birthday_reminders" else "Daily language lesson"
             if result.get("active"):
-                self.update_transcript("[Automations] Birthday reminders scheduled. The desktop application must remain open.")
+                self.update_transcript(f"[Automations] {label} scheduled. The desktop application must remain open.")
             else:
-                self.update_transcript("[Automations] Birthday reminders: " + str(result.get("reason", "disabled")))
+                self.update_transcript(f"[Automations] {label}: " + str(result.get("reason", "disabled")))
             return result
         try:
             open_automation_catalog_viewer(
                 self,
                 profile,
                 scheduler=self.conversation.scheduler,
-                on_birthday_toggle=_toggle_birthday_reminders,
+                on_automation_toggle=_toggle_automation,
             )
         except Exception as error:
             logger.exception("Automation catalog failed to open", extra={"event": "automation.catalog_open_failed"})
