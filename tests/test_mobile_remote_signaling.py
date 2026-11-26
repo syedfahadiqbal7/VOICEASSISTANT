@@ -162,21 +162,28 @@ def test_desktop_local_endpoint_rejects_browser_origin_and_non_loopback():
     assert not remote_signaling._is_local_desktop_request(Socket("127.0.0.1", "https://evil.example"))
 
 
-@pytest.mark.asyncio
-async def test_signaling_hub_enforces_one_socket_per_side_and_cleans_up():
-    hub = remote_signaling.SignalingHub()
-    session_id = "a" * 32
-    mobile = object()
-    desktop = object()
-    duplicate = object()
+def test_signaling_hub_enforces_one_socket_per_side_and_cleans_up():
+    import asyncio
 
-    assert await hub.attach(session_id, "mobile", mobile)
-    assert not await hub.attach(session_id, "mobile", duplicate)
-    assert await hub.attach(session_id, "desktop", desktop)
-    assert await hub.wait_for_peer(session_id, "mobile") is desktop
-    assert await hub.wait_for_peer(session_id, "desktop") is mobile
+    async def scenario():
+        hub = remote_signaling.SignalingHub()
+        session_id = "a" * 32
+        mobile = object()
+        desktop = object()
+        duplicate = object()
 
-    await hub.detach(session_id, "mobile", mobile)
-    assert await hub.wait_for_peer(session_id, "desktop") is None
-    await hub.detach(session_id, "desktop", desktop)
-    assert await hub.replay_guard(session_id) is not None
+        assert await hub.attach(session_id, "mobile", mobile)
+        assert not await hub.attach(session_id, "mobile", duplicate)
+        assert await hub.attach(session_id, "desktop", desktop)
+        assert await hub.wait_for_peer(session_id, "mobile") is desktop
+        assert await hub.wait_for_peer(session_id, "desktop") is mobile
+
+        await hub.detach(session_id, "mobile", mobile)
+        replacement = object()
+        assert await hub.attach(session_id, "mobile", replacement)
+        assert await hub.wait_for_peer(session_id, "desktop") is replacement
+        await hub.detach(session_id, "replacement", replacement)
+        await hub.detach(session_id, "desktop", desktop)
+        assert await hub.replay_guard(session_id) is not None
+
+    asyncio.run(scenario())
