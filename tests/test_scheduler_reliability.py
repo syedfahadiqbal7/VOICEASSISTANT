@@ -529,3 +529,15 @@ def test_stop_recurring_after_current_cancels_pending_or_finishes_waiting_run(tm
     assert "disable_after_run" not in stored
     record = next(item for item in scheduler.history.list_records() if item["execution_id"] == waiting["execution_id"])
     assert record["status"] == "succeeded"
+
+def test_stop_after_current_failure_is_terminal_not_retried(tmp_path, monkeypatch):
+    scheduler, _ = _scheduler(tmp_path, monkeypatch, lambda _job: False)
+    job = scheduler.add_calendar("stop on failure", {"type": "calendar", "frequency": "daily", "local_time": "09:00", "timezone": "Asia/Dubai"})
+    scheduler.jobs[0]["execution_waiting"] = True
+    assert scheduler.stop_recurring_after_current(job["id"]) == "stopping"
+    scheduler._fire(job)
+    stored = scheduler.list_jobs()[0]
+    assert stored["status"] == "failed"
+    assert stored["enabled"] is False
+    record = scheduler.history.list_records()[0]
+    assert record["status"] == "failed"
