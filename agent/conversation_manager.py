@@ -1096,8 +1096,41 @@ class ConversationManager:
             return True
         return False
 
-    def _on_scheduled_job(self, job: dict):
-        """Run scheduled work without handing tool selection to the LLM.
+    def _run_daily_language_lesson(self) -> bool:
+        """Generate and deliver a short lesson using the configured local Ollama client only."""
+        try:
+            if self.profile is None:
+                raise RuntimeError("Encrypted profile storage is unavailable")
+            from agent.language_lesson import build_language_lesson_messages
+            messages = build_language_lesson_messages(self.profile.get_profile())
+            local_client = getattr(self.llm, "client", None)
+            if local_client is None:
+                raise RuntimeError("Local LLM client is unavailable")
+            # Deliberately call the local OpenAI-compatible client directly. Do not use
+            # LLMClient.chat(), which may apply optional cloud failover.
+            response = local_client.chat.completions.create(
+                model=self.llm.model, messages=messages, timeout=90
+            )
+            content = response.choices[0].message.content
+            if not isinstance(content, str) or not content.strip():
+                raise RuntimeError("Local model returned an empty lesson")
+            lesson = content.strip()[:8000]
+            self.on_transcript("[Daily Language Lesson]\\n" + lesson)
+            self.on_status("Daily language lesson is ready in the transcript.", "#1ABC9C")
+            try:
+                self.on_speak("Your daily language lesson is ready. Please see the transcript.")
+            except Exception:
+                pass
+            return True
+        except Exception as error:
+            self._log(f"[Automations] Daily language lesson failed: {type(error).__name__}")
+            try:
+                self.on_status("Daily language lesson could not be generated; it will be retried.", "#C0392B")
+            except Exception:
+                pass
+            return False
+
+    def _on_scheduled_job(self, job: dict):        """Run scheduled work without handing tool selection to the LLM.
 
         Side-effecting fast-path tools use the persisted execution_id ledger.
         Reminders remain at-least-once notifications.
@@ -1108,6 +1141,8 @@ class ConversationManager:
         self._log(f"[Scheduler] Running job {jid}: {prompt}")
         if not prompt:
             return False
+        if prompt == "__automation__:daily_language_lesson":
+            return self._run_daily_language_lesson()
         if prompt == "__automation__:birthday_reminders":
             try:
                 from agent.birthday_reminders import due_birthday_reminders
