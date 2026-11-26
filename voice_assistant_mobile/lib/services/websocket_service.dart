@@ -10,6 +10,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
 
 import 'mobile_identity_service.dart';
+import 'signaling_envelope.dart';
 
 class WebSocketService extends ChangeNotifier {
   WebSocketChannel? _channel;
@@ -24,6 +25,9 @@ class WebSocketService extends ChangeNotifier {
   String? _lastHost;
   String _lastToken = "";
   String _lastDeviceId = "";
+  String _lastRemoteSessionId = "";
+  String _lastRemoteSessionTicket = "";
+  int _lastRemoteSessionExpiresAtMs = 0;
   int _lastPort = 8765;
 
   bool isConnected = false;
@@ -69,13 +73,35 @@ class WebSocketService extends ChangeNotifier {
       }
       final token = await _secureStorage.read(key: "mobile_token") ?? "";
       final deviceId = await _secureStorage.read(key: "mobile_device_id") ?? "";
+      final remoteSessionId = await _secureStorage.read(key: "remote_session_id") ?? "";
+      final remoteSessionTicket = await _secureStorage.read(key: "remote_session_ticket") ?? "";
+      final remoteExpiry = await _secureStorage.read(key: "remote_session_expires_at_ms") ?? "";
       final autoConnect = await _secureStorage.read(key: "auto_connect") ?? "true";
+      if (remoteSessionId.isNotEmpty || remoteSessionTicket.isNotEmpty) {
+        final expiresAt = int.tryParse(remoteExpiry);
+        if (remoteSessionId.isEmpty ||
+            remoteSessionTicket.isEmpty ||
+            expiresAt == null ||
+            expiresAt <= DateTime.now().millisecondsSinceEpoch) {
+          await _secureStorage.delete(key: "remote_session_id");
+          await _secureStorage.delete(key: "remote_session_ticket");
+          await _secureStorage.delete(key: "remote_session_expires_at_ms");
+          await _secureStorage.write(key: "auto_connect", value: "false");
+          hasSavedConnection = false;
+          lastError = "Remote session expired. Scan a fresh desktop QR code.";
+          notifyListeners();
+          return null;
+        }
+      }
       hasSavedConnection = true;
       notifyListeners();
       return {
         "host": host,
         "token": token,
         "device_id": deviceId,
+        "remote_session_id": remoteSessionId,
+        "remote_session_ticket": remoteSessionTicket,
+        "remote_session_expires_at_ms": remoteExpiry,
         "auto_connect": autoConnect,
       };
     } catch (error) {
@@ -100,6 +126,19 @@ class WebSocketService extends ChangeNotifier {
       await _secureStorage.write(key: "mobile_token", value: _lastToken);
       if (generation != _connectionGeneration || _manualDisconnect) return;
       await _secureStorage.write(key: "mobile_device_id", value: _lastDeviceId);
+      if (generation != _connectionGeneration || _manualDisconnect) return;
+      if (_lastRemoteSessionId.isNotEmpty && _lastRemoteSessionTicket.isNotEmpty) {
+        await _secureStorage.write(key: "remote_session_id", value: _lastRemoteSessionId);
+        await _secureStorage.write(key: "remote_session_ticket", value: _lastRemoteSessionTicket);
+        await _secureStorage.write(
+          key: "remote_session_expires_at_ms",
+          value: _lastRemoteSessionExpiresAtMs.toString(),
+        );
+      } else {
+        await _secureStorage.delete(key: "remote_session_id");
+        await _secureStorage.delete(key: "remote_session_ticket");
+        await _secureStorage.delete(key: "remote_session_expires_at_ms");
+      }
       if (generation != _connectionGeneration || _manualDisconnect) return;
       await _secureStorage.write(key: "auto_connect", value: "true");
       if (generation != _connectionGeneration || _manualDisconnect) return;
@@ -154,12 +193,18 @@ class WebSocketService extends ChangeNotifier {
     _lastHost = null;
     _lastToken = "";
     _lastDeviceId = "";
+    _lastRemoteSessionId = "";
+    _lastRemoteSessionTicket = "";
+    _lastRemoteSessionExpiresAtMs = 0;
     _lastPort = 8765;
 
     try {
       await _secureStorage.delete(key: "desktop_host");
       await _secureStorage.delete(key: "mobile_token");
       await _secureStorage.delete(key: "mobile_device_id");
+      await _secureStorage.delete(key: "remote_session_id");
+      await _secureStorage.delete(key: "remote_session_ticket");
+      await _secureStorage.delete(key: "remote_session_expires_at_ms");
       await _secureStorage.delete(key: "auto_connect");
       hasSavedConnection = false;
       lastError = null;
@@ -198,9 +243,9 @@ class WebSocketService extends ChangeNotifier {
       throw const FormatException("QR code is not valid JSON");
     }
     if (decoded is! Map ||
-        decoded["type"] != "voiceassistant_mobile_pairing" ||
-        decoded["version"] != 2) {
-      throw const FormatException("This is not a VoiceAssistant pairing QR code");
+        !((decoded["type"] == "voiceassistant_mobile_pairing" && decoded["version"] == 2) ||
+          (decoded["type"] == "voiceassistant_remote_session" && decoded["version"] == 1))) {
+      throw const FormatException("This is not a supported VoiceAssistant desktop QR code");
     }
     final identity = decoded["desktop_identity"];
     if (identity is! Map ||
@@ -432,11 +477,22 @@ class WebSocketService extends ChangeNotifier {
     }
   }
 
-  void connect(String host, {int port = 8765, String token = "", String deviceId = ""}) {
+  void connect(
+    String host, {
+    int port = 8765,
+    String token = "",
+    String deviceId = "",
+    String remoteSessionId = "",
+    String remoteSessionTicket = "",
+    int remoteSessionExpiresAtMs = 0,
+  }) {
     _manualDisconnect = false;
     _lastHost = host.trim();
     _lastToken = token.trim();
     _lastDeviceId = deviceId.trim();
+    _lastRemoteSessionId = remoteSessionId.trim();
+    _lastRemoteSessionTicket = remoteSessionTicket.trim();
+    _lastRemoteSessionExpiresAtMs = remoteSessionExpiresAtMs;
     _lastPort = port;
     _reconnectAttempts = 0;
     _reconnectTimer?.cancel();
@@ -516,14 +572,21 @@ class WebSocketService extends ChangeNotifier {
     try {
       final channel = IOWebSocketChannel.connect(
         Uri.parse(url),
-        headers: _lastToken.isEmpty
-            ? null
-            : (_lastDeviceId.isNotEmpty
-                ? {
-                    "x-voiceassistant-device-id": _lastDeviceId,
-                    "x-voiceassistant-device-token": _lastToken,
-                  }
-                : {"x-voiceassistant-token": _lastToken}),
+        headers: _lastRemoteSessionId.isNotEmpty &&
+                _lastRemoteSessionTicket.isNotEmpty
+            ? {
+                "x-voiceassistant-device-id": _lastDeviceId,
+                "x-voiceassistant-session-id": _lastRemoteSessionId,
+                "x-voiceassistant-session-ticket": _lastRemoteSessionTicket,
+              }
+            : (_lastToken.isEmpty
+                ? null
+                : (_lastDeviceId.isNotEmpty
+                    ? {
+                        "x-voiceassistant-device-id": _lastDeviceId,
+                        "x-voiceassistant-device-token": _lastToken,
+                      }
+                    : {"x-voiceassistant-token": _lastToken})),
         connectTimeout: const Duration(seconds: 5),
         pingInterval: const Duration(seconds: 20),
       );
@@ -549,7 +612,9 @@ class WebSocketService extends ChangeNotifier {
           final rejected = closeCode == 1008;
           _failConnect(
             rejected
-                ? "Desktop rejected the mobile token. Check the saved token."
+                ? (_lastRemoteSessionId.isNotEmpty
+                    ? "Remote session expired or was revoked. Scan a fresh desktop QR code."
+                    : "Desktop rejected the mobile token. Check the saved token.")
                 : "Connection lost",
             generation: generation,
             retry: !rejected,
