@@ -1130,7 +1130,8 @@ class ConversationManager:
                 pass
             return False
 
-    def _on_scheduled_job(self, job: dict):        """Run scheduled work without handing tool selection to the LLM.
+    def _on_scheduled_job(self, job: dict):
+        """Run scheduled work without handing tool selection to the LLM.
 
         Side-effecting fast-path tools use the persisted execution_id ledger.
         Reminders remain at-least-once notifications.
