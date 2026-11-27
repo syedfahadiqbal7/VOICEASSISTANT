@@ -287,7 +287,11 @@ class MobileRelayConnection {
         if (!ready.isCompleted) ready.completeError(error, stack);
       }
     }, onError: (Object error, StackTrace stack) {
-      if (!ready.isCompleted) ready.completeError(error, stack);
+      if (!ready.isCompleted) {
+        ready.completeError(error, stack);
+      } else if (!connection._frames.isClosed) {
+        connection._frames.addError(error, stack);
+      }
     }, onDone: () {
       if (!ready.isCompleted) {
         ready.completeError(const MobileRelayException('Relay closed before peer authentication'));
