@@ -22,31 +22,7 @@ class MobileRelayException implements Exception {
 /// Authenticated mobile-to-relay signaling socket. It does not establish
 /// WebRTC, authorize commands, or replace the existing direct desktop socket.
 class MobileRelayConnection {
-  MobileRelayConnection._(this._channel, this._frames) {
-    _channel.stream.listen(
-      (dynamic raw) {
-        try {
-          if (raw is! String || raw.length > _maxRelayFrameBytes) {
-            throw const MobileRelayException('Relay frame is invalid or too large');
-          }
-          final decoded = jsonDecode(raw);
-          if (decoded is! Map<String, dynamic>) {
-            throw const MobileRelayException('Relay frame must be a JSON object');
-          }
-          _frames.add(Map<String, dynamic>.from(decoded));
-        } catch (error, stack) {
-          _frames.addError(error, stack);
-        }
-      },
-      onError: (Object error, StackTrace stack) {
-        _frames.addError(error, stack);
-      },
-      onDone: () {
-        if (!_frames.isClosed) _frames.close();
-      },
-      cancelOnError: false,
-    );
-  }
+  MobileRelayConnection._(this._channel);
 
   final WebSocketChannel _channel;
   final StreamController<Map<String, dynamic>> _frames =
@@ -54,10 +30,12 @@ class MobileRelayConnection {
 
   Stream<Map<String, dynamic>> get frames => _frames.stream;
   bool _closed = false;
+  StreamSubscription<dynamic>? _subscription;
 
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    await _subscription?.cancel();
     await _channel.sink.close();
     if (!_frames.isClosed) await _frames.close();
   }
@@ -233,7 +211,7 @@ class MobileRelayConnection {
       socketUri,
       connectTimeout: const Duration(seconds: 10),
     );
-    final connection = MobileRelayConnection._(channel, StreamController<Map<String, dynamic>>.broadcast());
+    final connection = MobileRelayConnection._(channel);
     final ready = Completer<void>();
     var authSent = false;
     final subscription = channel.stream.listen((dynamic raw) async {
@@ -244,6 +222,10 @@ class MobileRelayConnection {
         final frame = jsonDecode(raw);
         if (frame is! Map<String, dynamic>) {
           throw const MobileRelayException('Relay handshake frame is malformed');
+        }
+        if (ready.isCompleted) {
+          connection._frames.add(frame);
+          return;
         }
         if (!authSent) {
           if (frame.keys.toSet().difference({'type', 'challenge', 'protocol_version'}).isNotEmpty ||
@@ -294,6 +276,7 @@ class MobileRelayConnection {
       }
     });
 
+    connection._subscription = subscription;
     try {
       await ready.future.timeout(const Duration(seconds: 125));
       await _storage.write(key: 'desktop_identity_id', value: desktop['identity_id'] as String);
