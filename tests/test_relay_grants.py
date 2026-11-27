@@ -84,7 +84,7 @@ def test_issues_signed_grant_bound_to_both_enrolled_identities():
     assert grant["mobile_id"] == registry.device_id
     assert grant["expires_at_ms"] - grant["issued_at_ms"] == 300_000
 
-    signature = base64.urlsafe_b64decode(payload["grant_signature"] + "=")
+    signature = base64.urlsafe_b64decode(payload["grant_signature"] + "==")
     identity.key.public_key().verify(signature, canonical_json(grant))
     assert payload["desktop_identity"]["fingerprint_sha256"] == hashlib.sha256(
         base64.urlsafe_b64decode(identity.public_key + "=")
