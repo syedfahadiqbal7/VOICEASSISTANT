@@ -17,6 +17,7 @@ Map<String, dynamic> _payload({
     'grant': {
       'protocol_version': 1,
       'audience': audience,
+      'relay_url': relayUrl,
       'session_id': 'a' * 32,
       'desktop_id': 'b' * 32,
       'mobile_id': 'c' * 32,
