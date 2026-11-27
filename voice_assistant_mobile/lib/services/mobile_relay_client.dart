@@ -117,10 +117,21 @@ class MobileRelayConnection {
     final mobile = value['mobile_identity'];
     if (desktop is! Map<String, dynamic> ||
         mobile is! Map<String, dynamic> ||
+        desktop.keys.toSet().difference({
+          'identity_id', 'algorithm', 'public_key', 'fingerprint_sha256',
+        }).isNotEmpty ||
+        desktop.keys.toSet().length != 4 ||
+        mobile.keys.toSet().difference({
+          'device_id', 'algorithm', 'fingerprint_sha256',
+        }).isNotEmpty ||
+        mobile.keys.toSet().length != 3 ||
         desktop['identity_id'] != grant['desktop_id'] ||
         desktop['algorithm'] != 'Ed25519' ||
+        desktop['public_key'] != grant['desktop_public_key'] ||
+        desktop['fingerprint_sha256'] is! String ||
         mobile['device_id'] != grant['mobile_id'] ||
-        mobile['algorithm'] != 'Ed25519') {
+        mobile['algorithm'] != 'Ed25519' ||
+        mobile['fingerprint_sha256'] is! String) {
       throw const MobileRelayException('Relay identity metadata does not match the grant');
     }
     return value;
