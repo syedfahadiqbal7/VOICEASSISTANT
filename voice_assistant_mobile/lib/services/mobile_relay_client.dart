@@ -41,6 +41,13 @@ class MobileRelayConnection {
   }
 
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static MobileRelayConnection? active;
+
+  static Future<void> disconnect() async {
+    final current = active;
+    active = null;
+    await current?.close();
+  }
 
   /// Strict structural validation, also used by unit tests before any network
   /// operation is attempted.
@@ -273,6 +280,8 @@ class MobileRelayConnection {
     }, onDone: () {
       if (!ready.isCompleted) {
         ready.completeError(const MobileRelayException('Relay closed before peer authentication'));
+      } else if (!connection._frames.isClosed) {
+        connection._frames.close();
       }
     });
 
@@ -283,6 +292,8 @@ class MobileRelayConnection {
       await _storage.write(key: 'desktop_identity_public_key', value: desktop['public_key'] as String);
       await _storage.write(key: 'desktop_identity_fingerprint', value: desktopFingerprint);
       // The authenticated socket remains open for the next signed signaling stage.
+      await disconnect();
+      active = connection;
       return connection;
     } catch (_) {
       await subscription.cancel();
