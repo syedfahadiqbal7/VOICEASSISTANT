@@ -86,7 +86,7 @@ class MobileRelayConnection {
     }
     final grant = value['grant'];
     const grantFields = {
-      'protocol_version', 'audience', 'session_id', 'desktop_id', 'mobile_id',
+      'protocol_version', 'audience', 'relay_url', 'session_id', 'desktop_id', 'mobile_id',
       'desktop_public_key', 'mobile_public_key', 'issued_at_ms', 'expires_at_ms',
     };
     if (grant is! Map<String, dynamic> ||
@@ -94,6 +94,7 @@ class MobileRelayConnection {
         grant.keys.toSet().length != grantFields.length ||
         grant['protocol_version'] != 1 ||
         grant['audience'] != _relayAudience ||
+        grant['relay_url'] != value['relay_url'] ||
         !_id(grant['session_id']) ||
         !_id(grant['desktop_id']) ||
         !_id(grant['mobile_id']) ||
