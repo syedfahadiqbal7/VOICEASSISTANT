@@ -77,7 +77,7 @@ def test_issues_signed_grant_bound_to_both_enrolled_identities():
     assert payload["relay_url"] == "wss://relay.example.com"
     grant = payload["grant"]
     assert set(grant) == {
-        "protocol_version", "audience", "session_id", "desktop_id", "mobile_id",
+        "protocol_version", "audience", "relay_url", "session_id", "desktop_id", "mobile_id",
         "desktop_public_key", "mobile_public_key", "issued_at_ms", "expires_at_ms",
     }
     assert grant["desktop_id"] == identity.identity_id
