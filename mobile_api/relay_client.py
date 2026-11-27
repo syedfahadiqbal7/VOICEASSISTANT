@@ -72,11 +72,13 @@ def _validate_payload(payload: Any, identity_store) -> tuple[dict[str, Any], str
         raise RelayClientError("Unsupported relay QR protocol")
     grant = payload["grant"]
     grant_fields = {
-        "protocol_version", "audience", "session_id", "desktop_id", "mobile_id",
+        "protocol_version", "audience", "relay_url", "session_id", "desktop_id", "mobile_id",
         "desktop_public_key", "mobile_public_key", "issued_at_ms", "expires_at_ms",
     }
     if not isinstance(grant, dict) or set(grant) != grant_fields:
         raise RelayClientError("Relay grant fields do not match protocol v1")
+    if grant.get("relay_url") != payload.get("relay_url"):
+        raise RelayClientError("Relay URL is not covered by the signed grant")
     if type(grant["protocol_version"]) is not int or grant["protocol_version"] != 1:
         raise RelayClientError("Unsupported relay grant version")
     now_ms = int(time.time() * 1000)
