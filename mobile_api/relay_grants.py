@@ -9,6 +9,7 @@ import base64
 import hashlib
 import re
 import time
+import uuid
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -100,7 +101,7 @@ def create_relay_qr_payload(
     grant = {
         "protocol_version": 1,
         "audience": audience,
-        "session_id": __import__("uuid").uuid4().hex,
+        "session_id": uuid.uuid4().hex,
         "desktop_id": desktop_id,
         "mobile_id": device_id,
         "desktop_public_key": desktop["public_key"],
