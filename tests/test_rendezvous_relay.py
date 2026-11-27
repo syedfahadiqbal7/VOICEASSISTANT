@@ -127,6 +127,24 @@ def test_relay_rejects_wrong_audience_and_expired_grants():
         raise AssertionError("Expired grant was accepted")
 
 
+
+def test_relay_rejects_unsafe_signed_relay_origin():
+    desktop_key, desktop_public = _keypair()
+    _, mobile_public = _keypair()
+    grant, _ = _grant(desktop_key, desktop_public, mobile_public)
+    grant["relay_url"] = "https://attacker.example.com"
+    signature = _b64(desktop_key.sign(canonical_json(grant)))
+    try:
+        validate_grant(
+            grant, signature, session_id=grant["session_id"],
+            audience="test-relay",
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Unsafe signed relay origin was accepted")
+
+
 def test_relay_health_is_non_sensitive():
     response = TestClient(create_app(audience="test-relay")).get("/health")
     assert response.status_code == 200
