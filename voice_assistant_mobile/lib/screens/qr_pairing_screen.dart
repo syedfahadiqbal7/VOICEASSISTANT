@@ -115,6 +115,16 @@ class _QrPairingScreenState extends State<QrPairingScreen> {
       final service = context.read<WebSocketService>();
       if (isRelaySession) {
         await MobileRelayConnection.connectFromQr(raw);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Relay authenticated. Cross-network remote control is not enabled until WebRTC transport is completed.',
+              ),
+              duration: Duration(seconds: 6),
+            ),
+          );
+        }
       } else if (isRemoteSession) {
         await service.connectRemoteFromQr(raw);
       } else {
