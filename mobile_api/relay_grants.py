@@ -80,7 +80,7 @@ def create_relay_qr_payload(
 
     endpoint = _validate_relay_url(relay_url)
     desktop = identity_store.status()
-    if not isinstance(desktop, dict) or desktop.get("initialized") is not True:
+    if not isinstance(desktop, dict) or desktop.get("initialized") is not True or desktop.get("algorithm") != "Ed25519":
         raise RelayGrantError("Desktop remote identity is not initialized")
     desktop_id = desktop.get("identity_id")
     if not isinstance(desktop_id, str) or not _ID.fullmatch(desktop_id):
@@ -94,6 +94,9 @@ def create_relay_qr_payload(
     if not isinstance(mobile, dict) or mobile.get("algorithm") != "Ed25519":
         raise RelayGrantError("Mobile device is not actively enrolled with an Ed25519 identity")
     mobile_key = _public_key_bytes(mobile.get("public_key"), "Mobile")
+    expected_mobile_fingerprint = hashlib.sha256(mobile_key).hexdigest()
+    if mobile.get("fingerprint_sha256") != expected_mobile_fingerprint:
+        raise RelayGrantError("Paired mobile identity fingerprint does not match its public key")
 
     now = int(time.time() * 1000) if now_ms is None else now_ms
     if type(now) is not int or now < 0:
