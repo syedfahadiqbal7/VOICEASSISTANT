@@ -73,6 +73,7 @@ class MobileRelayConnection {
       throw const MobileRelayException('Unsupported relay QR format');
     }
     final uri = Uri.tryParse(value['relay_url'] is String ? value['relay_url'] as String : '');
+    final relayPort = uri == null ? -1 : (uri.hasPort ? uri.port : 443);
     if (uri == null ||
         uri.scheme != 'wss' ||
         uri.host.isEmpty ||
@@ -80,7 +81,7 @@ class MobileRelayConnection {
         uri.hasQuery ||
         uri.hasFragment ||
         (uri.path.isNotEmpty && uri.path != '/') ||
-        ![null, 443, 8443].contains(uri.port == 443 ? 443 : uri.port)) {
+        relayPort != 443 && relayPort != 8443) {
       throw const MobileRelayException('Relay endpoint must be a trusted WSS origin');
     }
     final grant = value['grant'];
@@ -279,13 +280,17 @@ class MobileRelayConnection {
           authSent = true;
           return;
         }
-        if (frame['type'] == 'relay.peer_ready' &&
-            frame['protocol_version'] == 1 &&
-            frame.length == 2) {
+        if (frame['type'] == 'relay.peer_ready') {
+          if (frame['protocol_version'] != 1 || frame.length != 2) {
+            throw const MobileRelayException('Relay peer-ready frame is malformed');
+          }
           if (!ready.isCompleted) ready.complete();
-        } else if (frame['type'] == 'relay.error') {
+          return;
+        }
+        if (frame['type'] == 'relay.error') {
           throw MobileRelayException(frame['message']?.toString() ?? 'Relay rejected the session');
         }
+        throw const MobileRelayException('Unexpected frame received before relay peer authentication');
       } catch (error, stack) {
         if (!ready.isCompleted) ready.completeError(error, stack);
       }
