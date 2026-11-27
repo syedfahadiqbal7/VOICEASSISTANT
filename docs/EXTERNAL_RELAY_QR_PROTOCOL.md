@@ -7,10 +7,11 @@ an authenticated rendezvous through a separately hosted WSS relay when they are
 on different networks. The relay is a signaling forwarder only. It is not the
 desktop command API, authorization engine, TURN server, or media path.
 
-The current implementation slice adds desktop-side QR grant generation only.
-The mobile verifier, desktop/mobile relay socket clients, WebRTC, and TURN remain
-separate implementation gates. A QR payload by itself does not establish a
-remote connection.
+The current implementation includes desktop-side QR grant generation and an
+authenticated outbound desktop WSS client. The Flutter mobile verifier and
+relay client, WebRTC, and TURN remain separate implementation gates. A QR
+payload and an authenticated desktop relay socket alone do not establish a
+usable remote-control connection.
 
 ## QR payload
 
