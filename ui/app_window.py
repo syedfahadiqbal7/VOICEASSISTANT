@@ -38,6 +38,8 @@ from ui.profile_viewer import open_profile_viewer
 from ui.automation_catalog_viewer import open_automation_catalog_viewer
 from agent.app_restart import restart_app
 from agent.remote_identity import RemoteIdentityStore
+from mobile_api.relay_grants import create_relay_qr_payload
+from mobile_api.relay_client import run_desktop_relay_session
 
 logger = logging.getLogger("voiceassistant.ui")
 
@@ -55,6 +57,9 @@ class AgenticVoiceAssistant(ctk.CTk):
         self._ui_queue = queue.Queue()
         self._ui_poll_id = None
         self._undo_in_progress = False
+        self._relay_stop_event = None
+        self._relay_thread = None
+        self._relay_window = None
         self._undo_completion_callbacks = []
         self._models_refreshing = False
         self._stt_ready = False
@@ -166,6 +171,7 @@ class AgenticVoiceAssistant(ctk.CTk):
         self.stop_activity_btn = _tb("Stop Activity", "#C0392B", "#922B21", self._stop_activity, 110)
         self.mobile_pair_btn = _tb("Pair Mobile", "#117A65", "#0E6655", self._show_mobile_pairing, 100)
         self.mobile_remote_btn = _tb("Remote Mobile", "#1F618D", "#154360", self._show_remote_session_qr, 112)
+        self.mobile_relay_btn = _tb("Cross-network", "#7D3C98", "#633974", self._show_relay_session_qr, 112)
 
         # Transcript card
         self.main_card = ctk.CTkFrame(self, fg_color=("white", "#1B2838"), corner_radius=12)
@@ -481,6 +487,255 @@ class AgenticVoiceAssistant(ctk.CTk):
 
         self.update_transcript("[Mobile] A short-lived QR pairing code was created. The phone will not be enrolled until you approve it here.")
         poll()
+    def _show_relay_session_qr(self):
+        """Create a device-bound relay QR and start the outbound desktop WSS worker."""
+        import json
+        import os
+        import qrcode
+
+        relay_url = os.environ.get("VOICEASSISTANT_RELAY_URL", "").strip()
+        audience = os.environ.get("VOICEASSISTANT_RELAY_AUDIENCE", "voiceassistant-relay").strip()
+        if not relay_url:
+            messagebox.showerror(
+                "Cross-network relay is not configured",
+                "Set VOICEASSISTANT_RELAY_URL to the public WSS origin of your rendezvous relay "
+                "(for example wss://relay.example.com). This is separate from the desktop "
+                "VOICEASSISTANT_MOBILE_PUBLIC_URL.",
+                parent=self,
+            )
+            return
+
+        devices = [
+            item for item in mobile_devices.list_devices()
+            if item.get("status") == "active" and item.get("identity_fingerprint")
+        ]
+        if not devices:
+            messagebox.showinfo(
+                "No eligible paired phones",
+                "Pair a phone first. Cross-network access requires an active enrolled Ed25519 mobile identity.",
+                parent=self,
+            )
+            return
+
+        chooser = ctk.CTkToplevel(self)
+        chooser.title("Create cross-network relay session")
+        chooser.geometry("560x300")
+        chooser.resizable(False, False)
+        chooser.transient(self)
+        chooser.grab_set()
+
+        ctk.CTkLabel(
+            chooser,
+            text="Choose an already paired phone",
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).pack(padx=20, pady=(20, 8))
+
+        device_labels = {
+            f"{item.get('name', 'Mobile device')} • {item['device_id'][:8]}": item
+            for item in devices
+        }
+        device_var = ctk.StringVar(value=next(iter(device_labels)))
+        ctk.CTkOptionMenu(
+            chooser, values=list(device_labels), variable=device_var, width=480
+        ).pack(padx=20, pady=8)
+
+        ctk.CTkLabel(
+            chooser,
+            text=f"Relay: {relay_url}\nQR expires in 2 minutes. Both devices connect outbound to this WSS relay.",
+            wraplength=500,
+            justify="center",
+        ).pack(padx=20, pady=8)
+
+        def create_qr():
+            selected = device_labels.get(device_var.get())
+            if selected is None:
+                messagebox.showerror("Select a phone", "Choose an active paired phone.", parent=chooser)
+                return
+            if not messagebox.askyesno(
+                "Authorize cross-network session",
+                f"Create a 2-minute relay grant for {selected.get('name', 'this phone')}? "
+                "The QR is device-bound and signed by this desktop identity.",
+                parent=chooser,
+            ):
+                return
+
+            try:
+                identity_store = RemoteIdentityStore()
+                identity = identity_store.status()
+                if not identity.get("initialized"):
+                    confirmed = messagebox.askyesno(
+                        "Create desktop security identity",
+                        "This PC does not have a remote identity yet. Create its unique Ed25519 identity now? "
+                        "The identity is encrypted locally and will not be silently replaced.",
+                        parent=chooser,
+                    )
+                    if not confirmed:
+                        return
+                    identity_store.bootstrap(confirmed=True)
+
+                payload = create_relay_qr_payload(
+                    device_id=selected["device_id"],
+                    relay_url=relay_url,
+                    audience=audience,
+                    identity_store=identity_store,
+                    device_registry=mobile_devices,
+                    ttl_seconds=120,
+                )
+                bitmap = qrcode.make(json.dumps(payload, separators=(",", ":"))).get_image()
+            except Exception as error:
+                logger.exception(
+                    "Could not create cross-network relay QR",
+                    extra={"event": "mobile.relay_qr_failed"},
+                )
+                messagebox.showerror("Could not create relay QR", str(error), parent=chooser)
+                return
+
+            chooser.grab_release()
+            chooser.destroy()
+
+            previous_stop = getattr(self, "_relay_stop_event", None)
+            if previous_stop is not None:
+                previous_stop.set()
+
+            window = ctk.CTkToplevel(self)
+            window.title("Cross-network mobile relay")
+            window.geometry("540x690")
+            window.resizable(False, False)
+            window.transient(self)
+            window.grab_set()
+            self._relay_window = window
+
+            ctk.CTkLabel(
+                window,
+                text="Scan with the already paired phone",
+                font=ctk.CTkFont(size=18, weight="bold"),
+            ).pack(padx=20, pady=(18, 6))
+            qr_image = ctk.CTkImage(light_image=bitmap, dark_image=bitmap, size=(310, 310))
+            image_label = ctk.CTkLabel(window, text="", image=qr_image)
+            image_label.image = qr_image
+            image_label.pack(padx=20, pady=8)
+
+            fingerprint = payload["desktop_identity"]["fingerprint_sha256"]
+            grouped = " ".join(fingerprint[i:i + 4] for i in range(0, len(fingerprint), 4))
+            ctk.CTkLabel(
+                window,
+                text="Compare this desktop fingerprint on the phone:\n" + grouped,
+                wraplength=490,
+                justify="center",
+                font=ctk.CTkFont(size=11, weight="bold"),
+            ).pack(padx=20, pady=6)
+
+            status = ctk.CTkLabel(
+                window,
+                text="Starting secure outbound relay connection...",
+                wraplength=490,
+                justify="center",
+            )
+            status.pack(padx=20, pady=8)
+
+            stop_event = threading.Event()
+            self._relay_stop_event = stop_event
+            status_messages = {
+                "connecting": "Connecting securely to the WSS relay...",
+                "authenticated_waiting_for_mobile": "Desktop authenticated. Scan this QR with the paired phone within 2 minutes.",
+                "peer_authenticated": (
+                    "Both devices authenticated with the relay. The signaling path is ready; "
+                    "WebRTC remote-control transport is not enabled yet."
+                ),
+                "stopped": "Relay session stopped.",
+                "grant_expired": "Relay grant expired. Create a fresh QR to reconnect.",
+                "peer_timeout": "The phone did not authenticate before the relay wait timeout.",
+            }
+
+            def report_status(value):
+                message = status_messages.get(
+                    value,
+                    value if value.startswith("error:") else f"Relay status: {value}",
+                )
+
+                def apply_status():
+                    try:
+                        if window.winfo_exists():
+                            status.configure(text=message)
+                    except Exception:
+                        pass
+
+                self._post_ui(apply_status)
+
+            def relay_worker():
+                try:
+                    run_desktop_relay_session(
+                        payload,
+                        identity_store=identity_store,
+                        stop_event=stop_event,
+                        on_status=report_status,
+                        peer_wait_timeout=120,
+                    )
+                except Exception as error:
+                    logger.exception(
+                        "Desktop relay session failed",
+                        extra={"event": "mobile.relay_session_failed"},
+                    )
+                    report_status("error: " + str(error))
+
+            self._relay_thread = threading.Thread(
+                target=relay_worker,
+                name="VoiceAssistantDesktopRelay",
+                daemon=True,
+            )
+            self._relay_thread.start()
+
+            def stop_relay():
+                stop_event.set()
+                status.configure(text="Stopping relay session...")
+                stop_button.configure(state="disabled")
+
+            def close_window():
+                stop_event.set()
+                try:
+                    window.grab_release()
+                except Exception:
+                    pass
+                window.destroy()
+                if self._relay_window is window:
+                    self._relay_window = None
+
+            buttons = ctk.CTkFrame(window, fg_color="transparent")
+            buttons.pack(fill="x", padx=20, pady=10)
+            stop_button = ctk.CTkButton(
+                buttons, text="Stop relay", command=stop_relay,
+                fg_color="#922B21", hover_color="#7B241C",
+            )
+            stop_button.pack(side="left", expand=True, fill="x", padx=6)
+            ctk.CTkButton(
+                buttons, text="Close", command=close_window,
+            ).pack(side="left", expand=True, fill="x", padx=6)
+            window.protocol("WM_DELETE_WINDOW", close_window)
+
+            ctk.CTkLabel(
+                window,
+                text=(
+                    "Security boundary: this relay authenticates the two devices and forwards signaling only. "
+                    "Remote commands, audio/video and screen control remain disabled until WebRTC and the "
+                    "existing authorization channel are integrated."
+                ),
+                wraplength=490,
+                justify="center",
+            ).pack(padx=20, pady=(4, 16))
+
+            self.update_transcript(
+                f"[Mobile] Signed cross-network relay QR created for {selected.get('name', 'paired phone')}."
+            )
+
+        ctk.CTkButton(
+            chooser,
+            text="Generate relay QR",
+            command=create_qr,
+            fg_color="#7D3C98",
+            hover_color="#633974",
+            width=220,
+        ).pack(padx=20, pady=(10, 18))
+
     def _show_remote_session_qr(self):
         """Create a short-lived, signed remote-access QR for an already paired phone."""
         import json
@@ -666,6 +921,12 @@ class AgenticVoiceAssistant(ctk.CTk):
             return
         self._closing = True
         self.is_running = False
+        relay_stop = getattr(self, "_relay_stop_event", None)
+        if relay_stop is not None:
+            relay_stop.set()
+        relay_thread = getattr(self, "_relay_thread", None)
+        if relay_thread and relay_thread.is_alive():
+            relay_thread.join(timeout=2.5)
         try:
             stop_server()
         except Exception:
