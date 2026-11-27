@@ -68,6 +68,16 @@ void main() {
       }
     });
 
+
+    test('rejects a relay URL substituted outside the desktop-signed grant', () {
+      final payload = _payload();
+      payload['relay_url'] = 'wss://attacker.example.com';
+      expect(
+        () => MobileRelayConnection.parsePayload(jsonEncode(payload)),
+        throwsA(isA<MobileRelayException>()),
+      );
+    });
+
     test('rejects an incorrect relay audience', () {
       expect(
         () => MobileRelayConnection.parsePayload(
