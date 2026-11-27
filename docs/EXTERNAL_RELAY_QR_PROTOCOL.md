@@ -99,6 +99,20 @@ must submit the exact same grant and grant signature. The relay independently
 checks the desktop grant signature, audience, expiry, session binding and
 side-specific proof-of-possession.
 
+## Desktop relay client behavior
+
+The desktop connects outbound to
+`wss://<relay-host>/v1/relay/<session_id>/desktop`. It validates that the QR
+grant still matches its encrypted local Ed25519 identity, validates the enrolled
+mobile key fingerprint, checks the relay challenge shape, and signs the
+side-specific join proof. The relay socket client runs on a worker thread; it
+must not block the desktop UI thread. Incoming relay frames are untrusted
+signaling data and must never be interpreted as desktop commands.
+
+The current desktop client reports peer authentication only. It does not
+create a WebRTC peer connection, negotiate a DataChannel, or provide remote
+control/media transport.
+
 ## Mandatory mobile verification before joining
 
 The mobile client must not trust the relay's peer-ready event or the grant
@@ -134,8 +148,7 @@ was established.
 
 ## Not included in this protocol slice
 
-- Mobile QR parser/verifier and secure-key matching.
-- Desktop and Flutter WSS clients.
+- Flutter QR parser/verifier, secure-key matching and outbound WSS client.
 - WebRTC offer/answer/ICE state machines and DataChannels.
 - STUN/TURN, short-lived TURN credentials or media routing.
 - Reconnect, revocation propagation and background/foreground lifecycle.
