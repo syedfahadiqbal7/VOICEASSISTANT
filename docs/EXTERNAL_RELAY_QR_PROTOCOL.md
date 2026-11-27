@@ -7,11 +7,11 @@ an authenticated rendezvous through a separately hosted WSS relay when they are
 on different networks. The relay is a signaling forwarder only. It is not the
 desktop command API, authorization engine, TURN server, or media path.
 
-The current implementation includes desktop-side QR grant generation, an
-authenticated outbound desktop WSS client, and a Flutter mobile QR verifier
-and outbound WSS client with Ed25519 challenge proof. WebRTC and TURN remain
-separate implementation gates. Two authenticated relay sockets alone do not
-establish a usable remote-control connection.
+The current implementation includes a desktop Cross-network QR workflow and
+outbound WSS worker, plus a Flutter mobile QR verifier and outbound WSS client
+with Ed25519 challenge proof. WebRTC and TURN remain separate implementation
+gates. Two authenticated relay sockets alone do not establish a usable
+remote-control connection.
 
 ## QR payload
 
@@ -46,6 +46,15 @@ is made with the existing encrypted desktop identity key. The QR grant binds
 both enrolled identities, relay origin, audience, session ID and expiry. The
 mobile and desktop clients reject a top-level relay URL that differs from the
 signed grant value.
+
+## Desktop UI configuration and issuance
+
+Set `VOICEASSISTANT_RELAY_URL` to the public WSS relay origin and optionally
+set `VOICEASSISTANT_RELAY_AUDIENCE` (default: `voiceassistant-relay`). In the
+desktop app, choose **Cross-network**, select an already paired phone, confirm
+the operation, and scan the generated QR with that phone. The desktop worker
+connects outbound and waits up to two minutes for the mobile peer. Closing or
+stopping the relay window stops that worker.
 
 ## Desktop issuance checks
 
@@ -113,9 +122,9 @@ side-specific join proof. The relay socket client runs on a worker thread; it
 must not block the desktop UI thread. Incoming relay frames are untrusted
 signaling data and must never be interpreted as desktop commands.
 
-The current desktop client reports peer authentication only. It does not
-create a WebRTC peer connection, negotiate a DataChannel, or provide remote
-control/media transport.
+The desktop UI reports peer authentication only. It does not create a WebRTC
+peer connection, negotiate a DataChannel, or provide remote control/media
+transport.
 
 ## Mobile verification implemented in this client slice
 
@@ -161,7 +170,6 @@ was established.
 
 ## Not included in this protocol slice
 
-- Desktop UI integration to issue relay QR grants and manage the outbound worker.
 - WebRTC offer/answer/ICE state machines and DataChannels.
 - STUN/TURN, short-lived TURN credentials or media routing.
 - Reconnect, revocation propagation and background/foreground lifecycle.
