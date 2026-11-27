@@ -35,6 +35,7 @@ The exact fields are:
 
 - protocol_version: integer 1
 - audience: configured relay audience string
+- relay_url: canonical public WSS origin, signed to prevent QR endpoint substitution
 - session_id: 32 lowercase hexadecimal characters generated with a CSPRNG
 - desktop_id: pinned desktop identity ID
 - mobile_id: already-enrolled device ID
@@ -94,8 +95,9 @@ endpoint signs canonical JSON containing:
 - grant_sha256: SHA-256 hex digest of canonical grant JSON
 - issued_at_ms: Unix epoch milliseconds
 
-The relay verifies the desktop proof with the grant desktop public key and the
-mobile proof with the grant mobile public key. The challenge is unique per
+The relay verifies the signed WSS origin has a safe WSS-origin shape, and
+verifies the desktop proof with the grant desktop public key and the mobile
+proof with the grant mobile public key. The challenge is unique per
 connection and the proof is accepted only during the short authentication
 window. The server never receives a private key.
 
