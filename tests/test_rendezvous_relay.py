@@ -30,6 +30,7 @@ def _grant(desktop_key, desktop_public, mobile_public, *, session_id=None, expir
     value = {
         "protocol_version": 1,
         "audience": "test-relay",
+        "relay_url": "wss://relay.example.com",
         "session_id": session_id or "1" * 32,
         "desktop_id": "2" * 32,
         "mobile_id": "3" * 32,
