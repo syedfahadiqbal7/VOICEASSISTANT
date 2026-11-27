@@ -62,6 +62,12 @@ container runs as a non-root user, read-only filesystem, dropped Linux
 capabilities, no-new-privileges, bounded memory/CPU/PIDs, and no persistent
 application-data volume.
 
+The Compose network reserves 172.30.240.0/24 and pins Caddy to 172.30.240.2.
+Uvicorn trusts forwarded client-address headers only from that exact Caddy IP;
+it must not use a wildcard trusted-proxy setting. If this subnet conflicts with
+the host's VPN or Docker network ranges, change the subnet and Caddy static IP
+in compose.yaml together with the trusted proxy IP in relay_service/Dockerfile.
+
 The default audience is voiceassistant-relay; keep it identical in the
 desktop-issued grant and mobile verification configuration. Change it only as
 part of a coordinated client configuration.
