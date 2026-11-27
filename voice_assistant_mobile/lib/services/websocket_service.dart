@@ -258,7 +258,8 @@ class WebSocketService extends ChangeNotifier {
     }
     if (decoded is! Map ||
         !((decoded["type"] == "voiceassistant_mobile_pairing" && decoded["version"] == 2) ||
-          (decoded["type"] == "voiceassistant_remote_session" && decoded["version"] == 1))) {
+          (decoded["type"] == "voiceassistant_remote_session" && decoded["version"] == 1) ||
+          (decoded["type"] == "voiceassistant_relay_session" && decoded["version"] == 1))) {
       throw const FormatException("This is not a supported VoiceAssistant desktop QR code");
     }
     final identity = decoded["desktop_identity"];

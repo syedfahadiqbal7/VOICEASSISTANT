@@ -6,6 +6,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 
 import '../services/websocket_service.dart';
+import '../services/mobile_relay_client.dart';
 
 class QrPairingScreen extends StatefulWidget {
   const QrPairingScreen({super.key});
@@ -49,6 +50,9 @@ class _QrPairingScreenState extends State<QrPairingScreen> {
       final decoded = jsonDecode(raw);
       final isRemoteSession = decoded is Map &&
           decoded["type"] == "voiceassistant_remote_session" &&
+          decoded["version"] == 1;
+      final isRelaySession = decoded is Map &&
+          decoded["type"] == "voiceassistant_relay_session" &&
           decoded["version"] == 1;
       final desktopIdentity =
           await WebSocketService.inspectDesktopIdentity(raw);
@@ -109,7 +113,19 @@ class _QrPairingScreenState extends State<QrPairingScreen> {
         return;
       }
       final service = context.read<WebSocketService>();
-      if (isRemoteSession) {
+      if (isRelaySession) {
+        await MobileRelayConnection.connectFromQr(raw);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Relay authenticated. Cross-network remote control is not enabled until WebRTC transport is completed.',
+              ),
+              duration: Duration(seconds: 6),
+            ),
+          );
+        }
+      } else if (isRemoteSession) {
         await service.connectRemoteFromQr(raw);
       } else {
         await service.pairFromQr(
@@ -145,7 +161,7 @@ class _QrPairingScreenState extends State<QrPairingScreen> {
           padding: const EdgeInsets.all(20),
           children: [
             const Text(
-              "Scan a new-pairing or remote-session QR code shown in the VoiceAssistant desktop app.",
+              "Scan a pairing, direct remote-session, or cross-network relay QR code shown in the VoiceAssistant desktop app.",
               style: TextStyle(color: Colors.white, fontSize: 16),
               textAlign: TextAlign.center,
             ),
@@ -219,7 +235,7 @@ class _QrPairingScreenState extends State<QrPairingScreen> {
             ],
             const SizedBox(height: 16),
             const Text(
-              "Only scan a code displayed by a desktop you trust. QR grants are signed by the desktop identity and exchanged over HTTPS. New devices still require desktop approval.",
+              "Only scan a code displayed by a desktop you trust. Relay QR grants are signed by the desktop identity and exchanged over an authenticated WSS connection. First-time pairing still requires desktop approval.",
               style: TextStyle(color: Colors.white70, fontSize: 12),
               textAlign: TextAlign.center,
             ),
