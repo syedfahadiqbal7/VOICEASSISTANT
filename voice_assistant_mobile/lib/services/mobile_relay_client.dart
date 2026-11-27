@@ -234,8 +234,11 @@ class MobileRelayConnection {
     var authSent = false;
     final subscription = channel.stream.listen((dynamic raw) async {
       try {
-        if (raw is! String || raw.length > 4096) {
+        if (raw is! String || utf8.encode(raw).length > 4096) {
           throw const MobileRelayException('Relay handshake frame is invalid');
+        }
+        if (utf8.encode(raw).length > _maxRelayFrameBytes) {
+          throw const MobileRelayException('Relay frame exceeds its byte limit');
         }
         final frame = jsonDecode(raw);
         if (frame is! Map<String, dynamic>) {
