@@ -1,0 +1,4 @@
+# Minimal runtime dependencies for the isolated signaling relay container.
+fastapi>=0.110,<1
+uvicorn[standard]>=0.27
+cryptography>=42.0

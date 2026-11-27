@@ -1,0 +1,53 @@
+services:
+  relay:
+    build:
+      context: ../..
+      dockerfile: relay_service/Dockerfile
+    restart: unless-stopped
+    environment:
+      VOICEASSISTANT_RELAY_AUDIENCE: ${VOICEASSISTANT_RELAY_AUDIENCE:-voiceassistant-relay}
+    expose:
+      - "8080"
+    networks:
+      - relay-internal
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 1.0
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      relay:
+        condition: service_healthy
+    environment:
+      RELAY_DOMAIN: ${RELAY_DOMAIN:?Set RELAY_DOMAIN to a DNS name pointing at this host}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      relay-internal:
+        ipv4_address: 172.30.240.2
+
+networks:
+  relay-internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.240.0/24
+
+volumes:
+  caddy-data:
+  caddy-config:
