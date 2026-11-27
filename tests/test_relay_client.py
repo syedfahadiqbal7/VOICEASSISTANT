@@ -206,3 +206,14 @@ def test_client_rejects_expired_grant():
             identity_store=identity,
             stop_event=threading.Event(),
         )
+
+
+def test_desktop_client_rejects_qr_relay_url_not_bound_by_signed_grant():
+    identity, payload = _payload()
+    payload["relay_url"] = "wss://attacker.example.com"
+    with pytest.raises(RelayClientError, match="not covered by the signed grant"):
+        run_desktop_relay_session(
+            payload,
+            identity_store=identity,
+            stop_event=threading.Event(),
+        )
