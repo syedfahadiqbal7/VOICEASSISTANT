@@ -1,0 +1,146 @@
+# External rendezvous relay QR protocol (v1)
+
+## Purpose and boundary
+
+This protocol lets an already-enrolled mobile device and its desktop establish
+an authenticated rendezvous through a separately hosted WSS relay when they are
+on different networks. The relay is a signaling forwarder only. It is not the
+desktop command API, authorization engine, TURN server, or media path.
+
+The current implementation slice adds desktop-side QR grant generation only.
+The mobile verifier, desktop/mobile relay socket clients, WebRTC, and TURN remain
+separate implementation gates. A QR payload by itself does not establish a
+remote connection.
+
+## QR payload
+
+The desktop creates a payload with:
+
+- `type`: `voiceassistant_relay_session`
+- `version`: `1`
+- `relay_url`: the WSS relay origin
+- `grant`: the exact signed grant object below
+- `grant_signature`: unpadded base64url Ed25519 signature over canonical JSON
+- `desktop_identity`: desktop identity ID, public key and SHA-256 fingerprint
+- `mobile_identity`: enrolled mobile device ID and public-key fingerprint
+
+The signed grant has exactly these fields:
+
+    {
+      "protocol_version": 1,
+      "audience": "voiceassistant-relay",
+      "session_id": "<32 lowercase hex characters>",
+      "desktop_id": "<32 lowercase hex characters>",
+      "mobile_id": "<32 lowercase hex characters>",
+      "desktop_public_key": "<Ed25519 public key, unpadded base64url>",
+      "mobile_public_key": "<Ed25519 public key, unpadded base64url>",
+      "issued_at_ms": 0,
+      "expires_at_ms": 0
+    }
+
+The desktop signs UTF-8 canonical JSON: keys sorted lexicographically, compact
+separators `,` and `:`, Unicode preserved, and NaN disallowed. The signature
+is made with the existing encrypted desktop identity key. The QR grant binds
+both enrolled identities, relay audience, session ID and expiry.
+
+## Desktop issuance checks
+
+The desktop must fail closed unless:
+
+1. The desktop remote identity is initialized and uses Ed25519.
+2. The selected mobile device is active in the encrypted device registry.
+3. The mobile device has an enrolled Ed25519 public key.
+4. The public-key fingerprint in the registry matches the actual key bytes.
+5. The relay endpoint is WSS, has no user-info/query/fragment/path, and uses
+   the supported TLS port (443 or 8443).
+6. The audience is configured and the grant lifetime is between 60 and 900
+   seconds.
+
+The QR contains public keys and a short-lived signature only. It must never
+contain private keys, device bearer tokens, long-lived secrets, or TURN
+credentials.
+
+## Endpoint join handshake
+
+The relay endpoint is:
+
+    wss://<relay-host>/v1/relay/<session_id>/<side>
+
+where side is `desktop` or `mobile`.
+
+After opening the WebSocket, the endpoint receives:
+
+    {"type":"relay.challenge","challenge":"<random challenge>","protocol_version":1}
+
+It replies with exactly:
+
+    {
+      "type": "relay.authenticate",
+      "grant": { "...": "the exact QR grant object" },
+      "grant_signature": "<the exact QR grant signature>",
+      "issued_at_ms": 0,
+      "proof_signature": "<signature over the join proof>"
+    }
+
+The join proof object, signed with the private key belonging to the side, is:
+
+    {
+      "protocol_version": 1,
+      "session_id": "<grant session_id>",
+      "side": "desktop or mobile",
+      "challenge": "<challenge received on this socket>",
+      "grant_sha256": "<SHA-256 hex of canonical grant JSON>",
+      "issued_at_ms": 0
+    }
+
+The desktop signs with its encrypted desktop identity. The mobile signs with
+the private key corresponding to the enrolled mobile public key. Both peers
+must submit the exact same grant and grant signature. The relay independently
+checks the desktop grant signature, audience, expiry, session binding and
+side-specific proof-of-possession.
+
+## Mandatory mobile verification before joining
+
+The mobile client must not trust the relay's peer-ready event or the grant
+merely because the relay accepts it. Before connecting it must:
+
+1. Validate the QR payload shape and protocol version strictly.
+2. Validate the desktop identity ID and public-key encoding.
+3. Verify the desktop grant signature over canonical JSON.
+4. Verify that the desktop public-key fingerprint matches the trusted
+   fingerprint shown by the desktop UI during the user's pairing/QR confirmation.
+5. Verify grant desktop/mobile IDs match the payload and the currently enrolled
+   mobile device.
+6. Verify the grant's mobile public key equals the mobile app's own protected
+   enrolled public key; never accept a key supplied by the QR as a replacement.
+7. Verify audience, relay URL policy, issue time and expiry locally.
+8. Sign the fresh relay challenge with the enrolled mobile private key.
+
+If any check fails, the app must stop and show a clear security error. It must
+not silently fall back to a different relay, identity, key or transport.
+
+## Signaling and command boundary
+
+After both peers authenticate, the relay forwards bounded frames. Every SDP
+and ICE signaling envelope must still be end-to-end signed and checked by the
+receiving peer against the pinned sender identity, expected recipient, session,
+expiry and replay guard. Bind the negotiated DTLS fingerprint to the signed SDP.
+
+The relay's `relay.peer_ready` message is only a transport status notification.
+It is not proof of application authorization. Desktop commands must continue
+through the existing authenticated desktop command channel, RBAC, policy and
+approval gates. Never execute a command because a relay or WebRTC connection
+was established.
+
+## Not included in this protocol slice
+
+- Mobile QR parser/verifier and secure-key matching.
+- Desktop and Flutter WSS clients.
+- WebRTC offer/answer/ICE state machines and DataChannels.
+- STUN/TURN, short-lived TURN credentials or media routing.
+- Reconnect, revocation propagation and background/foreground lifecycle.
+- Cross-network acceptance tests using independent Wi-Fi, cellular, CGNAT and
+  restrictive networks.
+
+Production readiness requires those implementation gates plus independent
+security review, abuse/load testing and end-to-end tests.
