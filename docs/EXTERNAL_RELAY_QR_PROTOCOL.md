@@ -7,11 +7,11 @@ an authenticated rendezvous through a separately hosted WSS relay when they are
 on different networks. The relay is a signaling forwarder only. It is not the
 desktop command API, authorization engine, TURN server, or media path.
 
-The current implementation includes desktop-side QR grant generation and an
-authenticated outbound desktop WSS client. The Flutter mobile verifier and
-relay client, WebRTC, and TURN remain separate implementation gates. A QR
-payload and an authenticated desktop relay socket alone do not establish a
-usable remote-control connection.
+The current implementation includes desktop-side QR grant generation, an
+authenticated outbound desktop WSS client, and a Flutter mobile QR verifier
+and outbound WSS client with Ed25519 challenge proof. WebRTC and TURN remain
+separate implementation gates. Two authenticated relay sockets alone do not
+establish a usable remote-control connection.
 
 ## QR payload
 
@@ -20,7 +20,7 @@ The desktop creates a payload with:
 - `type`: `voiceassistant_relay_session`
 - `version`: `1`
 - `relay_url`: the WSS relay origin
-- `grant`: the exact signed grant object below
+- `grant`: the exact signed grant object below, including the same `relay_url`
 - `grant_signature`: unpadded base64url Ed25519 signature over canonical JSON
 - `desktop_identity`: desktop identity ID, public key and SHA-256 fingerprint
 - `mobile_identity`: enrolled mobile device ID and public-key fingerprint
@@ -30,6 +30,7 @@ The signed grant has exactly these fields:
     {
       "protocol_version": 1,
       "audience": "voiceassistant-relay",
+      "relay_url": "wss://relay.example.com",
       "session_id": "<32 lowercase hex characters>",
       "desktop_id": "<32 lowercase hex characters>",
       "mobile_id": "<32 lowercase hex characters>",
@@ -42,7 +43,9 @@ The signed grant has exactly these fields:
 The desktop signs UTF-8 canonical JSON: keys sorted lexicographically, compact
 separators `,` and `:`, Unicode preserved, and NaN disallowed. The signature
 is made with the existing encrypted desktop identity key. The QR grant binds
-both enrolled identities, relay audience, session ID and expiry.
+both enrolled identities, relay origin, audience, session ID and expiry. The
+mobile and desktop clients reject a top-level relay URL that differs from the
+signed grant value.
 
 ## Desktop issuance checks
 
@@ -114,6 +117,15 @@ The current desktop client reports peer authentication only. It does not
 create a WebRTC peer connection, negotiate a DataChannel, or provide remote
 control/media transport.
 
+## Mobile verification implemented in this client slice
+
+The Flutter mobile client validates the QR schema, signed relay origin, desktop
+grant signature, identity fingerprints, enrolled mobile public key and device
+ID before opening the relay socket. It signs the fresh challenge with the
+enrolled mobile private key, waits for the authenticated peer-ready notification,
+and retains the signaling socket. The scan UI requires the user to compare the
+desktop fingerprint with the value shown by the desktop app.
+
 ## Mandatory mobile verification before joining
 
 The mobile client must not trust the relay's peer-ready event or the grant
@@ -149,7 +161,7 @@ was established.
 
 ## Not included in this protocol slice
 
-- Flutter QR parser/verifier, secure-key matching and outbound WSS client.
+- Desktop UI integration to issue relay QR grants and manage the outbound worker.
 - WebRTC offer/answer/ICE state machines and DataChannels.
 - STUN/TURN, short-lived TURN credentials or media routing.
 - Reconnect, revocation propagation and background/foreground lifecycle.
