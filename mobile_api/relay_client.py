@@ -105,8 +105,19 @@ def _validate_payload(payload: Any, identity_store) -> tuple[dict[str, Any], str
         not isinstance(mobile, dict)
         or mobile.get("device_id") != grant.get("mobile_id")
         or mobile.get("algorithm") != "Ed25519"
+        or not isinstance(mobile.get("fingerprint_sha256"), str)
     ):
         raise RelayClientError("Relay grant is not bound to the selected mobile identity")
+    try:
+        mobile_public = base64.urlsafe_b64decode(grant["mobile_public_key"] + "=")
+    except (ValueError, TypeError) as error:
+        raise RelayClientError("Relay grant mobile public key is malformed") from error
+    if (
+        len(mobile_public) != 32
+        or base64.urlsafe_b64encode(mobile_public).decode("ascii").rstrip("=") != grant["mobile_public_key"]
+        or hashlib.sha256(mobile_public).hexdigest() != mobile["fingerprint_sha256"]
+    ):
+        raise RelayClientError("Relay grant mobile key does not match the enrolled device fingerprint")
     signature = _decode_signature(payload["grant_signature"])
     if not identity_store.verify(desktop["public_key"], canonical_json(grant), signature):
         raise RelayClientError("Desktop relay grant signature is invalid")
