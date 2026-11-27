@@ -17,6 +17,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -89,7 +90,7 @@ def validate_grant(grant: Any, signature: Any, *, session_id: str,
     if not isinstance(grant, dict):
         raise RelayAuthError("Invalid relay grant")
     required = {
-        "protocol_version", "audience", "session_id", "desktop_id", "mobile_id",
+        "protocol_version", "audience", "relay_url", "session_id", "desktop_id", "mobile_id",
         "desktop_public_key", "mobile_public_key", "issued_at_ms", "expires_at_ms",
     }
     if set(grant) != required:
@@ -98,6 +99,18 @@ def validate_grant(grant: Any, signature: Any, *, session_id: str,
         raise RelayAuthError("Unsupported relay protocol")
     if grant["audience"] != audience or grant["session_id"] != session_id:
         raise RelayAuthError("Relay grant audience or session mismatch")
+    try:
+        relay = urlsplit(grant["relay_url"])
+        valid_relay = (
+            relay.scheme.lower() == "wss" and bool(relay.hostname)
+            and relay.username is None and relay.password is None
+            and relay.query == "" and relay.fragment == ""
+            and relay.path in ("", "/") and relay.port in (None, 443, 8443)
+        )
+    except (TypeError, ValueError):
+        valid_relay = False
+    if not valid_relay:
+        raise RelayAuthError("Relay grant contains an invalid signed WSS origin")
     for name in ("session_id", "desktop_id", "mobile_id"):
         if not isinstance(grant[name], str) or not _ID.fullmatch(grant[name]):
             raise RelayAuthError("Invalid relay identity")
