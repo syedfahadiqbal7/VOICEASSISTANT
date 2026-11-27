@@ -38,11 +38,15 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     networks:
-      - relay-internal
+      relay-internal:
+        ipv4_address: 172.30.240.2
 
 networks:
   relay-internal:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.240.0/24
 
 volumes:
   caddy-data:
