@@ -104,6 +104,7 @@ def create_relay_qr_payload(
     grant = {
         "protocol_version": 1,
         "audience": audience,
+        "relay_url": endpoint,
         "session_id": uuid.uuid4().hex,
         "desktop_id": desktop_id,
         "mobile_id": device_id,
